@@ -72,12 +72,7 @@ class BakerWorker(QObject):
                     QPainter.Antialiasing | QPainter.SmoothPixmapTransform
                 )
                 for layer in self.layers:
-                    if (
-                        layer.visible
-                        and not layer.image.isNull()
-                        and layer.opacity > 0
-                        and layer.allow_annotation_export
-                    ):
+                    if layer.visible and not layer.image.isNull() and layer.opacity > 0:
                         # Draw layer to main image
                         painter.save()
                         painter.translate(layer.position - top_left)
@@ -87,62 +82,67 @@ class BakerWorker(QObject):
                         painter.drawPixmap(QPoint(0, 0), layer.image)
                         painter.restore()
 
-                        # Create layer mask
-                        layer_mask = QImage(width, height, QImage.Format_ARGB32)
-                        layer_mask.fill(Qt.transparent)
-                        mask_painter = QPainter(layer_mask)
-                        mask_painter.setRenderHints(
-                            QPainter.Antialiasing | QPainter.SmoothPixmapTransform
-                        )
-                        mask_painter.translate(layer.position - top_left)
-                        mask_painter.rotate(layer.rotation)
-                        mask_painter.scale(layer.scale_x, layer.scale_y)
-                        mask_painter.drawPixmap(QPoint(0, 0), layer.image)
-                        mask_painter.end()
-
-                        # Convert mask to 8-bit
-                        mask_arr = qpixmap_to_numpy(layer_mask)
-                        alpha_channel = mask_arr[
-                            :, :, 3
-                        ].copy()  # Extract the alpha channel (0th index)
-
-                        # Binarize the mask (0 or 255)
-                        alpha_channel[alpha_channel > 0] = 255
-
-                        # Save the 8-bit mask
-                        # cv2.imwrite(f"{layer.name}_annotated.png", alpha_channel)
-                        # logger.info(f"Saved 8-bit mask for {layer.name}")
-                        masks.append(alpha_channel)
-                        mask_names.append(layer.name)
-                        ann: Annotation = layer.annotations[0]
-                        mask_arr = cv2.cvtColor(alpha_channel, cv2.COLOR_GRAY2BGR)
-                        new_annotation = Annotation(
-                            label=ann.label,
-                            color=ann.color,
-                            annotation_id=ann.annotation_id,
-                        )
-
-                        if ann.points:
-                            new_annotation.points = ann.points
-                        elif ann.rectangle:
-                            xywhs = mask_to_rectangles(
-                                alpha_channel, merge_rectangles=True
+                        if layer.allow_annotation_export:
+                            # Create layer mask
+                            layer_mask = QImage(width, height, QImage.Format_ARGB32)
+                            layer_mask.fill(Qt.transparent)
+                            mask_painter = QPainter(layer_mask)
+                            mask_painter.setRenderHints(
+                                QPainter.Antialiasing | QPainter.SmoothPixmapTransform
                             )
-                            new_annotation.rectangle = QRectF(
-                                xywhs[0][0],
-                                xywhs[0][1],
-                                xywhs[0][2],
-                                xywhs[0][3],
+                            mask_painter.translate(layer.position - top_left)
+                            mask_painter.rotate(layer.rotation)
+                            mask_painter.scale(layer.scale_x, layer.scale_y)
+                            mask_painter.drawPixmap(QPoint(0, 0), layer.image)
+                            mask_painter.end()
+
+                            # Convert mask to 8-bit
+                            mask_arr = qpixmap_to_numpy(layer_mask)
+                            alpha_channel = mask_arr[
+                                :, :, 3
+                            ].copy()  # Extract the alpha channel (0th index)
+
+                            # Binarize the mask (0 or 255)
+                            alpha_channel[alpha_channel > 0] = 255
+
+                            # Save the 8-bit mask
+                            # cv2.imwrite(f"{layer.name}_annotated.png", alpha_channel)
+                            # logger.info(f"Saved 8-bit mask for {layer.name}")
+                            masks.append(alpha_channel)
+                            mask_names.append(layer.layer_name)
+                            ann: Annotation = layer.annotations[0]
+                            mask_arr = cv2.cvtColor(alpha_channel, cv2.COLOR_GRAY2BGR)
+                            new_annotation = Annotation(
+                                label=ann.label,
+                                color=ann.color,
+                                annotation_id=ann.annotation_id,
+                                is_complete=True,
+                                visible=True,
                             )
-                        elif ann.polygon:
-                            polygon = mask_to_polygons(
-                                alpha_channel, merge_polygons=True
-                            )
-                            poly = QPolygonF([QPointF(p[0], p[1]) for p in polygon[0]])
-                            new_annotation.polygon = poly
-                        else:
-                            logger.info("No annotation found")
-                        new_annotations.append(new_annotation)
+
+                            if ann.points:
+                                new_annotation.points = ann.points
+                            elif ann.rectangle:
+                                xywhs = mask_to_rectangles(
+                                    alpha_channel, merge_rectangles=True
+                                )
+                                new_annotation.rectangle = QRectF(
+                                    xywhs[0][0],
+                                    xywhs[0][1],
+                                    xywhs[0][2],
+                                    xywhs[0][3],
+                                )
+                            elif ann.polygon:
+                                polygon = mask_to_polygons(
+                                    alpha_channel, merge_polygons=True
+                                )
+                                poly = QPolygonF(
+                                    [QPointF(p[0], p[1]) for p in polygon[0]]
+                                )
+                                new_annotation.polygon = poly
+                            else:
+                                logger.info("No annotation found")
+                            new_annotations.append(new_annotation)
 
             finally:
                 painter.end()

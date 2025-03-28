@@ -14,10 +14,12 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
 )
-from imagebaker.tab_views import Layer
-from imagebaker.tab_views import Canvas
+
+# from imagebaker.tab_views import BaseLayer
+from imagebaker.layers.non_annotable_layer import NonAnnotableLayer as Canvas
 from .layer_settings import LayerSettings
 from imagebaker import logger
+from imagebaker.layers.base_layer import BaseLayer
 
 
 class LayerList(QDockWidget):
@@ -33,7 +35,7 @@ class LayerList(QDockWidget):
     ):
         super().__init__("Layers", parent)
         self.canvas = canvas
-        self.layers: list[Layer] = []
+        self.layers: list[BaseLayer] = []
         self.layer_settings = layer_settings
         self.init_ui()
 
@@ -41,6 +43,7 @@ class LayerList(QDockWidget):
         logger.info("Initializing LayerList")
         main_widget = QWidget()
         main_layout = QVBoxLayout(main_widget)
+        self.setMinimumWidth(150)
 
         # Create list widget for layers
         self.list_widget = QListWidget()
@@ -67,6 +70,11 @@ class LayerList(QDockWidget):
             QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable
         )
 
+    def clear_layers(self):
+        """Clear all layers from the list"""
+        self.layers.clear()
+        self.update_list()
+
     def on_rows_moved(self, parent, start, end, destination, row):
         """Handle rows being moved in the list widget via drag and drop"""
         # Calculate the source and destination indices
@@ -91,7 +99,7 @@ class LayerList(QDockWidget):
             # Update the UI
             self.update_list()
             logger.info(
-                f"Layer: {layer.name} moved from {source_index} to {dest_index}"
+                f"BaseLayer: {layer.layer_name} moved from {source_index} to {dest_index}"
             )
 
     def update_list(self):
@@ -127,7 +135,7 @@ class LayerList(QDockWidget):
             text_layout = QVBoxLayout(text_container)
 
             # Main label
-            main_label = QLabel(ann.name)
+            main_label = QLabel(ann.label)
             text_color = "#666" if not layer.visible else "black"
             if layer.selected:
                 text_color = "blue"
@@ -213,6 +221,7 @@ class LayerList(QDockWidget):
             self.layer_settings.set_selected_layer(selected_layer)
         else:
             self.layer_settings.set_selected_layer(None)
+        self.update()
 
     def toggle_annotation_export(self, index, state):
         """Toggle annotation export for a layer by index"""
@@ -220,7 +229,7 @@ class LayerList(QDockWidget):
             layer = self.layers[index]
             layer.allow_annotation_export = not layer.allow_annotation_export
             logger.info(
-                f"Layer annotation export toggled: {layer.name}, {layer.allow_annotation_export}"
+                f"BaseLayer annotation export toggled: {layer.layer_name}, {layer.allow_annotation_export}"
             )
             self.update_list()
             layer.update()
@@ -256,7 +265,7 @@ class LayerList(QDockWidget):
             self.canvas.update()
             self.update_list()
 
-            logger.info(f"Selected layers: {[l.name for l in selected_layers]}")
+            logger.info(f"Selected layers: {[l.layer_name for l in selected_layers]}")
 
     def on_layer_selected(self, indices):
         """Select multiple layers by indices"""
@@ -311,23 +320,25 @@ class LayerList(QDockWidget):
     def delete_layer(self, index):
         """Delete a layer by index"""
         if 0 <= index < len(self.layers):
-            logger.info(f"Deleting layer: {self.layers[index].name}")
+            logger.info(f"Deleting layer: {self.layers[index].layer_name}")
             del self.layers[index]
             self.update_list()
             self.canvas.layers = self.layers
             self.canvas.update()
-            logger.info(f"Layer deleted: {index}")
+            logger.info(f"BaseLayer deleted: {index}")
 
     def toggle_visibility(self, index):
         """Toggle visibility of a layer by index"""
         if 0 <= index < len(self.layers):
             layer = self.layers[index]
             layer.visible = not layer.visible
-            logger.info(f"Layer visibility toggled: {layer.name}, {layer.visible}")
+            logger.info(
+                f"BaseLayer visibility toggled: {layer.layer_name}, {layer.visible}"
+            )
             self.update_list()
             self.canvas.update()
 
-    def add_layer(self, layer: Layer = None):
+    def add_layer(self, layer: BaseLayer = None):
         """Add a new layer to the list"""
         if layer is None:
             return
@@ -338,11 +349,11 @@ class LayerList(QDockWidget):
 
     def select_layer(self, layer):
         """Select a specific layer"""
-        logger.info(f"Selecting layer: {layer.name}")
+        logger.info(f"Selecting layer: {layer.layer_name}")
         self.update_list()
 
     def get_selected_layers(self):
-        """Returns list of currently selected Layer objects"""
+        """Returns list of currently selected BaseLayer objects"""
         selected_items = self.list_widget.selectedItems()
         return [
             self.layers[self.list_widget.row(item)]

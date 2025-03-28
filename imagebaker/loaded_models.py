@@ -9,6 +9,7 @@ from models.base_model import (
 # from models.segmentation import YoloSegmentationModel, YoloSegmentationModelConfig
 # from models.sam_model import SegmentAnythingModel, SAMModelConfig
 from models.base_model import BaseDetectionModel
+from imagebaker import logger
 
 
 class ClassificationModel(BaseClassificationModel):
@@ -44,3 +45,5 @@ LOADED_MODELS = {
     # "RTDetrV2": detector,
     # "ClassificationModel": classification,
 }
+
+logger.info(f"Loaded models: {LOADED_MODELS}")

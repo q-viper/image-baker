@@ -18,6 +18,10 @@ class MouseMode(Enum):
     PAN = 4
     ZOOM_IN = 5
     ZOOM_OUT = 6
+    RESIZE = 7
+    RESIZE_HEIGHT = 8
+    RESIZE_WIDTH = 9
+    GRAB = 11
 
 
 class ModelType(str, Enum):
@@ -45,9 +49,10 @@ class PredictionResult(BaseModel):
 
 @dataclass
 class LayerState:
-    layer_id: int = 0
+    layer_id: str = ""
+    state_step: int = 0
     layer_name: str = "Layer"
-    opacity: float = 1.00
+    opacity: float = 255.00
     position: QPointF = field(default_factory=lambda: QPointF(0, 0))
     rotation: float = 0.00
     scale: float = 1.00
@@ -59,6 +64,30 @@ class LayerState:
     allow_annotation_export: bool = True
     playing: bool = False
     selected: bool = False
+    is_annotable: bool = True
+    status: str = "Ready"
+
+    def copy(self):
+        return LayerState(
+            layer_id=self.layer_id,
+            layer_name=self.layer_name,
+            opacity=self.opacity,
+            position=QPointF(self.position.x(), self.position.y()),
+            rotation=self.rotation,
+            scale=self.scale,
+            scale_x=self.scale_x,
+            scale_y=self.scale_y,
+            transform_origin=QPointF(
+                self.transform_origin.x(), self.transform_origin.y()
+            ),
+            order=self.order,
+            visible=self.visible,
+            allow_annotation_export=self.allow_annotation_export,
+            playing=self.playing,
+            selected=self.selected,
+            is_annotable=self.is_annotable,
+            status=self.status,
+        )
 
 
 @dataclass

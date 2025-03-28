@@ -16,13 +16,14 @@ class DrawConfig(BaseModel):
     ellipse_size: int = 8
     pen_alpha: int = 150
     brush_alpha: int = 50
+    brush_fill_pattern: Qt.BrushStyle = Qt.BrushStyle.DiagCrossPattern
     thumbnail_size: Tuple[int, int] = Field(default_factory=lambda: (50, 50))
-    background_color: QColor = Field(default_factory=lambda: QColor(30, 30, 30))
+    background_color: QColor = Field(default_factory=lambda: QColor(0, 0, 0, 100))
     label_font_size: int = 12
     label_font_background_color: QColor = Field(
         default_factory=lambda: QColor(0, 0, 0, 150)
     )
-    handle_color: QColor = Field(default_factory=lambda: QColor(0, 255, 255))
+    handle_color: QColor = Field(default_factory=lambda: QColor(0, 255, 255, 150))
     handle_width: int = 2
     handle_point_size: int = 6
     handle_edge_size: int = 4
@@ -36,9 +37,10 @@ class DrawConfig(BaseModel):
 class BaseConfig(BaseModel):
     project_name: str = "ImageBaker"
     version: str = "0.1.0"
-    project_dir: Path = Path(".")
+    project_dir: Path = Path("D:/work/Image-Baker")
 
     is_debug: bool = True
+    deque_maxlen: int = 10
 
     # drawing configs #
     # ON SELECTION
@@ -50,7 +52,7 @@ class BaseConfig(BaseModel):
         pen_alpha=150,
         brush_alpha=50,
         thumbnail_size=(50, 50),
-        background_color=QColor(30, 30, 30),
+        brush_fill_pattern=Qt.BrushStyle.CrossPattern,
     )
     normal_draw_config: DrawConfig = DrawConfig()
     zoom_in_factor: float = 1.1
@@ -102,6 +104,7 @@ class CanvasConfig(BaseConfig):
     write_annotations: bool = True
     write_labels: bool = True
     write_masks: bool = True
+    fps: int = 30
 
     @property
     def export_folder(self):

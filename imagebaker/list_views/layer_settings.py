@@ -11,7 +11,8 @@ from PySide6.QtWidgets import (
 )
 
 from imagebaker.core.defs import LayerState
-from imagebaker.tab_views import Layer
+
+from imagebaker.layers.base_layer import BaseLayer
 from imagebaker import logger
 
 
@@ -19,10 +20,9 @@ class LayerSettings(QDockWidget):
     layerState = Signal(LayerState)
     messageSignal = Signal(str)
 
-    def __init__(self, parent=None, layer_list=None):
-        super().__init__("Layer Settings", parent)
-        self.selected_layer: Layer = None
-        self.layer_list = layer_list
+    def __init__(self, parent=None):
+        super().__init__("BaseLayer Settings", parent)
+        self.selected_layer: BaseLayer = None
         self.init_ui()
         self.setFeatures(
             QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable
@@ -39,14 +39,14 @@ class LayerSettings(QDockWidget):
         self.main_layout.setContentsMargins(10, 10, 10, 10)  # Add some padding
         self.main_layout.setSpacing(10)
 
-        # Layer name label
-        self.layer_name_label = QLabel("No Layer Selected")
+        # BaseLayer layer_name label
+        self.layer_name_label = QLabel("No BaseLayer Selected")
         self.layer_name_label.setAlignment(Qt.AlignCenter)
         self.layer_name_label.setStyleSheet("font-weight: bold; font-size: 14px;")
         self.main_layout.addWidget(self.layer_name_label)
 
         # Opacity slider
-        self.opacity_slider = self.create_slider("Opacity:", 0, 255, 255)
+        self.opacity_slider = self.create_slider("Opacity:", 0, 255, 255, 1)
         self.main_layout.addWidget(self.opacity_slider["widget"])
         self.x_slider = self.create_slider("X:", -1000, 10000, 0, 1)
         self.main_layout.addWidget(self.x_slider["widget"])
@@ -60,11 +60,6 @@ class LayerSettings(QDockWidget):
         self.main_layout.addWidget(self.scale_y_slider["widget"])
         self.rotation_slider = self.create_slider("Rotation:", 0, 360, 0, 1)
         self.main_layout.addWidget(self.rotation_slider["widget"])
-
-        # Bake button
-        self.store_state_btn = QPushButton("Store States")
-        self.store_state_btn.clicked.connect(self.emit_bake_settings)
-        self.main_layout.addWidget(self.store_state_btn)
 
         # Add stretch to push content to the top
         self.main_layout.addStretch()
@@ -124,7 +119,9 @@ class LayerSettings(QDockWidget):
         try:
             self._disable_updates = True
 
-            if sender == self.x_slider["slider"]:
+            if sender == self.opacity_slider["slider"]:
+                self.selected_layer.opacity = value
+            elif sender == self.x_slider["slider"]:
                 self.selected_layer.position.setX(value / self.x_slider["scale_factor"])
             elif sender == self.y_slider["slider"]:
                 self.selected_layer.position.setY(value / self.y_slider["scale_factor"])
@@ -134,13 +131,9 @@ class LayerSettings(QDockWidget):
                 self.selected_layer.scale_y = value / 100.0
             elif sender == self.rotation_slider["slider"]:
                 self.selected_layer.rotation = value
-            elif sender == self.opacity_slider["slider"]:
-                self.selected_layer.opacity = (
-                    value / self.opacity_slider["scale_factor"]
-                )
-                self.selected_layer.apply_opacity()
 
-            self.selected_layer.update()
+            self.selected_layer.update()  # Trigger a repaint
+
         finally:
             self._disable_updates = False
 
@@ -148,17 +141,16 @@ class LayerSettings(QDockWidget):
         """Emit the bake settings signal."""
         bake_settings = LayerState(
             layer_id=self.selected_layer.id,
-            layer_order=self.selected_layer.order,
-            layer_name=self.selected_layer.name,
-            x_pos=self.selected_layer.position.x(),
-            y_pos=self.selected_layer.position.y(),
+            order=self.selected_layer.order,
+            layer_name=self.selected_layer.layer_name,
+            position=self.selected_layer.position,
             rotation=self.selected_layer.rotation,
             scale_x=self.selected_layer.scale_x,
             scale_y=self.selected_layer.scale_y,
         )
         logger.info(f"Storing state {bake_settings}")
         self.messageSignal.emit(f"Stored state for {bake_settings.layer_name}")
-        self.LayerState.emit(bake_settings)
+        self.layerState.emit(bake_settings)
 
     def set_selected_layer(self, layer):
         """Set the currently selected layer."""
@@ -177,7 +169,9 @@ class LayerSettings(QDockWidget):
             if self.selected_layer.selected:
                 if self.selected_layer.config.allow_slider_usage:
                     self.widget.setEnabled(True)
-                self.layer_name_label.setText(f"Layer: {self.selected_layer.name}")
+                self.layer_name_label.setText(
+                    f"BaseLayer: {self.selected_layer.layer_name}"
+                )
                 new_max_xpos = self.selected_layer.config.max_xpos
                 new_max_ypos = self.selected_layer.config.max_ypos
 
@@ -197,7 +191,9 @@ class LayerSettings(QDockWidget):
                 )
 
                 # Update slider values
-                self.opacity_slider["slider"].setValue(int(self.selected_layer.opacity))
+                self.opacity_slider["slider"].setValue(
+                    int(self.selected_layer.opacity)  # Scale back to 0-255
+                )
                 self.x_slider["slider"].setValue(int(self.selected_layer.position.x()))
                 self.y_slider["slider"].setValue(int(self.selected_layer.position.y()))
                 self.scale_x_slider["slider"].setValue(
@@ -211,6 +207,7 @@ class LayerSettings(QDockWidget):
                 )
             else:
                 self.widget.setEnabled(False)
-                self.layer_name_label.setText("No Layer")
+                self.layer_name_label.setText("No BaseLayer")
         finally:
             self._disable_updates = False
+        self.update()
