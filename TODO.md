@@ -1,7 +1,7 @@
 Highest Priority First
 ----------------------
 - [ ] Define a plugin method. Try to implement smokesim here.
-- [ ] Instead of defining everything on app.py, use different file for each tab. Try to abstract more generic things in Base classes and inherit them.
+- [x] Instead of defining everything on app.py, use different file for each tab. Try to abstract more generic things in Base classes and inherit them.
 - [ ] Merging two layers
 - [ ] A small dropdown on the layers list that toggles what annotation to export for this layer. Should be options: Default, Rectangle, Polygon.
 - [ ] Occlusion handling.

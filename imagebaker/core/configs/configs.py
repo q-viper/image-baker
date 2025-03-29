@@ -37,7 +37,7 @@ class DrawConfig(BaseModel):
 class BaseConfig(BaseModel):
     project_name: str = "ImageBaker"
     version: str = "0.1.0"
-    project_dir: Path = Path("D:/work/Image-Baker")
+    project_dir: Path = Path(".")
 
     is_debug: bool = True
     deque_maxlen: int = 10

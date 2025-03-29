@@ -713,6 +713,7 @@ class AnnotableLayer(BaseLayer):
     def finalize_annotation(self):
         if self.current_label:
             # Use predefined label
+            self.current_annotation.annotation_id = len(self.annotations)
             self.current_annotation.label = self.current_label
             self.current_annotation.color = self.current_color
             self.current_annotation.is_complete = True
@@ -729,6 +730,7 @@ class AnnotableLayer(BaseLayer):
             label, ok = QInputDialog.getText(self, "Label", "Enter label name:")
             if ok:
                 if self.current_annotation:
+                    self.current_annotation.annotation_id = len(self.annotations)
                     self.current_annotation.label = label or "Unlabeled"
                     self.current_annotation.is_complete = True
                     self.annotations.append(self.current_annotation)
@@ -736,6 +738,7 @@ class AnnotableLayer(BaseLayer):
                         self.get_thumbnail(self.current_annotation)
                     )
                     self.annotationAdded.emit(self.current_annotation)
+                    self.current_annotation.annotation_id = len(self.annotations)
                     self.current_annotation = None
                     self.update()
 

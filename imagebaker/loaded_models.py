@@ -1,14 +1,17 @@
-from models.base_model import (
+from imagebaker.models.base_model import (
     DefaultModelConfig,
     BaseClassificationModel,
     get_dummy_prediction_result,
     ModelType,
 )
 
-# from models.rtdetr_v2 import RTDetrModelConfig, RTDetrDetectionModel
-# from models.segmentation import YoloSegmentationModel, YoloSegmentationModelConfig
-# from models.sam_model import SegmentAnythingModel, SAMModelConfig
-from models.base_model import BaseDetectionModel
+from imagebaker.models.rtdetr_v2 import RTDetrModelConfig, RTDetrDetectionModel
+from imagebaker.models.segmentation import (
+    YoloSegmentationModel,
+    YoloSegmentationModelConfig,
+)
+from imagebaker.models.sam_model import SegmentAnythingModel, SAMModelConfig
+from imagebaker.models.base_model import BaseDetectionModel
 from imagebaker import logger
 
 
@@ -28,22 +31,22 @@ class DetectionModel(BaseDetectionModel):
         return [get_dummy_prediction_result(self.config.model_type)]
 
 
-# detector = RTDetrDetectionModel(RTDetrModelConfig())
+detector = RTDetrDetectionModel(RTDetrModelConfig())
 
-# classification = ClassificationModel(
-#     DefaultModelConfig(model_type=ModelType.CLASSIFICATION)
-# )
-# segmentation = YoloSegmentationModel(YoloSegmentationModelConfig())
-# prompt = SegmentAnythingModel(SAMModelConfig())
+classification = ClassificationModel(
+    DefaultModelConfig(model_type=ModelType.CLASSIFICATION)
+)
+segmentation = YoloSegmentationModel(YoloSegmentationModelConfig())
+prompt = SegmentAnythingModel(SAMModelConfig())
 dummy_detector = DetectionModel(DefaultModelConfig(model_type=ModelType.DETECTION))
 
 
 LOADED_MODELS = {
     "DummyDetectionModel": dummy_detector,
-    # "PromptModel": prompt,
-    # "SegmentationModel": segmentation,
-    # "RTDetrV2": detector,
-    # "ClassificationModel": classification,
+    "PromptModel": prompt,
+    "SegmentationModel": segmentation,
+    "RTDetrV2": detector,
+    "ClassificationModel": classification,
 }
 
 logger.info(f"Loaded models: {LOADED_MODELS}")

@@ -125,6 +125,7 @@ class BakerWorker(QObject):
                                 new_annotation = self._generate_annotation(
                                     ann, alpha_channel
                                 )
+
                                 new_annotations.append(new_annotation)
                 finally:
                     painter.end()
