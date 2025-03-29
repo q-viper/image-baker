@@ -1,5 +1,5 @@
 from imagebaker import logger
-from imagebaker.models.base_model import DefaultModel
+from imagebaker.models.base_model import BaseModel
 from PySide6.QtCore import QObject, Signal
 import numpy as np
 import traceback
@@ -11,7 +11,7 @@ class ModelPredictionWorker(QObject):
 
     def __init__(
         self,
-        model: DefaultModel,
+        model: BaseModel,
         image: np.ndarray,
         points: list[int],
         polygons: list[list[int]],

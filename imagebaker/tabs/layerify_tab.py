@@ -271,6 +271,10 @@ class LayerifyTab(QWidget):
             self.layer.set_image(default_path)
 
     def handle_predict(self):
+        if self.current_model is None:
+            logger.warning("No model selected to predict")
+            self.messageSignal.emit("No model selected/or loaded to predict")
+            return
         # get image as an numpy array from canvas
         image = qpixmap_to_numpy(self.layer.image)
         if image is None:
@@ -305,7 +309,7 @@ class LayerifyTab(QWidget):
                         ann.rectangle.y() + ann.rectangle.height(),
                     ]
                 )
-            label_hints.append([1])
+            label_hints.append([0])
             ann.visible = False
 
         points = points if len(points) > 0 else None

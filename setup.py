@@ -11,11 +11,12 @@ setup(
         "black",
         "pydantic",
         "flake8",
-        "PySide6",
+        "typer",
+        "PySide6==6.8.3",
     ],
     entry_points={
         "console_scripts": [
-            "imagebaker=imagebaker.app:main",
+            "imagebaker=imagebaker.window.app:app_cli",
         ],
     },
     author="Ramkrishna Acharya",
@@ -29,5 +30,5 @@ setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    python_requires=">=3.7",
+    python_requires=">=3.10",
 )

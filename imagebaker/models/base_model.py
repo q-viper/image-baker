@@ -8,7 +8,7 @@ from imagebaker.core.defs.defs import ModelType, PredictionResult
 from imagebaker.core.configs import DefaultModelConfig
 
 
-class DefaultModel(ABC):
+class BaseModel(ABC):
     def __init__(self, config: DefaultModelConfig):
         self.config = config
         self.model = None
@@ -78,7 +78,7 @@ class DefaultModel(ABC):
         return result
 
 
-class BaseSegmentationModel(DefaultModel):
+class BaseSegmentationModel(BaseModel):
     def __init__(self, config: DefaultModelConfig):
         super().__init__(config)
 
@@ -87,7 +87,7 @@ class BaseSegmentationModel(DefaultModel):
         pass
 
 
-class BaseDetectionModel(DefaultModel):
+class BaseDetectionModel(BaseModel):
     def __init__(self, config: DefaultModelConfig):
         super().__init__(config)
 
@@ -96,7 +96,7 @@ class BaseDetectionModel(DefaultModel):
         pass
 
 
-class BaseClassificationModel(DefaultModel):
+class BaseClassificationModel(BaseModel):
     def __init__(self, config: DefaultModelConfig):
         super().__init__(config)
 
@@ -105,7 +105,7 @@ class BaseClassificationModel(DefaultModel):
         pass
 
 
-class BasePromptModel(DefaultModel):
+class BasePromptModel(BaseModel):
     def __init__(self, config: DefaultModelConfig):
         super().__init__(config)
 
