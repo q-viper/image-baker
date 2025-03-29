@@ -170,6 +170,7 @@ class CanvasList(QDockWidget):
     def delete_canvas(self, canvas: NonAnnotableLayer):
         """Delete a canvas from the list."""
         if canvas in self.canvases:
+            canvas.layers.clear()
             logger.info(f"Deleting canvas: {canvas.layer_name}")
             canvas.setVisible(False)
             canvas.deleteLater()

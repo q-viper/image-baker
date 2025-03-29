@@ -644,9 +644,7 @@ class NonAnnotableLayer(BaseLayer):
         )
         filename = self.config.export_folder / f"{filename}.png"
         logger.info(f"Exporting baked image to {filename}")
-        # 1. Calculate bounding box of all visible layers
-        top_left = QPointF(sys.maxsize, sys.maxsize)
-        bottom_right = QPointF(-sys.maxsize, -sys.maxsize)
+        self.states = {0: [layer.layer_state for layer in self.layers]}
 
         self.loading_dialog = QProgressDialog(
             "Baking Please wait...", "Cancel", 0, 0, self.parentWidget()
@@ -664,8 +662,7 @@ class NonAnnotableLayer(BaseLayer):
         self.worker_thread = QThread()
         self.worker = BakerWorker(
             layers=self.layers,
-            top_left=top_left,
-            bottom_right=bottom_right,
+            states=self.states,
             filename=filename,
         )
         self.worker.moveToThread(self.worker_thread)
@@ -673,8 +670,8 @@ class NonAnnotableLayer(BaseLayer):
         # Connect signals
         self.worker_thread.started.connect(self.worker.process)
         self.worker.finished.connect(
-            lambda result, export_to_annotation_tab=export_to_annotation_tab: self.handle_baker_result(
-                result, export_to_annotation_tab=export_to_annotation_tab
+            lambda results, export_to_annotation_tab=export_to_annotation_tab: self.handle_baker_results(
+                results, export_to_annotation_tab=export_to_annotation_tab
             )
         )
         self.worker.finished.connect(self.worker_thread.quit)
@@ -688,49 +685,6 @@ class NonAnnotableLayer(BaseLayer):
         # Start processing
         self.worker_thread.start()
 
-    def handle_baker_result(
-        self,
-        baking_result: BakingResult,
-        export_to_annotation_tab=False,
-    ):
-        logger.info("Baking completed.")
-
-        filename, image = baking_result.filename, baking_result.image
-        masks = baking_result.masks
-        mask_names = baking_result.mask_names
-        annotations = baking_result.annotations
-
-        if not export_to_annotation_tab:
-            image.save(str(filename))
-            logger.info(f"Saved annotated image to annotated_{filename}")
-
-            if self.config.is_debug:
-                if self.config.write_masks:
-                    for i, mask in enumerate(masks):
-                        mask_name = mask_names[i]
-                        write_to = filename.parent / f"{mask_name}_{filename.name}"
-
-                        cv2.imwrite(write_to, mask)
-
-                        logger.info(f"Saved mask for {mask_name}")
-                logger.info(f"Saved baked image to {filename}")
-                if self.config.write_annotations:
-                    image = qpixmap_to_numpy(image.copy())
-                    image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
-                    drawn = draw_annotations(image, annotations)
-                    write_to = filename.parent / f"annotated_{filename.name}"
-
-                    cv2.imwrite(str(write_to), drawn)
-
-                    logger.info(f"Saved annotated image to annotated_{filename}")
-
-            Annotation.save_as_json(
-                annotations, f"{filename.parent/filename.stem}.json"
-            )
-            logger.info(f"Saved annotations to {filename}.json")
-        else:
-            self.bakingResult.emit(baking_result)
-
     def handle_baker_error(self, error_msg):
         self.loading_dialog.close()
         QMessageBox.critical(
@@ -740,7 +694,7 @@ class NonAnnotableLayer(BaseLayer):
     def predict_state(self):
         self.export_current_state(export_to_annotation_tab=True)
 
-    def play_states(self, export=False, export_to_annotation_tab=False):
+    def play_states(self):
         """Play all the states stored in self.states."""
         if len(self.states) == 0:
             logger.warning("No states to play")
@@ -767,11 +721,6 @@ class NonAnnotableLayer(BaseLayer):
             # Update the UI to reflect the changes
             self.update()  # Update the current widget
 
-            # Export the current state if required
-            if export:
-                self.export_current_state(
-                    export_to_annotation_tab=export_to_annotation_tab
-                )
             QApplication.processEvents()  # Process pending events to refresh the UI
 
             # Wait for the next frame
@@ -783,29 +732,95 @@ class NonAnnotableLayer(BaseLayer):
     def export_baked_states(self, export_to_annotation_tab=False):
         """Export all the states stored in self.states."""
         if len(self.states) == 0:
-            logger.warning("No states to export")
-            self.messageSignal.emit("No states to export")
-            return
+            msg = "No states to export. Creating a single image."
+            logger.warning(msg)
+            self.messageSignal.emit(msg)
+            self.states = {0: [layer.layer_state for layer in self.layers]}
 
-        for step, states in sorted(
-            self.states.items()
-        ):  # Ensure states are exported in order
-            self.messageSignal.emit(f"Exporting step {step}")
-            logger.info(f"Exporting step {step}")
+        filename = self.config.filename_format.format(
+            project_name=self.config.project_name,
+            timestamp=datetime.now().strftime("%Y%m%d_%H%M%S"),
+        )
+        filename = self.config.export_folder / f"{filename}.png"
 
-            # Update the slider position
-            self.parentWidget().timeline_slider.setValue(step)
+        self.loading_dialog = QProgressDialog(
+            "Exporting states, please wait...", "Cancel", 0, 0, self.parentWidget()
+        )
+        self.loading_dialog.setWindowTitle("Please Wait")
+        self.loading_dialog.setWindowModality(Qt.WindowModal)
+        self.loading_dialog.setCancelButton(None)
+        self.loading_dialog.show()
 
-            for state in states:
-                # Get the layer corresponding to the state
-                layer = self.get_layer(state.layer_id)
-                if layer:
-                    # Update the layer's state
-                    layer.layer_state = state
-                    layer.update()
+        QApplication.processEvents()
 
-            # Export the current state
-            self.export_current_state(export_to_annotation_tab=export_to_annotation_tab)
+        # Setup worker thread
+        self.worker_thread = QThread()
+        self.worker = BakerWorker(
+            states=self.states, layers=self.layers, filename=filename
+        )
+        self.worker.moveToThread(self.worker_thread)
+
+        # Connect signals
+        self.worker_thread.started.connect(self.worker.process)
+        self.worker.finished.connect(
+            lambda results, export_to_annotation_tab=export_to_annotation_tab: self.handle_baker_results(
+                results, export_to_annotation_tab
+            )
+        )  # Handle multiple results
+        self.worker.finished.connect(self.worker_thread.quit)
+        self.worker.error.connect(self.handle_baker_error)
+
+        # Cleanup connections
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.worker_thread.finished.connect(self.worker_thread.deleteLater)
+        self.worker_thread.finished.connect(self.loading_dialog.close)
+
+        # Start processing
+        self.worker_thread.start()
+
+    def handle_baker_results(
+        self,
+        baking_results: list[BakingResult],
+        export_to_annotation_tab=False,
+    ):
+        logger.info("Baking completed.")
+        for baking_result in baking_results:
+
+            filename, image = baking_result.filename, baking_result.image
+            masks = baking_result.masks
+            mask_names = baking_result.mask_names
+            annotations = baking_result.annotations
+
+            if not export_to_annotation_tab:
+                image.save(str(filename))
+                logger.info(f"Saved annotated image to annotated_{filename}")
+
+                if self.config.is_debug:
+                    if self.config.write_masks:
+                        for i, mask in enumerate(masks):
+                            mask_name = mask_names[i]
+                            write_to = filename.parent / f"{mask_name}_{filename.name}"
+
+                            cv2.imwrite(write_to, mask)
+
+                            logger.info(f"Saved mask for {mask_name}")
+                    logger.info(f"Saved baked image to {filename}")
+                    if self.config.write_annotations:
+                        image = qpixmap_to_numpy(image.copy())
+                        image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
+                        drawn = draw_annotations(image, annotations)
+                        write_to = filename.parent / f"annotated_{filename.name}"
+
+                        cv2.imwrite(str(write_to), drawn)
+
+                        logger.info(f"Saved annotated image to annotated_{filename}")
+
+                Annotation.save_as_json(
+                    annotations, f"{filename.parent/filename.stem}.json"
+                )
+                logger.info(f"Saved annotations to {filename}.json")
+            else:
+                self.bakingResult.emit(baking_result)
 
     def export_states_to_predict(self):
         self.export_baked_states(export_to_annotation_tab=True)

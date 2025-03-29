@@ -18,7 +18,7 @@ class DrawConfig(BaseModel):
     brush_alpha: int = 50
     brush_fill_pattern: Qt.BrushStyle = Qt.BrushStyle.DiagCrossPattern
     thumbnail_size: Tuple[int, int] = Field(default_factory=lambda: (50, 50))
-    background_color: QColor = Field(default_factory=lambda: QColor(0, 0, 0, 100))
+    background_color: QColor = Field(default_factory=lambda: QColor(0, 0, 0, 255))
     label_font_size: int = 12
     label_font_background_color: QColor = Field(
         default_factory=lambda: QColor(0, 0, 0, 150)

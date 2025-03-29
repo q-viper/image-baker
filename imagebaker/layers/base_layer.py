@@ -318,7 +318,6 @@ class BaseLayer(QWidget):
                 self.config.normal_draw_config.background_color.red(),
                 self.config.normal_draw_config.background_color.green(),
                 self.config.normal_draw_config.background_color.blue(),
-                10,
             ),
         )
         self.paint_layer(painter)

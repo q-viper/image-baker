@@ -78,10 +78,11 @@ class BakerTab(QWidget):
         self.layer_settings.messageSignal.connect(self.messageSignal.emit)
         self.current_canvas.bakingResult.connect(self.bakingResult.emit)
         self.current_canvas.layersChanged.connect(self.update_list)
+        self.current_canvas.layerRemoved.connect(self.update_list)
+
         self.canvas_list.canvasSelected.connect(self.on_canvas_selected)
         self.canvas_list.canvasAdded.connect(self.on_canvas_added)
         self.canvas_list.canvasDeleted.connect(self.on_canvas_deleted)
-        self.current_canvas.layerRemoved.connect(self.update_list)
         # self.current_canvas.thumbnailsAvailable.connect(self.generate_state_previews)
 
     def update_slider_range(self, steps):
@@ -162,11 +163,20 @@ class BakerTab(QWidget):
         """Handle the deletion of a canvas."""
         # Ensure only the currently selected canvas is visible
         if self.canvases:
+            self.layer_list.canvas = self.canvases[-1]
+            self.layer_list.layers = self.canvases[-1].layers
             self.current_canvas = self.canvases[-1]  # Select the last canvas
             self.current_canvas.setVisible(True)  # Show the last canvas
         else:
             self.current_canvas = None  # No canvases left
             self.messageSignal.emit("No canvases available.")  # Notify the user
+            self.layer_list.canvas = None
+            self.layer_list.layers = []
+            self.layer_settings.selected_layer = None
+        self.layer_settings.update_sliders()
+        self.canvas_list.update_canvas_list()  # Update the canvas list
+        self.layer_list.update_list()
+        self.update()
 
     def on_canvas_selected(self, canvas: NonAnnotableLayer):
         """Handle canvas selection from the CanvasList."""
@@ -273,11 +283,11 @@ class BakerTab(QWidget):
 
     def export_for_annotation(self):
         self.messageSignal.emit("Exporting states for prediction...")
-        self.current_canvas.play_states(export_to_annotation_tab=True, export=True)
+        self.current_canvas.play_states(export_to_annotation_tab=True)
 
     def export_locally(self):
         self.messageSignal.emit("Exporting baked states...")
-        self.current_canvas.play_states(export=True)
+        self.current_canvas.export_baked_states()
 
     def play_saved_states(self):
         self.messageSignal.emit("Playing saved state...")
