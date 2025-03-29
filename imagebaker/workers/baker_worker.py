@@ -72,6 +72,7 @@ class BakerWorker(QObject):
                     QPainter.Antialiasing | QPainter.SmoothPixmapTransform
                 )
                 for layer in self.layers:
+                    layer.selected = False
                     if layer.visible and not layer.image.isNull() and layer.opacity > 0:
                         # Draw layer to main image
                         painter.save()

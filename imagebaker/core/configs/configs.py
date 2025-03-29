@@ -104,7 +104,7 @@ class CanvasConfig(BaseConfig):
     write_annotations: bool = True
     write_labels: bool = True
     write_masks: bool = True
-    fps: int = 30
+    fps: int = 5
 
     @property
     def export_folder(self):

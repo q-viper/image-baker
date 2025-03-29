@@ -295,6 +295,7 @@ class BakerTab(QWidget):
         else:
             self.timeline_slider.setMaximum(0)
             self.steps_spinbox.setValue(1)
+            self.messageSignal.emit("No saved states available.")
 
         # Start playing the states
         self.current_canvas.play_states()
@@ -302,8 +303,13 @@ class BakerTab(QWidget):
     def save_current_state(self):
         self.messageSignal.emit("Saving current state...")
         logger.info(f"Saving current state for {self.steps_spinbox.value()}...")
+
         self.current_canvas.save_current_state(steps=self.steps_spinbox.value())
-        self.messageSignal.emit("Current state saved.")
+        self.messageSignal.emit(
+            "Current state saved. Total states: {}".format(
+                len(self.current_canvas.states)
+            )
+        )
 
         # Disable the timeline slider
         self.timeline_slider.setEnabled(False)
@@ -314,11 +320,17 @@ class BakerTab(QWidget):
         self.messageSignal.emit("Clearing all saved states...")
         if self.current_canvas:
             self.current_canvas.previous_state = None
+            self.current_canvas.current_step = 0
             self.current_canvas.states.clear()  # Clear all saved states
         self.timeline_slider.setEnabled(False)  # Disable the slider
         self.timeline_slider.setMaximum(0)  # Reset the slider range
         self.timeline_slider.setValue(0)  # Reset the slider position
         self.messageSignal.emit("All states cleared.")
+        self.steps_spinbox.setValue(1)  # Reset the spinbox value
+
+        self.steps_spinbox.update()
+        self.timeline_slider.update()
+        self.current_canvas.update()
 
     def seek_state(self, step):
         """Seek to a specific state using the timeline slider."""
@@ -351,3 +363,12 @@ class BakerTab(QWidget):
         self.layer_list.add_layer(layer)
         self.layer_settings.selected_layer = self.current_canvas.selected_layer
         self.layer_settings.update_sliders()
+
+    def keyPressEvent(self, event):
+        """Handle key press events."""
+        # if ctrl + s is pressed, save the current state
+        if event.key() == Qt.Key_S and event.modifiers() == Qt.ControlModifier:
+            self.save_current_state()
+        else:
+            pass
+        return super().keyPressEvent(event)

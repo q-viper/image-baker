@@ -100,6 +100,8 @@ class BaseLayer(QWidget):
             )
 
             for step, state in enumerate(intermediate_states):
+                state.selected = False
+                step += self.current_step
                 if step not in curr_states:
                     curr_states[step] = []
                 curr_states[step].append(state)
@@ -196,28 +198,6 @@ class BaseLayer(QWidget):
                 image.fill(Qt.transparent)
 
         return image.scaled(*self.config.normal_draw_config.thumbnail_size)
-
-    # def apply_opacity(self):
-    #     """Apply opacity to the QPixmap image."""
-    #     if self.image and self.opacity < 1:
-    #         # Create a new transparent pixmap with the same size
-    #         transparent_pixmap = QPixmap(self.image.size())
-    #         transparent_pixmap.fill(Qt.transparent)
-
-    #         # Create a painter to draw on the new pixmap
-    #         painter = QPainter(transparent_pixmap)
-    #         try:
-    #             # Set the opacity
-    #             painter.setOpacity(self.opacity)
-
-    #             # Draw the original image onto the new pixmap
-    #             painter.drawPixmap(0, 0, self.image)
-    #         finally:
-    #             # Ensure the painter is properly ended
-    #             painter.end()
-
-    #         # Replace the original image with the transparent version
-    #         self.image = transparent_pixmap
 
     def copy(self):
         layer = self.__class__(self.parent_obj, self.config)
