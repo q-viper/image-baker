@@ -12,18 +12,18 @@ from PySide6.QtWidgets import (
     QInputDialog,
 )
 from functools import partial
-from imagebaker.layers.non_annotable_layer import NonAnnotableLayer
+from imagebaker.layers.canvas_layer import CanvasLayer
 from imagebaker import logger
 
 
 class CanvasList(QDockWidget):
-    canvasSelected = Signal(NonAnnotableLayer)
-    canvasDeleted = Signal(NonAnnotableLayer)
-    canvasAdded = Signal(NonAnnotableLayer)
+    canvasSelected = Signal(CanvasLayer)
+    canvasDeleted = Signal(CanvasLayer)
+    canvasAdded = Signal(CanvasLayer)
 
-    def __init__(self, canvases: list[NonAnnotableLayer], parent=None):
+    def __init__(self, canvases: list[CanvasLayer], parent=None):
         """
-        :param canvases: List of NonAnnotableLayer objects to display.
+        :param canvases: List of CanvasLayer objects to display.
         """
         super().__init__("Canvas List", parent)
         self.canvases = canvases
@@ -89,7 +89,7 @@ class CanvasList(QDockWidget):
             canvas_name = default_name
 
         # Create the new canvas
-        new_canvas = NonAnnotableLayer(parent=self.parent())
+        new_canvas = CanvasLayer(parent=self.parent())
         new_canvas.layer_name = canvas_name  # Assign the name to the canvas
         self.canvases.append(new_canvas)  # Add the new canvas to the list
         self.canvasAdded.emit(
@@ -167,7 +167,7 @@ class CanvasList(QDockWidget):
         if canvas:
             self.canvasSelected.emit(canvas)
 
-    def delete_canvas(self, canvas: NonAnnotableLayer):
+    def delete_canvas(self, canvas: CanvasLayer):
         """Delete a canvas from the list."""
         if canvas in self.canvases:
             canvas.layers.clear()

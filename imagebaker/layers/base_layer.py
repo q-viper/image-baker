@@ -5,9 +5,7 @@ from imagebaker.utils.state_utils import calculate_intermediate_states
 
 from PySide6.QtCore import QPointF, QPoint, Qt, Signal, QSizeF, QSize
 from PySide6.QtGui import QColor, QPixmap, QPainter, QMouseEvent, QKeyEvent, QImage
-from PySide6.QtWidgets import (
-    QWidget,
-)
+from PySide6.QtWidgets import QWidget
 
 from typing import Optional
 from pathlib import Path

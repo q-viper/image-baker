@@ -1,5 +1,11 @@
 from imagebaker.core.configs import CanvasConfig
-from imagebaker.core.defs import LayerState, Annotation, MouseMode
+from imagebaker.core.defs import Annotation, MouseMode
+from imagebaker.layers import BaseLayer
+from imagebaker.core.configs import CursorDef
+from imagebaker import logger
+from imagebaker.core.defs import BakingResult
+from imagebaker.workers import BakerWorker
+from imagebaker.utils.image import qpixmap_to_numpy, draw_annotations
 
 
 from PySide6.QtCore import (
@@ -29,20 +35,13 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressDialog,
 )
-from imagebaker.layers import BaseLayer
-from imagebaker.core.configs import CursorDef
-from imagebaker import logger
+
 import math
-import sys
 import cv2
 from datetime import datetime
 
-from imagebaker.core.defs import BakingResult
-from imagebaker.workers import BakerWorker
-from imagebaker.utils.image import qpixmap_to_numpy, draw_annotations
 
-
-class NonAnnotableLayer(BaseLayer):
+class CanvasLayer(BaseLayer):
     layersChanged = Signal()
     layerSelected = Signal(BaseLayer)
     annotationAdded = Signal(Annotation)

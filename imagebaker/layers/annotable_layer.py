@@ -1,7 +1,7 @@
 from imagebaker.core.configs import LayerConfig, CursorDef
 from imagebaker.core.defs import Annotation, MouseMode
 from imagebaker.layers import BaseLayer
-from imagebaker.layers.non_annotable_layer import NonAnnotableLayer
+from imagebaker.layers.canvas_layer import CanvasLayer
 from imagebaker import logger
 from imagebaker.workers import LayerifyWorker
 
@@ -815,7 +815,7 @@ class AnnotableLayer(BaseLayer):
 
     def handle_layerify_result(self, annotation: Annotation, cropped_image: QPixmap):
         # Create new canvas with results
-        new_layer = NonAnnotableLayer(parent=self.parent_obj, config=self.config)
+        new_layer = CanvasLayer(parent=self.parent_obj, config=self.config)
         # get top left corner of the annotation
 
         new_layer.set_image(cropped_image)

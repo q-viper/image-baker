@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 # from imagebaker.tab_views import BaseLayer
-from imagebaker.layers.non_annotable_layer import NonAnnotableLayer as Canvas
+from imagebaker.layers.canvas_layer import CanvasLayer as Canvas
 from .layer_settings import LayerSettings
 from imagebaker import logger
 from imagebaker.layers.base_layer import BaseLayer

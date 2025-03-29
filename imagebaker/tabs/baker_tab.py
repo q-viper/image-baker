@@ -1,6 +1,6 @@
 from imagebaker.list_views import LayerList, LayerSettings
 from imagebaker.list_views.canvas_list import CanvasList
-from imagebaker.layers.non_annotable_layer import NonAnnotableLayer
+from imagebaker.layers.canvas_layer import CanvasLayer
 from imagebaker.core.defs import BakingResult
 from imagebaker import logger
 
@@ -33,7 +33,7 @@ class BakerTab(QWidget):
         self.toolbar = None
         self.main_layout = QVBoxLayout(self)
 
-        # Deque to store multiple NonAnnotableLayer objects with a fixed size
+        # Deque to store multiple CanvasLayer objects with a fixed size
         self.canvases = deque(maxlen=self.config.deque_maxlen)
 
         # Currently selected canvas
@@ -46,7 +46,7 @@ class BakerTab(QWidget):
         self.create_toolbar()
 
         # Create a single canvas for now
-        self.current_canvas = NonAnnotableLayer(parent=self.main_window)
+        self.current_canvas = CanvasLayer(parent=self.main_window)
         self.current_canvas.setVisible(True)  # Initially hide all canvases
         self.canvases.append(self.current_canvas)
         self.main_layout.addWidget(self.current_canvas)
@@ -159,7 +159,7 @@ class BakerTab(QWidget):
     def update_list(self):
         self.layer_list.update_list()
 
-    def on_canvas_deleted(self, canvas: NonAnnotableLayer):
+    def on_canvas_deleted(self, canvas: CanvasLayer):
         """Handle the deletion of a canvas."""
         # Ensure only the currently selected canvas is visible
         if self.canvases:
@@ -178,7 +178,7 @@ class BakerTab(QWidget):
         self.layer_list.update_list()
         self.update()
 
-    def on_canvas_selected(self, canvas: NonAnnotableLayer):
+    def on_canvas_selected(self, canvas: CanvasLayer):
         """Handle canvas selection from the CanvasList."""
         # Hide all canvases and show only the selected one
         for layer in self.canvases:
@@ -197,7 +197,7 @@ class BakerTab(QWidget):
         logger.info(f"Selected canvas: {canvas.layer_name}")
         self.update()
 
-    def on_canvas_added(self, new_canvas: NonAnnotableLayer):
+    def on_canvas_added(self, new_canvas: CanvasLayer):
         """Handle the addition of a new canvas."""
         logger.info(f"New canvas added: {new_canvas.layer_name}")
         self.main_layout.addWidget(new_canvas)  # Add the new canvas to the layout
@@ -368,7 +368,7 @@ class BakerTab(QWidget):
 
         self.current_canvas.predict_state()
 
-    def add_layer(self, layer: NonAnnotableLayer):
+    def add_layer(self, layer: CanvasLayer):
         """Add a new layer to the canvas."""
         self.layer_list.add_layer(layer)
         self.layer_settings.selected_layer = self.current_canvas.selected_layer
