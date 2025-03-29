@@ -1,4 +1,4 @@
-from imagebaker.core.configs import LayerConfig
+from imagebaker.core.configs import LayerConfig, CanvasConfig
 from imagebaker import logger
 from imagebaker.tabs import LayerifyTab, BakerTab
 
@@ -13,10 +13,14 @@ from PySide6.QtWidgets import (
 class MainWindow(QMainWindow):
 
     def __init__(
-        self, layerify_config: LayerConfig = LayerConfig(), loaded_models=None
+        self,
+        layerify_config: LayerConfig = LayerConfig(),
+        canvas_config: CanvasConfig = CanvasConfig(),
+        loaded_models=None,
     ):
         super().__init__()
         self.layerify_config = layerify_config
+        self.canvas_config = canvas_config
         self.loaded_models = loaded_models
 
         # Use QTimer to defer UI initialization
@@ -38,9 +42,9 @@ class MainWindow(QMainWindow):
 
             # Initialize tabs
             self.layerify_tab = LayerifyTab(
-                self, self.layerify_config, self.loaded_models
+                self, self.layerify_config, self.canvas_config, self.loaded_models
             )
-            self.baker_tab = BakerTab(self, self.layerify_config)
+            self.baker_tab = BakerTab(self, self.canvas_config)
 
             self.tab_widget.addTab(self.layerify_tab, "Layerify")
             self.tab_widget.addTab(self.baker_tab, "Baker")

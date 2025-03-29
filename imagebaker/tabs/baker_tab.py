@@ -2,6 +2,7 @@ from imagebaker.list_views import LayerList, LayerSettings
 from imagebaker.list_views.canvas_list import CanvasList
 from imagebaker.layers.canvas_layer import CanvasLayer
 from imagebaker.core.defs import BakingResult
+from imagebaker.core.configs import CanvasConfig
 from imagebaker import logger
 
 from PySide6.QtCore import Qt, Signal
@@ -26,7 +27,7 @@ class BakerTab(QWidget):
     messageSignal = Signal(str)
     bakingResult = Signal(BakingResult)
 
-    def __init__(self, main_window, config):
+    def __init__(self, main_window, config: CanvasConfig):
         super().__init__(main_window)
         self.main_window = main_window
         self.config = config
@@ -46,7 +47,7 @@ class BakerTab(QWidget):
         self.create_toolbar()
 
         # Create a single canvas for now
-        self.current_canvas = CanvasLayer(parent=self.main_window)
+        self.current_canvas = CanvasLayer(parent=self.main_window, config=self.config)
         self.current_canvas.setVisible(True)  # Initially hide all canvases
         self.canvases.append(self.current_canvas)
         self.main_layout.addWidget(self.current_canvas)
@@ -283,7 +284,7 @@ class BakerTab(QWidget):
 
     def export_for_annotation(self):
         self.messageSignal.emit("Exporting states for prediction...")
-        self.current_canvas.play_states(export_to_annotation_tab=True)
+        self.current_canvas.export_baked_states(export_to_annotation_tab=True)
 
     def export_locally(self):
         self.messageSignal.emit("Exporting baked states...")
@@ -321,6 +322,8 @@ class BakerTab(QWidget):
             )
         )
 
+        self.steps_spinbox.setValue(1)  # Reset the spinbox value
+        self.steps_spinbox.update()
         # Disable the timeline slider
         self.timeline_slider.setEnabled(False)
         self.timeline_slider.update()

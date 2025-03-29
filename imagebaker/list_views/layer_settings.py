@@ -167,8 +167,7 @@ class LayerSettings(QDockWidget):
             self._disable_updates = True
 
             if self.selected_layer.selected:
-                if self.selected_layer.config.allow_slider_usage:
-                    self.widget.setEnabled(True)
+
                 self.layer_name_label.setText(
                     f"BaseLayer: {self.selected_layer.layer_name}"
                 )

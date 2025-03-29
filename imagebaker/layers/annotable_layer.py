@@ -1,4 +1,4 @@
-from imagebaker.core.configs import LayerConfig, CursorDef
+from imagebaker.core.configs import LayerConfig, CursorDef, CanvasConfig
 from imagebaker.core.defs import Annotation, MouseMode
 from imagebaker.layers import BaseLayer
 from imagebaker.layers.canvas_layer import CanvasLayer
@@ -43,8 +43,9 @@ class AnnotableLayer(BaseLayer):
     annotationMoved = Signal()
     layersChanged = Signal()
 
-    def __init__(self, parent=None, config=LayerConfig()):
+    def __init__(self, parent, config: LayerConfig, canvas_config: CanvasConfig):
         super().__init__(parent, config)
+        self.canvas_config = canvas_config
 
         self.image = QPixmap()
         self.mouse_mode = MouseMode.POINT
@@ -815,7 +816,7 @@ class AnnotableLayer(BaseLayer):
 
     def handle_layerify_result(self, annotation: Annotation, cropped_image: QPixmap):
         # Create new canvas with results
-        new_layer = CanvasLayer(parent=self.parent_obj, config=self.config)
+        new_layer = CanvasLayer(parent=self.parent_obj, config=self.canvas_config)
         # get top left corner of the annotation
 
         new_layer.set_image(cropped_image)

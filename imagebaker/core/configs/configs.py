@@ -69,11 +69,6 @@ class BaseConfig(BaseModel):
 class LayerConfig(BaseConfig):
     show_labels: bool = True
     show_annotations: bool = True
-    max_xpos: int = 1000
-    max_ypos: int = 1000
-    max_scale: int = 10
-    # whether to allow the use of sliders to change layer properties
-    allow_slider_usage: bool = True
 
     default_label: Label = Field(
         default_factory=lambda: Label("Unlabeled", QColor(255, 255, 255))
@@ -100,6 +95,11 @@ class CanvasConfig(BaseConfig):
     bake_timeout: float = -1.0
     filename_format: str = "{project_name}_{timestamp}"
     export_format: str = "png"
+    max_xpos: int = 1000
+    max_ypos: int = 1000
+    max_scale: int = 10
+    # whether to allow the use of sliders to change layer properties
+    allow_slider_usage: bool = True
 
     write_annotations: bool = True
     write_labels: bool = True

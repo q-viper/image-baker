@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QThread
 from PySide6.QtWidgets import QProgressDialog
 from pathlib import Path
-from imagebaker.core.configs import LayerConfig
+from imagebaker.core.configs import LayerConfig, CanvasConfig
 from imagebaker.core.defs import (
     Label,
     MouseMode,
@@ -59,12 +59,19 @@ class LayerifyTab(QWidget):
     annotationUpdated = Signal(Annotation)
     gotToTab = Signal(int)
 
-    def __init__(self, main_window, config: LayerConfig, loaded_models):
+    def __init__(
+        self,
+        main_window,
+        config: LayerConfig,
+        canvas_config: CanvasConfig,
+        loaded_models,
+    ):
         super().__init__(parent=main_window)
 
         self.setFocusPolicy(Qt.StrongFocus)
         self.main_window = main_window
         self.config = config
+        self.canvas_config = canvas_config
         self.main_layout = QVBoxLayout(self)
 
         self.all_models = loaded_models
@@ -107,7 +114,11 @@ class LayerifyTab(QWidget):
 
         # Add multiple layers (canvas) to the main layout
         for _ in range(self.annotable_layers.maxlen):
-            layer = AnnotableLayer(parent=self.main_window, config=self.config)
+            layer = AnnotableLayer(
+                parent=self.main_window,
+                config=self.config,
+                canvas_config=self.canvas_config,
+            )
             layer.setVisible(False)  # Initially hide all layers
             self.annotable_layers.append(layer)
             self.main_layout.addWidget(layer)
@@ -694,7 +705,11 @@ class LayerifyTab(QWidget):
         """Add a baked result to the baked results list and update the image list."""
         # Create a new layer for the baked result
         self.layer.setVisible(False)  # Hide the current layer
-        layer = AnnotableLayer(parent=self.main_window, config=self.config)
+        layer = AnnotableLayer(
+            parent=self.main_window,
+            config=self.config,
+            canvas_config=self.canvas_config,
+        )
         layer.annotations = baking_result.annotations
 
         layer.set_image(baking_result.image)  # Set the baked result's image
