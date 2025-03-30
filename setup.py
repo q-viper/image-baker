@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="imagebaker",
-    version="0.0.2",
+    version="0.0.3",
     packages=find_packages(),  # Automatically finds all packages
     install_requires=[
         "numpy",
