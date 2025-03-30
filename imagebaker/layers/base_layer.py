@@ -30,6 +30,115 @@ class BaseLayer(QWidget):
     layerSignal = Signal(object)
 
     def __init__(self, parent: QWidget, config: LayerConfig | CanvasConfig):
+        """
+        BaseLayer is an abstract class that represents a single layer in the canvas.
+        It provides functionality for managing layer properties, handling user interactions,
+        and rendering the layer's content. This class is designed to be extended by
+        subclasses that implement specific layer behaviors.
+
+        Attributes:
+            id (int): Unique identifier for the layer.
+            layer_state (LayerState): The current state of the layer, including properties
+                like position, scale, rotation, and visibility.
+            previous_state (LayerState): The previous state of the layer, used for undo operations.
+            layers (list[BaseLayer]): A list of child layers associated with this layer.
+            annotations (list[Annotation]): A list of annotations associated with the layer.
+            selected_annotation (Optional[Annotation]): The currently selected annotation.
+            current_annotation (Optional[Annotation]): The annotation currently being created or edited.
+            copied_annotation (Optional[Annotation]): A copied annotation for pasting.
+            image (QPixmap): The image associated with the layer.
+            scale (float): The current scale of the layer.
+            pan_offset (QPointF): The current pan offset of the layer.
+            mouse_mode (MouseMode): The current mouse interaction mode (e.g., DRAW, PAN, IDLE).
+            states (dict[int, list[LayerState]]): A dictionary of saved states for the layer,
+                indexed by step.
+            current_step (int): The current step in the layer's state history.
+            drawing_color (QColor): The color used for drawing operations.
+            brush_size (int): The size of the brush used for drawing operations.
+            config (LayerConfig | CanvasConfig): Configuration settings for the layer.
+            file_path (Path): The file path associated with the layer's image.
+            visible (bool): Whether the layer is visible.
+            selected (bool): Whether the layer is selected.
+            opacity (float): The opacity of the layer (0.0 to 1.0).
+            transform_origin (QPointF): The origin point for transformations (e.g., rotation, scaling).
+            playing (bool): Whether the layer is currently in a "playing" state (e.g., animation).
+            allow_annotation_export (bool): Whether annotations can be exported for this layer.
+
+        Signals:
+            messageSignal (str): Emitted when a message needs to be displayed.
+            zoomChanged (float): Emitted when the zoom level changes.
+            mouseMoved (QPointF): Emitted when the mouse moves over the layer.
+            annotationCleared (): Emitted when annotations are cleared.
+            layerRemoved (int): Emitted when a layer is removed.
+            layersChanged (): Emitted when the layer list changes.
+            layerSignal (object): Emitted with a layer-related signal.
+
+        Methods:
+            save_current_state(steps: int = 1):
+                Save the current state of the layer, including intermediate states
+                calculated between the previous and current states.
+
+            set_image(image_path: Path | QPixmap | QImage):
+                Set the image for the layer from a file path, QPixmap, or QImage.
+
+            get_layer(id: str) -> "BaseLayer":
+                Retrieve a child layer by its ID.
+
+            reset_view():
+                Reset the view of the layer, including scale and offset.
+
+            clear_annotations():
+                Clear all annotations associated with the layer.
+
+            update_cursor():
+                Update the cursor based on the current mouse mode.
+
+            undo():
+                Undo the last change to the layer's state.
+
+            set_mode(mode: MouseMode):
+                Set the mouse interaction mode for the layer.
+
+            widget_to_image_pos(pos: QPointF) -> QPointF:
+                Convert a widget position to an image position.
+
+            get_thumbnail(annotation: Annotation = None) -> QPixmap:
+                Generate a thumbnail for the layer or a specific annotation.
+
+            copy() -> "BaseLayer":
+                Create a copy of the layer, including its properties and annotations.
+
+            paintEvent(event):
+                Handle the paint event for the layer.
+
+            paint_layer(painter: QPainter):
+                Abstract method to paint the layer's content. Must be implemented by subclasses.
+
+            handle_mouse_press(event: QMouseEvent):
+                Abstract method to handle mouse press events. Must be implemented by subclasses.
+
+            handle_mouse_move(event: QMouseEvent):
+                Abstract method to handle mouse move events. Must be implemented by subclasses.
+
+            handle_mouse_release(event: QMouseEvent):
+                Abstract method to handle mouse release events. Must be implemented by subclasses.
+
+            handle_wheel(event: QWheelEvent):
+                Abstract method to handle wheel events. Must be implemented by subclasses.
+
+            handle_key_press(event: QKeyEvent):
+                Abstract method to handle key press events. Must be implemented by subclasses.
+
+            handle_key_release(event: QKeyEvent):
+                Abstract method to handle key release events. Must be implemented by subclasses.
+
+        Notes:
+            - This class is designed to be extended by subclasses that implement specific
+            layer behaviors (e.g., drawing, annotation, image manipulation).
+            - The `paint_layer` method must be implemented by subclasses to define how
+            the layer's content is rendered.
+
+        """
         super().__init__(parent)
         self.id = id(self)
         self.layer_state = LayerState(layer_id=self.id)
@@ -90,6 +199,15 @@ class BaseLayer(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
 
     def get_layer(self, id: str) -> "BaseLayer":
+        """
+        Get a child layer by its ID.
+
+        Args:
+            id (str): The ID of the layer to retrieve.
+
+        Returns:
+            Child of BaseLayer: The child layer with the specified ID, or None if not found
+        """
         for layer in self.layers:
             if layer.layer_id == id:
                 return layer
@@ -97,8 +215,14 @@ class BaseLayer(QWidget):
 
     def save_current_state(self, steps: int = 1):
         """
-        Save the current state of all layers, including intermediate states
-        calculated between the previous state and the current state.
+        Save the current state of the layer, including intermediate states
+        calculated between the previous and current states.
+
+        Args:
+            steps (int): The number of intermediate steps to calculate between
+
+        Returns:
+            None
         """
         curr_states = {}
         mode = self.mouse_mode
@@ -156,15 +280,22 @@ class BaseLayer(QWidget):
         self.update()
 
     def minimumSizeHint(self):
+        """Return the minimum size hint for the widget."""
         return QSize(100, 100)
 
     def widget_to_image_pos(self, pos: QPointF) -> QPointF:
+        """
+        Convert a widget position to an image position.
+        """
         return QPointF(
             (pos.x() - self.offset.x()) / self.scale,
             (pos.y() - self.offset.y()) / self.scale,
         )
 
     def update_cursor(self):
+        """
+        Update the cursor based on the current mouse mode.
+        """
         if MouseMode.POINT == self.mouse_mode:
             self.setCursor(CursorDef.POINT_CURSOR)
         elif MouseMode.RECTANGLE == self.mouse_mode:
@@ -215,6 +346,9 @@ class BaseLayer(QWidget):
         return QCursor(pixmap)
 
     def set_image(self, image_path: Path | QPixmap | QImage):
+        """
+        Set the image for the layer from a file path, QPixmap, or QImage.
+        """
         if isinstance(image_path, Path):
             self.file_path = image_path
 
@@ -234,6 +368,9 @@ class BaseLayer(QWidget):
         self.original_size = QSizeF(self.image.size())  # Store original size
 
     def get_thumbnail(self, annotation: Annotation = None):
+        """
+        Generate a thumbnail for the layer or a specific annotation.
+        """
         image = QPixmap(*self.config.normal_draw_config.thumbnail_size)
         image.fill(Qt.transparent)
 
@@ -268,6 +405,10 @@ class BaseLayer(QWidget):
         return image.scaled(*self.config.normal_draw_config.thumbnail_size)
 
     def copy(self):
+        """
+        Create a copy of the layer, including its properties and annotations.
+        Should be overridden by subclasses to copy additional properties.
+        """
         layer = self.__class__(self.parent_obj, self.config)
         layer.set_image(self.image)
         layer.annotations = [ann.copy() for ann in self.annotations]
@@ -285,7 +426,9 @@ class BaseLayer(QWidget):
         return layer
 
     def set_mode(self, mode: MouseMode):
-
+        """
+        Set the mouse interaction mode for the layer.
+        """
         # Preserve current annotation when changing modes
         if mode == self.mouse_mode:
             return

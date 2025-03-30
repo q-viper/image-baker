@@ -298,12 +298,6 @@ class BakerTab(QWidget):
         erase_button.clicked.connect(self.toggle_erase_mode)
         baker_toolbar_layout.addWidget(erase_button)
 
-        # Add a color selector (dropdown)
-        self.color_selector = QComboBox()
-        self.color_selector.addItems(["Black", "Red", "Green", "Blue", "Custom"])
-        self.color_selector.currentIndexChanged.connect(self.update_drawing_color)
-        baker_toolbar_layout.addWidget(self.color_selector)
-
         # Add a color picker button
         color_picker_button = QPushButton("🎨")
         color_picker_button.clicked.connect(self.open_color_picker)
@@ -338,19 +332,6 @@ class BakerTab(QWidget):
             )
             mode = self.current_canvas.mouse_mode.name.lower()
             self.messageSignal.emit(f"Erasing mode {mode}.")
-
-    def update_drawing_color(self, index):
-        """Update the drawing color based on the selected color."""
-        colors = {
-            0: Qt.black,
-            1: Qt.red,
-            2: Qt.green,
-            3: Qt.blue,
-        }
-        if index in colors:
-            self.current_canvas.drawing_color = colors[index]
-        else:
-            self.open_color_picker()
 
     def open_color_picker(self):
         """Open a color picker dialog to select a custom color."""
