@@ -6,6 +6,7 @@ from PySide6.QtGui import QColor
 from pydantic import BaseModel, Field
 
 from imagebaker.core.defs import Label, ModelType
+from imagebaker import logger
 
 
 class DrawConfig(BaseModel):
@@ -60,7 +61,11 @@ class BaseConfig(BaseModel):
 
     @property
     def assets_folder(self):
-        return self.project_dir / "assets"
+        asset_dir = self.project_dir / "assets"
+        if not asset_dir.exists():
+            asset_dir.mkdir(parents=True)
+            logger.info(f"Created assets folder at {asset_dir}")
+        return asset_dir
 
     class Config:
         arbitrary_types_allowed = True

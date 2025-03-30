@@ -38,11 +38,20 @@ Run the following command to launch the GUI:
 imagebaker
 ```
 
-If the command does not work, try running the example script after cloning the project.:
+By default, above command will not run any models on the backend. So please take a look into the example of model definition at [examples/loaded_models.py](examples/loaded_models.py). Then we need to pass it as:
 
-```bash
-python examples/app.py
-```
+```imagebaker --models-file examples/loaded_models.py```
+
+For more options please do: `imagebaker --help`. I should give following options.
+
+![](assets/demo/options.png)
+
+* **`--configs-file`** allows us to define a custom configs. **The custom configs has to inherit LayerConfig and CanvasConfig defined at [imagebaker/core/configs/configs.py](imagebaker/core/configs/configs.py)**. An example is available at [examples](examples/). 
+
+
+After clonning, and going to the project directory, following code should work.
+`imagebaker --models-file examples/loaded_models.py --configs-file examples/example_config.py`
+
 
 ## Features
 
@@ -71,8 +80,32 @@ python examples/app.py
 
 ## Demo
 
-## Demo
+### Annotation Page
 
+This is where the loading of the image folder and annotation, connection with model running in the backend and layerifying happens.
+
+![](assets/demo/annotation_page.png)
+
+
+### Baker Page
+
+This is where the layer baking happens. And the extraction of the layers as well.
+
+
+![](assets/demo/baker_page.png)
+
+An example of drawing:
+
+![](assets/demo/drawing.png)
+
+
+### Annotated
+
+The JSON and the baked image will be exported to local folder and in debug mode, annotated and the mask for each layers will exported too.
+
+![](assets/demo/annotated_veg_smiley.png)
+
+### Demo Video
 To see the tool in action, check out the demo video below:
 
 [![Demo Video](https://img.youtube.com/vi/WckMT0r-2Lc/0.jpg)](https://youtu.be/WckMT0r-2Lc)

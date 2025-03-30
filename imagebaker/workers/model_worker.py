@@ -28,7 +28,6 @@ class ModelPredictionWorker(QObject):
             polygons (list[list[int]]): The polygons to predict on.
             rectangles (list[list[int]]): The rectangles to predict on.
             label_hints (list[int]): The label hints to use.
-
         """
         super().__init__()
         self.model = model
