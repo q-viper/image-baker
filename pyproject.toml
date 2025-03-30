@@ -52,11 +52,11 @@ minversion = "6.0"
 addopts = "--strict-markers"
 testpaths = ["tests"]
 
-[project.optional-dependencies]
-docs = [
-    "mkdocs>=1.4",
-    "mkdocs-material>=9.0",
-    "mkdocstrings[python]>=0.21",
-    "pymdown-extensions>=8.0",
-    "mkdocs-awesome-pages-plugin
-]
+55| [project.optional-dependencies]
+56| docs = [
+57|     "mkdocs>=1.4",
+58|     "mkdocs-material>=9.0",
+59|     "mkdocstrings[python]>=0.21",
+60|     "pymdown-extensions>=8.0",
+61|     "mkdocs-awesome-pages-plugin"
+62| ]
