@@ -612,21 +612,22 @@ class CanvasLayer(BaseLayer):
 
     def _delete_layer(self):
         self.selected_layer = self._get_selected_layer()
-        if self.selected_layer:
-            remaining_layers = []
-            removed = False
-            for layer in self.layers:
-                if layer.selected:
-                    removed = True
-                    self.messageSignal.emit(f"Deleted {layer.layer_name} layer.")
-                else:
-                    remaining_layers.append(layer)
+        # now handled from bakertab
+        # if self.selected_layer:
+        #     remaining_layers = []
+        #     removed = False
+        #     for layer in self.layers:
+        #         if layer.selected:
+        #             removed = True
+        #             self.messageSignal.emit(f"Deleted {layer.layer_name} layer.")
+        #         else:
+        #             remaining_layers.append(layer)
 
-            if removed:
-                self.layers = remaining_layers
-                self._update_back_buffer()
-                self.layerRemoved.emit(self.selected_layer)
-                self.update()
+        #     if removed:
+        #         self.layers = remaining_layers
+        #         self._update_back_buffer()
+        #         self.layerRemoved.emit(self.selected_layer)
+        #         self.update()
 
     def export_current_state(self, export_to_annotation_tab=False):
         if not self.layers:

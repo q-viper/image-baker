@@ -57,7 +57,12 @@ class BakerTab(QWidget):
         self.main_window.addDockWidget(Qt.LeftDockWidgetArea, self.canvas_list)
 
         # Create and add LayerList
-        self.layer_settings = LayerSettings(parent=self.main_window)
+        self.layer_settings = LayerSettings(
+            parent=self.main_window,
+            max_xpos=self.config.max_xpos,
+            max_ypos=self.config.max_ypos,
+            max_scale=self.config.max_scale,
+        )
         self.layer_list = LayerList(
             canvas=self.current_canvas,
             parent=self.main_window,
@@ -157,8 +162,13 @@ class BakerTab(QWidget):
             thumbnail_label.setPixmap(thumbnail)
             thumbnail_label.update()
 
-    def update_list(self):
+    def update_list(self, layer=None):
+        """Update the layer list and layer settings."""
+        if layer:
+            self.layer_list.layers = self.current_canvas.layers
         self.layer_list.update_list()
+        self.layer_settings.update_sliders()
+        self.update()
 
     def on_canvas_deleted(self, canvas: CanvasLayer):
         """Handle the deletion of a canvas."""
@@ -382,6 +392,20 @@ class BakerTab(QWidget):
         # if ctrl + s is pressed, save the current state
         if event.key() == Qt.Key_S and event.modifiers() == Qt.ControlModifier:
             self.save_current_state()
-        else:
-            pass
+
+        # if delete is pressed, delete the selected layer
+        if event.key() == Qt.Key_Delete:
+            if (
+                self.current_canvas.selected_layer
+                and self.current_canvas.selected_layer in self.current_canvas.layers
+            ):
+                self.current_canvas.layers.remove(self.current_canvas.selected_layer)
+                self.current_canvas.selected_layer = None
+                self.layer_settings.selected_layer = None
+
+            self.current_canvas.update()
+            self.layer_list.update_list()
+            self.layer_settings.update_sliders()
+            self.messageSignal.emit("Deleted selected layer")
+        self.update()
         return super().keyPressEvent(event)

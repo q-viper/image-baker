@@ -24,9 +24,9 @@ class DrawConfig(BaseModel):
         default_factory=lambda: QColor(0, 0, 0, 150)
     )
     handle_color: QColor = Field(default_factory=lambda: QColor(0, 255, 255, 150))
-    handle_width: int = 2
-    handle_point_size: int = 6
-    handle_edge_size: int = 4
+    handle_width: int = 5
+    handle_point_size: int = 8
+    handle_edge_size: int = 5
 
     button_width: int = 30
 
@@ -97,7 +97,7 @@ class CanvasConfig(BaseConfig):
     export_format: str = "png"
     max_xpos: int = 1000
     max_ypos: int = 1000
-    max_scale: int = 10
+    max_scale: int = 1000
     # whether to allow the use of sliders to change layer properties
     allow_slider_usage: bool = True
 

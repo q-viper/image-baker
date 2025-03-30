@@ -156,6 +156,12 @@ class CanvasList(QDockWidget):
             # Store metadata for the canvas
             list_item.setData(Qt.UserRole, canvas)
 
+        # Select the first item by default if it exists
+        if self.list_widget.count() > 0:
+            self.list_widget.setCurrentRow(0)
+            first_item = self.list_widget.item(0)
+            self.handle_item_clicked(first_item)
+
         self.pagination_label.setText(
             f"Showing {start_idx + 1} to {end_idx} of {len(canvases_list)}"
         )

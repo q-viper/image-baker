@@ -20,15 +20,19 @@ class LayerSettings(QDockWidget):
     layerState = Signal(LayerState)
     messageSignal = Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, max_xpos=1000, max_ypos=1000, max_scale=100):
         super().__init__("BaseLayer Settings", parent)
         self.selected_layer: BaseLayer = None
+
+        self._disable_updates = False
+        self.last_updated_time = 0
+        self.max_xpos = max_xpos
+        self.max_ypos = max_ypos
+        self.max_scale = max_scale
         self.init_ui()
         self.setFeatures(
             QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable
         )
-        self._disable_updates = False
-        self.last_updated_time = 0
         self.update_sliders()
 
     def init_ui(self):
@@ -48,15 +52,17 @@ class LayerSettings(QDockWidget):
         # Opacity slider
         self.opacity_slider = self.create_slider("Opacity:", 0, 255, 255, 1)
         self.main_layout.addWidget(self.opacity_slider["widget"])
-        self.x_slider = self.create_slider("X:", -1000, 10000, 0, 1)
+        self.x_slider = self.create_slider("X:", -self.max_xpos, self.max_xpos, 0, 1)
         self.main_layout.addWidget(self.x_slider["widget"])
-        self.y_slider = self.create_slider("Y:", -1000, 1000, 0, 1)
+        self.y_slider = self.create_slider("Y:", -self.max_ypos, self.max_ypos, 0, 1)
         self.main_layout.addWidget(self.y_slider["widget"])
         self.scale_x_slider = self.create_slider(
-            "Scale X:", 1, 500, 100, 100
+            "Scale X:", -self.max_scale, self.max_scale, 100, 100
         )  # 1-500 becomes 0.01-5.0
         self.main_layout.addWidget(self.scale_x_slider["widget"])
-        self.scale_y_slider = self.create_slider("Scale Y:", 1, 500, 100, 100)
+        self.scale_y_slider = self.create_slider(
+            "Scale Y:", -self.max_scale, self.max_scale, 100, 100
+        )
         self.main_layout.addWidget(self.scale_y_slider["widget"])
         self.rotation_slider = self.create_slider("Rotation:", 0, 360, 0, 1)
         self.main_layout.addWidget(self.rotation_slider["widget"])
@@ -167,7 +173,7 @@ class LayerSettings(QDockWidget):
             self._disable_updates = True
 
             if self.selected_layer.selected:
-
+                self.widget.setEnabled(True)
                 self.layer_name_label.setText(
                     f"BaseLayer: {self.selected_layer.layer_name}"
                 )
