@@ -20,6 +20,14 @@ class LayerifyWorker(QObject):
     error = Signal(str)
 
     def __init__(self, image, annotations, config):
+        """
+        Worker to layerify an image based on annotations.
+
+        Args:
+            image (QPixmap): Image to layerify.
+            annotations (List[Annotation]): List of annotations to layerify.
+            config (Config): Config object containing settings.
+        """
         super().__init__()
         self.image = image.copy()
         self.annotations = annotations

@@ -66,6 +66,15 @@ class LayerifyTab(QWidget):
         canvas_config: CanvasConfig,
         loaded_models,
     ):
+        """
+        A tab for layerifying annotations and managing multiple layers.
+
+        Args:
+            main_window: The main window instance.
+            config: LayerConfig instance with settings for the tab.
+            canvas_config: CanvasConfig instance with settings for the canvas.
+            loaded_models: Dictionary of loaded models.
+        """
         super().__init__(parent=main_window)
 
         self.setFocusPolicy(Qt.StrongFocus)
@@ -236,6 +245,11 @@ class LayerifyTab(QWidget):
             self.messageSignal.emit(f"Error clearing: {str(e)}")
 
     def on_annotation_added(self, annotation: Annotation):
+        """Handle annotation added event
+
+        Args:
+            annotation (Annotation): The annotation that was added.
+        """
         if annotation.label not in self.config.predefined_labels:
             self.config.predefined_labels.append(
                 Label(annotation.label, annotation.color)
@@ -248,6 +262,12 @@ class LayerifyTab(QWidget):
         self.annotation_list.update_list()
 
     def on_annotation_updated(self, annotation: Annotation):
+        """
+        A slot to handle the annotation updated signal.
+
+        Args:
+            annotation (Annotation): The updated annotation.
+        """
         logger.info(f"Updated annotation: {annotation.label}")
         self.messageSignal.emit(f"Updated annotation: {annotation.label}")
 
@@ -255,6 +275,11 @@ class LayerifyTab(QWidget):
         self.annotation_list.update_list()
 
     def update_label_combo(self):
+        """
+        Add predefined labels to the label combo box.
+
+        This method is called when a new label is added.
+        """
         self.label_combo.clear()
         for label in self.config.predefined_labels:
             pixmap = QPixmap(16, 16)
@@ -262,6 +287,9 @@ class LayerifyTab(QWidget):
             self.label_combo.addItem(QIcon(pixmap), label.name)
 
     def load_default_image(self):
+        """
+        Load a default image from the assets folder.
+        """
         default_path = self.config.assets_folder / "desk.png"
         if not default_path.exists():
             default_path, _ = QFileDialog.getOpenFileName()
@@ -271,6 +299,10 @@ class LayerifyTab(QWidget):
             self.layer.set_image(default_path)
 
     def handle_predict(self):
+        """
+        Handle the predict button click event.
+
+        """
         if self.current_model is None:
             logger.warning("No model selected to predict")
             self.messageSignal.emit("No model selected/or loaded to predict")
@@ -354,6 +386,12 @@ class LayerifyTab(QWidget):
         self.worker_thread.start()
 
     def handle_model_result(self, predictions: list[PredictionResult]):
+        """
+        A slot to handle the model prediction results.
+
+        Args:
+            predictions (list[PredictionResult]): The list of prediction results.
+        """
         # update canvas with predictions
         for prediction in predictions:
             if prediction.class_name not in self.config.predefined_labels:
@@ -419,6 +457,12 @@ class LayerifyTab(QWidget):
         self.update_annotation_list()
 
     def handle_model_change(self, index):
+        """
+        Handle the model change event.
+
+        Args:
+            index (int): The index of the selected model.
+        """
         model_name = self.model_combo.currentText()
         self.current_model = self.all_models[model_name]
         msg = f"Model changed to {model_name}"
@@ -430,6 +474,7 @@ class LayerifyTab(QWidget):
         QMessageBox.critical(self, "Error", f"Model error: {error}")
 
     def save_annotations(self):
+        """Save annotations to a JSON file."""
         if not self.layer.annotations:
             QMessageBox.warning(self, "Warning", "No annotations to save!")
             return
@@ -453,6 +498,9 @@ class LayerifyTab(QWidget):
                 )
 
     def load_annotations(self):
+        """
+        Load annotations from a JSON file.
+        """
         options = QFileDialog.Options()
         file_name, _ = QFileDialog.getOpenFileName(
             self, "Load Annotations", "", "JSON Files (*.json)", options=options
@@ -475,9 +523,11 @@ class LayerifyTab(QWidget):
                 self.layer.update()
 
     def update_annotation_list(self):
+        """Update the annotation list with the current annotations."""
         self.annotation_list.update_list()
 
     def choose_color(self):
+        """Choose a color for the current label."""
         current_label = self.label_combo.currentText()
         label_info = next(
             (
@@ -507,6 +557,7 @@ class LayerifyTab(QWidget):
                 self.layer.update()
 
     def add_new_label(self):
+        """Add a new label to the predefined labels."""
         name, ok = QInputDialog.getText(self, "New Label", "Enter label name:")
         if not ok or not name:
             return
@@ -532,6 +583,7 @@ class LayerifyTab(QWidget):
         self.label_combo.setCurrentIndex(index)
 
     def handle_label_change(self, index):
+        """Handle the label change event."""
         label_info = self.config.predefined_labels[index]
         self.current_label = label_info.name
         # sort the labels by putting selected label on top
@@ -549,6 +601,7 @@ class LayerifyTab(QWidget):
         self.update()
 
     def add_layer(self, layer):
+        """Add a new layer to the tab."""
         # this layer i.e. canvas will have only one annotation
         logger.info(f"AnnotableLayer added: {layer.annotations[0].label}")
         self.layerAdded.emit(layer)
@@ -556,6 +609,7 @@ class LayerifyTab(QWidget):
         self.layer.update()
 
     def layerify_all(self):
+        """Layerify all annotations in the current layer."""
         if len(self.layer.annotations) == 0:
             logger.warning("No annotations to layerify")
             self.messageSignal.emit("No annotations to layerify")

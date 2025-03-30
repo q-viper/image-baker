@@ -10,6 +10,12 @@ from imagebaker.core.configs import DefaultModelConfig
 
 class BaseModel(ABC):
     def __init__(self, config: DefaultModelConfig):
+        """
+        A base class for all models.
+
+        Args:
+            config (DefaultModelConfig): Model configuration.
+        """
         self.config = config
         self.model = None
         self.image_shape: tuple = None

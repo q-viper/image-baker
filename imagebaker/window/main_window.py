@@ -18,6 +18,14 @@ class MainWindow(QMainWindow):
         canvas_config: CanvasConfig = CanvasConfig(),
         loaded_models=None,
     ):
+        """
+        Main window for Image Baker application.
+
+        Args:
+            layerify_config (LayerConfig): Configuration for Layerify tab.
+            canvas_config (CanvasConfig): Configuration for Canvas tab.
+            loaded_models (dict): Dictionary of loaded models.
+        """
         super().__init__()
         self.layerify_config = layerify_config
         self.canvas_config = canvas_config
@@ -79,10 +87,12 @@ class MainWindow(QMainWindow):
             logger.error(f"Final signal connection error: {e}")
 
     def goto_tab(self, tab_index):
+        """Switch to the specified tab index."""
         self.tab_widget.setCurrentIndex(tab_index)
         self.update_status("Switched to Layerify tab")
 
     def clear_annotations(self):
+        """Clear all annotations and layers from both tabs."""
         try:
             logger.info("Clearing all annotations")
             # Clear annotations in Layerify tab

@@ -1,0 +1,57 @@
+site_name: Image Baker Documentation
+site_description: Documentation for the Image Baker project.
+site_author: Ramkrishna Acharya
+site_url: https://q-viper.github.io/Image-Baker/
+
+# Theme configuration
+theme:
+  name: material
+  features:
+    - tabs
+    - search
+    - navigation.tabs
+    - navigation.sections
+    - toc.integrate
+  palette:
+    primary: indigo
+    accent: pink
+  font:
+    text: Roboto
+    code: Roboto Mono
+  favicon: assets/favicon_io/favicon-32x32.png
+
+# Navigation structure
+nav:
+  - Home: index.md
+  - API Reference: api-reference.md
+
+# Plugins
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: true
+            show_inherited_members: true
+            show_inherited_methods: true
+            show_private_members: false
+            filters:
+              - "!^_.*"
+  - awesome-pages
+
+# Markdown extensions
+markdown_extensions:
+  - admonition
+  - codehilite
+  - footnotes
+  - toc:
+      permalink: true
+      toc_depth: 4
+  - pymdownx.tilde
+  - pymdownx.superfences
+  - pymdownx.details
+  - pymdownx.tabbed
+# Repository configuration
+repo_url: https://github.com/q-viper/image-baker
+repo_name: Image Baker

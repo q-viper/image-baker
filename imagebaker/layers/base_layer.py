@@ -487,15 +487,41 @@ class BaseLayer(QWidget):
         raise NotImplementedError
 
     def handle_mouse_press(self, event):
+        """
+        Handle mouse press events for selecting layers, initiating transformations,
+        or starting drawing/erasing operations.
+
+        Args:
+            event (QMouseEvent): The mouse press event.
+        """
         raise NotImplementedError
 
     def handle_mouse_move(self, event):
+        """
+        Handle mouse move events for panning, drawing, erasing, or transforming layers.
+
+        Args:
+            event (QMouseEvent): The mouse move event.
+        """
         raise NotImplementedError
 
     def handle_mouse_release(self, event):
+        """
+        Handle mouse release events, such as resetting the active handle or stopping
+        drawing/erasing operations.
+
+        Args:
+            event (QMouseEvent): The mouse release event.
+        """
         raise NotImplementedError
 
     def handle_wheel(self, event):
+        """
+        Handle mouse wheel events for adjusting the brush size or zooming the canvas.
+
+        Args:
+            event (QWheelEvent): The wheel event.
+        """
         raise NotImplementedError
 
     def handle_key_press(self, event):

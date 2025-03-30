@@ -67,11 +67,6 @@ def mask_to_polygons(
     return result
 
 
-import cv2
-import numpy as np
-from typing import List, Tuple
-
-
 def mask_to_rectangles(
     mask: np.ndarray,
     merge_rectangles: bool = False,

@@ -1,12 +1,10 @@
 import torch
-import requests
 from PIL import Image
 import numpy as np
 import cv2
 from transformers import SamModel, SamProcessor
 from loguru import logger
 import time
-import matplotlib.pyplot as plt
 from skimage import measure
 from typing import Union, Optional, List
 

@@ -36,6 +36,7 @@ class LayerSettings(QDockWidget):
         self.update_sliders()
 
     def init_ui(self):
+        """Initialize the UI elements."""
         logger.info("Initializing LayerSettings")
         self.widget = QWidget()
         self.setWidget(self.widget)

@@ -18,6 +18,18 @@ class ModelPredictionWorker(QObject):
         rectangles: list[list[int]],
         label_hints: list[int],
     ):
+        """
+        A worker that runs the model prediction in a separate thread.
+
+        Args:
+            model (BaseModel): The model to use for prediction.
+            image (np.ndarray): The image to predict on.
+            points (list[int]): The points to predict on.
+            polygons (list[list[int]]): The polygons to predict on.
+            rectangles (list[list[int]]): The rectangles to predict on.
+            label_hints (list[int]): The label hints to use.
+
+        """
         super().__init__()
         self.model = model
         self.image = image

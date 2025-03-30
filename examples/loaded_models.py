@@ -1,18 +1,25 @@
+import sys
+from pathlib import Path
+
+# Add the project root to sys.path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
 from imagebaker.models.base_model import (
     DefaultModelConfig,
     BaseClassificationModel,
     get_dummy_prediction_result,
     ModelType,
 )
+from imagebaker.models.base_model import BaseDetectionModel
+from imagebaker import logger
 
-from imagebaker.models.rtdetr_v2 import RTDetrModelConfig, RTDetrDetectionModel
-from imagebaker.models.segmentation import (
+# Import models from the examples folder
+from examples.rtdetr_v2 import RTDetrModelConfig, RTDetrDetectionModel
+from examples.segmentation import (
     YoloSegmentationModel,
     YoloSegmentationModelConfig,
 )
-from imagebaker.models.sam_model import SegmentAnythingModel, SAMModelConfig
-from imagebaker.models.base_model import BaseDetectionModel
-from imagebaker import logger
+from examples.sam_model import SegmentAnythingModel, SAMModelConfig
 
 
 class ClassificationModel(BaseClassificationModel):

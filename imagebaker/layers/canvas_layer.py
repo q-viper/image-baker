@@ -49,6 +49,13 @@ class CanvasLayer(BaseLayer):
     thumbnailsAvailable = Signal(int)
 
     def __init__(self, parent=None, config=CanvasConfig()):
+        """
+        Initialize the CanvasLayer with a parent widget and configuration.
+
+        Args:
+            parent (QWidget, optional): The parent widget for this layer. Defaults to None.
+            config (CanvasConfig): Configuration settings for the canvas layer.
+        """
         super().__init__(parent, config)
         self.image = QPixmap()
         self.is_annotable = False
@@ -58,16 +65,30 @@ class CanvasLayer(BaseLayer):
         self._last_draw_point = None  # Track the last point for smooth drawing
 
     def init_ui(self):
+        """
+        Initialize the user interface for the canvas layer, including size policies
+        and storing the original size of the layer.
+        """
         logger.info(f"Initializing Layer UI of {self.layer_name}")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.original_size = QSizeF(self.image.size())  # Store original size
 
     def handle_key_release(self, event: QKeyEvent):
+        """
+        Handle key release events, such as resetting the mouse mode when the Control key is released.
+
+        Args:
+            event (QKeyEvent): The key release event.
+        """
         if event.key() == Qt.Key_Control:
             if self.mouse_mode not in [MouseMode.DRAW, MouseMode.ERASE]:
                 self.mouse_mode = MouseMode.IDLE
 
     def _update_back_buffer(self):
+        """
+        Update the back buffer for the canvas layer by rendering all visible layers
+        with their transformations and opacity settings.
+        """
         # Initialize the back buffer
         self._back_buffer = QPixmap(self.size())
         self._back_buffer.fill(Qt.GlobalColor.transparent)
@@ -106,6 +127,7 @@ class CanvasLayer(BaseLayer):
 
     ## Helper functions ##
     def handle_key_press(self, event: QKeyEvent):
+
         # Handle Delete key
         if event.key() == Qt.Key_Delete:
             self._delete_layer()
@@ -129,6 +151,13 @@ class CanvasLayer(BaseLayer):
             return  # Important: return after handling
 
     def paint_layer(self, painter: QPainter):
+        """
+        Paint the canvas layer, including all visible layers, their transformations,
+        and any drawing states or selection indicators.
+
+        Args:
+            painter (QPainter): The painter object used for rendering.
+        """
         painter.translate(self.pan_offset)
         painter.scale(self.scale, self.scale)
         for layer in self.layers:
@@ -220,7 +249,13 @@ class CanvasLayer(BaseLayer):
         painter.end()
 
     def _draw_transform_handles(self, painter, layer):
-        """Draw rotation and scaling handles"""
+        """
+        Draw rotation and scaling handles for the selected layer.
+
+        Args:
+            painter (QPainter): The painter object used for rendering.
+            layer (BaseLayer): The layer for which the handles are drawn.
+        """
         # Create transform including both scales
         transform = QTransform()
         transform.translate(layer.position.x(), layer.position.y())
@@ -315,6 +350,13 @@ class CanvasLayer(BaseLayer):
             )
 
     def _add_drawing_state(self, pos: QPointF):
+        """
+        Add a new drawing state to the selected layer or the canvas layer itself,
+        based on the current mouse mode (DRAW or ERASE).
+
+        Args:
+            pos (QPointF): The position where the drawing state is added.
+        """
         """Add a new drawing state."""
         self.selected_layer = self._get_selected_layer()
         layer = self.selected_layer if self.selected_layer else self
@@ -679,6 +721,16 @@ class CanvasLayer(BaseLayer):
         return None
 
     def add_layer(self, layer: BaseLayer, index=-1):
+        """
+        This function adds a new layer to the canvas layer.
+
+        Args:
+            layer (BaseLayer): The layer to add.
+            index (int, optional): The index at which to add the layer. Defaults to -1.
+
+        Raises:
+            ValueError: If the layer is not a BaseLayer instance
+        """
         layer.layer_name = f"{len(self.layers) + 1}_" + layer.layer_name
         if index >= 0:
             self.layers.append(layer)
@@ -690,12 +742,18 @@ class CanvasLayer(BaseLayer):
         self.messageSignal.emit(f"Added layer {layer.layer_name}")
 
     def clear_layers(self):
+        """
+        Clear all layers from the canvas layer.
+        """
         self.layers.clear()
         self._update_back_buffer()
         self.update()
         self.messageSignal.emit("Cleared all layers")
 
     def _copy_layer(self):
+        """
+        Copy the selected layer to the clipboard.
+        """
         self.selected_layer = self._get_selected_layer()
         if self.selected_layer:
             self.copied_layer = self.selected_layer.copy()
@@ -704,6 +762,9 @@ class CanvasLayer(BaseLayer):
             self.messageSignal.emit("No layer selected to copy.")
 
     def _paste_layer(self):
+        """
+        Paste the copied layer to the canvas layer.
+        """
         if self.copied_layer:
             new_layer = self.copied_layer.copy()
             new_layer.position += QPointF(10, 10)
@@ -734,6 +795,15 @@ class CanvasLayer(BaseLayer):
         #         self.update()
 
     def export_current_state(self, export_to_annotation_tab=False):
+        """
+        Export the current state of the canvas layer to an image file or annotation tab.
+
+        Args:
+            export_to_annotation_tab (bool, optional): Whether to export the image to the annotation tab. Defaults to False.
+
+        Raises:
+            ValueError: If the layer is not a BaseLayer instance
+        """
         if not self.layers:
             QMessageBox.warning(
                 self,
@@ -790,12 +860,18 @@ class CanvasLayer(BaseLayer):
         self.worker_thread.start()
 
     def handle_baker_error(self, error_msg):
+        """
+        To handle any errors that occur during the baking process.
+        """
         self.loading_dialog.close()
         QMessageBox.critical(
             self.parentWidget(), "Error", f"Processing failed: {error_msg}"
         )
 
     def predict_state(self):
+        """
+        To send the current state to the prediction tab.
+        """
         self.export_current_state(export_to_annotation_tab=True)
 
     def play_states(self):

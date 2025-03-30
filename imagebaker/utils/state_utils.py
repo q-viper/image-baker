@@ -2,10 +2,17 @@ from imagebaker.core.defs import LayerState, DrawingState
 from PySide6.QtCore import QPointF
 
 
-def calculate_intermediate_states(previous_state, current_state, steps: int):
+def calculate_intermediate_states(
+    previous_state: LayerState | None, current_state: LayerState | None, steps: int
+):
     """
     Calculate intermediate states between previous_state and current_state for a layer.
     Append the current_state to the list of states after calculating intermediates.
+
+    Args:
+        previous_state (LayerState): Previous state of the layer.
+        current_state (LayerState): Current state of the layer.
+        steps (int): Number of intermediate states to calculate.
     """
     if not previous_state or not current_state:
         return [current_state]  # If no previous state, return only the current state

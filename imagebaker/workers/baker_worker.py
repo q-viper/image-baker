@@ -26,6 +26,14 @@ class BakerWorker(QObject):
         layers: list["Layer"],
         filename: Path,
     ):
+        """
+        Worker to bake the images and masks for a given set of states.
+
+        Args:
+            states: Dictionary of step -> list of LayerState objects
+            layers: List of Layer objects
+            filename: Path to the output file
+        """
         super().__init__()
         self.states = states  # Dictionary of step -> list of states
         self.layers = layers

@@ -38,7 +38,17 @@ def qpixmap_to_numpy(pixmap: QPixmap | QImage) -> np.ndarray:
     return arr
 
 
-def draw_annotations(image: np.ndarray, annotations: list[Annotation]):
+def draw_annotations(image: np.ndarray, annotations: list[Annotation]) -> np.ndarray:
+    """
+    Draw annotations on an image.
+
+    Args:
+        image (np.ndarray): Image to draw on.
+        annotations (list[Annotation]): List of annotations to draw.
+
+    Returns:
+        np.ndarray: Image with annotations drawn.
+    """
     for i, ann in enumerate(annotations):
         if ann.rectangle:
             cv2.rectangle(

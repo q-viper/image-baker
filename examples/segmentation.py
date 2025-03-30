@@ -6,7 +6,6 @@ import cv2
 from loguru import logger
 import time
 from ultralytics import YOLO
-from PIL import Image
 import torch
 
 

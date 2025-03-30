@@ -30,6 +30,7 @@ class BakerTab(QWidget):
     bakingResult = Signal(BakingResult)
 
     def __init__(self, main_window, config: CanvasConfig):
+        """Initialize the Baker Tab."""
         super().__init__(main_window)
         self.main_window = main_window
         self.config = config
@@ -45,6 +46,7 @@ class BakerTab(QWidget):
         self.init_ui()
 
     def init_ui(self):
+        """Initialize the UI components."""
         # Create toolbar
         self.create_toolbar()
 
@@ -341,14 +343,17 @@ class BakerTab(QWidget):
             self.messageSignal.emit(f"Selected custom color: {color.name()}")
 
     def export_for_annotation(self):
+        """Export the baked states for annotation."""
         self.messageSignal.emit("Exporting states for prediction...")
         self.current_canvas.export_baked_states(export_to_annotation_tab=True)
 
     def export_locally(self):
+        """Export the baked states locally."""
         self.messageSignal.emit("Exporting baked states...")
         self.current_canvas.export_baked_states()
 
     def play_saved_states(self):
+        """Play the saved states in sequence."""
         self.messageSignal.emit("Playing saved state...")
 
         # Enable the timeline slider
@@ -372,6 +377,7 @@ class BakerTab(QWidget):
         self.current_canvas.play_states()
 
     def save_current_state(self):
+        """Save the current state of the canvas."""
         self.messageSignal.emit("Saving current state...")
         logger.info(f"Saving current state for {self.steps_spinbox.value()}...")
 
@@ -423,10 +429,12 @@ class BakerTab(QWidget):
         self.current_canvas.update()
 
     def export_current_state(self):
+        """Export the current state as an image."""
         self.messageSignal.emit("Exporting current state...")
         self.current_canvas.export_current_state()
 
     def predict_state(self):
+        """Pass the current state to predict."""
         self.messageSignal.emit("Predicting state...")
 
         self.current_canvas.predict_state()
