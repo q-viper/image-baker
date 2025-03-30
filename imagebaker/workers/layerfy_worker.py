@@ -12,6 +12,7 @@ from PySide6.QtGui import (
 
 
 from imagebaker.core.defs import Annotation
+from imagebaker import logger
 
 
 class LayerifyWorker(QObject):
@@ -27,6 +28,7 @@ class LayerifyWorker(QObject):
     def process(self):
         try:
             for annotation in self.annotations:
+                logger.info(f"Layerifying annotation {annotation}")
                 if annotation.rectangle:
                     cropped_image = self.image.copy(annotation.rectangle.toRect())
                 elif annotation.polygon:

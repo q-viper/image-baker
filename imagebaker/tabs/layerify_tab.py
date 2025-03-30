@@ -716,6 +716,11 @@ class LayerifyTab(QWidget):
         )
         layer.annotations = baking_result.annotations
 
+        layer.annotationAdded.connect(self.annotation_list.update_list)
+        layer.annotationUpdated.connect(self.annotation_list.update_list)
+        layer.messageSignal.connect(self.messageSignal)
+        layer.layerSignal.connect(self.add_layer)
+
         layer.set_image(baking_result.image)  # Set the baked result's image
         layer.setVisible(True)  # Hide the layer initially
         self.main_layout.addWidget(layer)  # Add the layer to the layout
@@ -726,6 +731,8 @@ class LayerifyTab(QWidget):
         # Add baked result to image_entries
         baked_result_entry = ImageEntry(is_baked_result=True, data=layer)
         self.image_entries.append(baked_result_entry)
+        # baking_result.image.save(str(baking_result.filename))
+        layer.update()
 
         logger.info("A baked result has arrived, adding it to the image list.")
 

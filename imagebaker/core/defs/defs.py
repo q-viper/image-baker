@@ -22,6 +22,8 @@ class MouseMode(Enum):
     RESIZE_HEIGHT = 8
     RESIZE_WIDTH = 9
     GRAB = 11
+    DRAW = 12
+    ERASE = 13
 
 
 class ModelType(str, Enum):
@@ -29,6 +31,13 @@ class ModelType(str, Enum):
     SEGMENTATION = "segmentation"
     CLASSIFICATION = "classification"
     PROMPT = "prompt"
+
+
+@dataclass
+class DrawingState:
+    position: QPointF = field(default_factory=lambda: QPointF(0, 0))
+    color: QColor = field(default_factory=lambda: QColor(255, 255, 255))
+    size: int = 5
 
 
 class PredictionResult(BaseModel):
@@ -66,6 +75,7 @@ class LayerState:
     selected: bool = False
     is_annotable: bool = True
     status: str = "Ready"
+    drawing_states: list[DrawingState] = field(default_factory=list)
 
     def copy(self):
         return LayerState(
@@ -87,6 +97,14 @@ class LayerState:
             selected=self.selected,
             is_annotable=self.is_annotable,
             status=self.status,
+            drawing_states=[
+                DrawingState(
+                    QPointF(d.position.x(), d.position.y()),
+                    QColor(d.color.red(), d.color.green(), d.color.blue()),
+                    d.size,
+                )
+                for d in self.drawing_states
+            ],
         )
 
 
@@ -233,6 +251,7 @@ class Annotation:
 @dataclass
 class BakingResult:
     filename: Path
+    step: int = 0
     image: QImage = field(default=None)
     masks: list[np.ndarray] = field(default_factory=list)
     mask_names: list[str] = field(default_factory=list)

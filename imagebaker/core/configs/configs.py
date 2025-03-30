@@ -126,6 +126,8 @@ class CursorDef:
     TRANSFORM_ALL: Qt.CursorShape = Qt.SizeAllCursor
     GRAB_CURSOR: Qt.CursorShape = Qt.OpenHandCursor
     GRABBING_CURSOR: Qt.CursorShape = Qt.ClosedHandCursor
+    DRAW_CURSOR: Qt.CursorShape = Qt.CrossCursor
+    ERASE_CURSOR: Qt.CursorShape = Qt.CrossCursor
 
 
 class DefaultModelConfig(BaseModel):

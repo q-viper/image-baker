@@ -1,4 +1,4 @@
-from imagebaker.core.defs import LayerState
+from imagebaker.core.defs import LayerState, DrawingState
 from PySide6.QtCore import QPointF
 
 
@@ -11,7 +11,7 @@ def calculate_intermediate_states(previous_state, current_state, steps: int):
         return [current_state]  # If no previous state, return only the current state
 
     intermediate_states = []
-    for i in range(steps):
+    for i in range(1, steps + 1):
         # Interpolate attributes between previous_state and current_state
         interpolated_state = LayerState(
             layer_id=current_state.layer_id,
@@ -56,9 +56,30 @@ def calculate_intermediate_states(previous_state, current_state, steps: int):
             is_annotable=current_state.is_annotable,
             status=current_state.status,
         )
+
+        # Deep copy the drawing_states from the previous_state
+        interpolated_state.drawing_states = [
+            DrawingState(
+                position=d.position,
+                color=d.color,
+                size=d.size,
+            )
+            for d in current_state.drawing_states
+        ]
+
         intermediate_states.append(interpolated_state)
 
     # Append the current state as the final state
+    current_state.drawing_states.extend(
+        [
+            DrawingState(
+                position=d.position,
+                color=d.color,
+                size=d.size,
+            )
+            for d in current_state.drawing_states
+        ]
+    )
     intermediate_states.append(current_state)
 
     return intermediate_states

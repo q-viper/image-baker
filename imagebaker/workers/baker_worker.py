@@ -1,4 +1,4 @@
-from PySide6.QtGui import QImage, QPainter, QTransform, QPolygonF
+from PySide6.QtGui import QImage, QPainter, QTransform, QPolygonF, QPen, QPixmap
 from PySide6.QtCore import (
     Qt,
     QPoint,
@@ -10,7 +10,7 @@ from PySide6.QtCore import (
 import sys
 from pathlib import Path
 
-from imagebaker.core.defs.defs import BakingResult, Annotation
+from imagebaker.core.defs.defs import BakingResult, Annotation, LayerState
 from imagebaker.utils.transform_mask import mask_to_polygons, mask_to_rectangles
 from imagebaker import logger
 from imagebaker.utils.image import qpixmap_to_numpy
@@ -85,19 +85,55 @@ class BakerWorker(QObject):
                         layer = self._get_layer(state.layer_id)
 
                         if layer and layer.visible and not layer.image.isNull():
+                            # Draw the layer image with transformations
                             painter.save()
-                            painter.translate(layer.position - top_left)
-                            painter.rotate(layer.rotation)
-                            painter.scale(layer.scale_x, layer.scale_y)
-                            painter.setOpacity(layer.opacity)
-                            painter.drawPixmap(QPoint(0, 0), layer.image)
-                            painter.restore()
+                            try:
+                                painter.translate(layer.position - top_left)
+                                painter.rotate(layer.rotation)
+                                painter.scale(layer.scale_x, layer.scale_y)
+                                pixmap_with_alpha = QPixmap(layer.image.size())
+                                pixmap_with_alpha.fill(Qt.transparent)
 
-                            if layer.allow_annotation_export:
-                                # Create layer mask
-                                layer_mask = QImage(width, height, QImage.Format_ARGB32)
-                                layer_mask.fill(Qt.transparent)
-                                mask_painter = QPainter(layer_mask)
+                                temp_painter = QPainter(pixmap_with_alpha)
+                                try:
+                                    opacity = layer.opacity / 255.0
+                                    temp_painter.setOpacity(opacity)
+                                    temp_painter.drawPixmap(0, 0, layer.image)
+                                finally:
+                                    temp_painter.end()
+
+                                painter.drawPixmap(0, 0, pixmap_with_alpha)
+                            finally:
+                                painter.restore()
+
+                            # Draw the drawing states
+                            if state.drawing_states:
+                                painter.save()
+                                try:
+                                    painter.translate(layer.position - top_left)
+                                    painter.rotate(layer.rotation)
+                                    painter.scale(layer.scale_x, layer.scale_y)
+                                    for drawing_state in state.drawing_states:
+                                        painter.setPen(
+                                            QPen(
+                                                drawing_state.color,
+                                                drawing_state.size,
+                                                Qt.SolidLine,
+                                                Qt.RoundCap,
+                                                Qt.RoundJoin,
+                                            )
+                                        )
+                                        painter.drawPoint(
+                                            drawing_state.position - top_left
+                                        )
+                                finally:
+                                    painter.restore()
+
+                            # Generate the layer mask
+                            layer_mask = QImage(width, height, QImage.Format_ARGB32)
+                            layer_mask.fill(Qt.transparent)
+                            mask_painter = QPainter(layer_mask)
+                            try:
                                 mask_painter.setRenderHints(
                                     QPainter.Antialiasing
                                     | QPainter.SmoothPixmapTransform
@@ -106,38 +142,61 @@ class BakerWorker(QObject):
                                 mask_painter.rotate(layer.rotation)
                                 mask_painter.scale(layer.scale_x, layer.scale_y)
                                 mask_painter.drawPixmap(QPoint(0, 0), layer.image)
+
+                                if state.drawing_states:
+                                    mask_painter.save()
+                                    try:
+                                        for drawing_state in state.drawing_states:
+                                            mask_painter.setPen(
+                                                QPen(
+                                                    Qt.black,
+                                                    drawing_state.size,
+                                                    Qt.SolidLine,
+                                                    Qt.RoundCap,
+                                                    Qt.RoundJoin,
+                                                )
+                                            )
+                                            mask_painter.drawPoint(
+                                                drawing_state.position
+                                            )
+                                    finally:
+                                        mask_painter.restore()
+                            finally:
                                 mask_painter.end()
 
-                                # Convert mask to 8-bit
-                                mask_arr = qpixmap_to_numpy(layer_mask)
-                                alpha_channel = mask_arr[
-                                    :, :, 3
-                                ].copy()  # Extract alpha
+                            # Convert mask to 8-bit
+                            mask_arr = qpixmap_to_numpy(layer_mask)
+                            alpha_channel = mask_arr[:, :, 3].copy()  # Extract alpha
 
-                                # Binarize the mask (0 or 255)
-                                alpha_channel[alpha_channel > 0] = 255
+                            # Binarize the mask (0 or 255)
+                            alpha_channel[alpha_channel > 0] = 255
 
-                                masks.append(alpha_channel)
-                                mask_names.append(layer.layer_name)
+                            masks.append(alpha_channel)
+                            mask_names.append(layer.layer_name)
 
-                                # Generate annotations
+                            # Generate annotations
+                            if layer.allow_annotation_export:
                                 ann: Annotation = layer.annotations[0]
                                 new_annotation = self._generate_annotation(
                                     ann, alpha_channel
                                 )
-
                                 new_annotations.append(new_annotation)
                 finally:
                     painter.end()
 
                 # Save the image
                 filename = self.filename.parent / f"{self.filename.stem}_{step}.png"
-                image.save(str(filename))
-                logger.info(f"Saved baked image for step {step} to {filename}")
 
                 # Append the result
                 results.append(
-                    BakingResult(filename, image, masks, mask_names, new_annotations)
+                    BakingResult(
+                        filename=filename,
+                        step=step,
+                        image=image,
+                        masks=masks,
+                        mask_names=mask_names,
+                        annotations=new_annotations,
+                    )
                 )
 
             # Emit all results
@@ -146,8 +205,6 @@ class BakerWorker(QObject):
         except Exception as e:
             logger.error(f"Error in BakerWorker: {e}")
             self.error.emit(str(e))
-            import traceback
-
             traceback.print_exc()
 
     def _get_layer(self, layer_id):

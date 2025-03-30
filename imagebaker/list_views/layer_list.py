@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QAbstractItemView,
     QCheckBox,
+    QDialog,
 )
 
 # from imagebaker.tab_views import BaseLayer
@@ -110,6 +111,16 @@ class LayerList(QDockWidget):
         # Clear the list
         self.list_widget.clear()
         selected_layer = None
+
+        if not self.canvas:
+            # No canvas, show dialog and return
+            logger.warning("No canvas found")
+            QDialog.critical(
+                self,
+                "Error",
+                "No canvas found. Please create a canvas first.",
+                QDialog.StandardButton.Ok,
+            )
 
         # Add all layers to the list
         for idx, layer in enumerate(self.layers):

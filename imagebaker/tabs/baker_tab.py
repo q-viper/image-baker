@@ -1,13 +1,14 @@
 from imagebaker.list_views import LayerList, LayerSettings
 from imagebaker.list_views.canvas_list import CanvasList
 from imagebaker.layers.canvas_layer import CanvasLayer
-from imagebaker.core.defs import BakingResult
+from imagebaker.core.defs import BakingResult, MouseMode, Annotation
 from imagebaker.core.configs import CanvasConfig
 from imagebaker import logger
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QColorDialog,
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
     QSlider,
     QLabel,
     QSpinBox,
+    QComboBox,
 )
 from collections import deque
 
@@ -284,6 +286,29 @@ class BakerTab(QWidget):
                 self.timeline_slider.valueChanged.connect(self.seek_state)
                 baker_toolbar_layout.addWidget(self.timeline_slider)
 
+        # Add a drawing button
+        draw_button = QPushButton("✏️ Draw")
+        draw_button.setCheckable(True)  # Make it toggleable
+        draw_button.clicked.connect(self.toggle_drawing_mode)
+        baker_toolbar_layout.addWidget(draw_button)
+
+        # Add an erase button
+        erase_button = QPushButton("🧹 Erase")
+        erase_button.setCheckable(True)  # Make it toggleable
+        erase_button.clicked.connect(self.toggle_erase_mode)
+        baker_toolbar_layout.addWidget(erase_button)
+
+        # Add a color selector (dropdown)
+        self.color_selector = QComboBox()
+        self.color_selector.addItems(["Black", "Red", "Green", "Blue", "Custom"])
+        self.color_selector.currentIndexChanged.connect(self.update_drawing_color)
+        baker_toolbar_layout.addWidget(self.color_selector)
+
+        # Add a color picker button
+        color_picker_button = QPushButton("🎨")
+        color_picker_button.clicked.connect(self.open_color_picker)
+        baker_toolbar_layout.addWidget(color_picker_button)
+
         # Add a spacer to push the rest of the elements to the right
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -291,6 +316,48 @@ class BakerTab(QWidget):
 
         # Add the toolbar to the main layout
         self.main_layout.addWidget(self.toolbar)
+
+    def toggle_drawing_mode(self):
+        """Toggle drawing mode on the current canvas."""
+        if self.current_canvas:
+            self.current_canvas.mouse_mode = (
+                MouseMode.DRAW
+                if self.current_canvas.mouse_mode != MouseMode.DRAW
+                else MouseMode.IDLE
+            )
+            mode = self.current_canvas.mouse_mode.name.lower()
+            self.messageSignal.emit(f"Drawing mode {mode}.")
+
+    def toggle_erase_mode(self):
+        """Toggle drawing mode on the current canvas."""
+        if self.current_canvas:
+            self.current_canvas.mouse_mode = (
+                MouseMode.ERASE
+                if self.current_canvas.mouse_mode != MouseMode.ERASE
+                else MouseMode.IDLE
+            )
+            mode = self.current_canvas.mouse_mode.name.lower()
+            self.messageSignal.emit(f"Erasing mode {mode}.")
+
+    def update_drawing_color(self, index):
+        """Update the drawing color based on the selected color."""
+        colors = {
+            0: Qt.black,
+            1: Qt.red,
+            2: Qt.green,
+            3: Qt.blue,
+        }
+        if index in colors:
+            self.current_canvas.drawing_color = colors[index]
+        else:
+            self.open_color_picker()
+
+    def open_color_picker(self):
+        """Open a color picker dialog to select a custom color."""
+        color = QColorDialog.getColor()
+        if color.isValid():
+            self.current_canvas.drawing_color = color
+            self.messageSignal.emit(f"Selected custom color: {color.name()}")
 
     def export_for_annotation(self):
         self.messageSignal.emit("Exporting states for prediction...")
@@ -304,7 +371,6 @@ class BakerTab(QWidget):
         self.messageSignal.emit("Playing saved state...")
 
         # Enable the timeline slider
-        self.timeline_slider.setEnabled(True)
 
         # Update the slider range based on the number of states
         if self.current_canvas.states:
@@ -313,11 +379,14 @@ class BakerTab(QWidget):
             self.steps_spinbox.setValue(
                 num_states
             )  # Sync the spinbox with the number of states
+            self.timeline_slider.setEnabled(True)
         else:
             self.timeline_slider.setMaximum(0)
             self.steps_spinbox.setValue(1)
             self.messageSignal.emit("No saved states available.")
+            self.timeline_slider.setEnabled(False)
 
+        self.timeline_slider.update()
         # Start playing the states
         self.current_canvas.play_states()
 
@@ -389,11 +458,22 @@ class BakerTab(QWidget):
 
     def keyPressEvent(self, event):
         """Handle key press events."""
-        # if ctrl + s is pressed, save the current state
+        # Ctrl + S: Save the current state
+        curr_mode = self.current_canvas.mouse_mode
         if event.key() == Qt.Key_S and event.modifiers() == Qt.ControlModifier:
             self.save_current_state()
+            self.current_canvas.mouse_mode = curr_mode
+            self.current_canvas.update()
+        # if ctrl + D: Toggle drawing mode
+        if event.key() == Qt.Key_D and event.modifiers() == Qt.ControlModifier:
+            self.toggle_drawing_mode()
+            self.current_canvas.update()
+        # if ctrl + E: Toggle erase mode
+        if event.key() == Qt.Key_E and event.modifiers() == Qt.ControlModifier:
+            self.toggle_erase_mode()
+            self.current_canvas.update()
 
-        # if delete is pressed, delete the selected layer
+        # Delete: Delete the selected layer
         if event.key() == Qt.Key_Delete:
             if (
                 self.current_canvas.selected_layer
@@ -407,5 +487,21 @@ class BakerTab(QWidget):
             self.layer_list.update_list()
             self.layer_settings.update_sliders()
             self.messageSignal.emit("Deleted selected layer")
+
+        # Ctrl + N: Add a new layer to the current canvas
+        if event.key() == Qt.Key_N and event.modifiers() == Qt.ControlModifier:
+            new_layer = CanvasLayer(parent=self.current_canvas)
+            new_layer.layer_name = f"Layer {len(self.current_canvas.layers) + 1}"
+            new_layer.annotations = [
+                Annotation(annotation_id=0, label="New Annotation"),
+            ]
+            balnk_qimage = QPixmap(self.current_canvas.size())
+            balnk_qimage.fill(Qt.transparent)
+            new_layer.set_image(balnk_qimage)
+            self.current_canvas.layers.append(new_layer)
+            self.current_canvas.update()
+            self.layer_list.update_list()
+            self.messageSignal.emit(f"Added new layer: {new_layer.layer_name}")
+
         self.update()
         return super().keyPressEvent(event)

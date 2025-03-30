@@ -15,16 +15,18 @@ The concept involves extracting portions of an image (e.g., objects of interest)
 ### Installation
 
 #### Using PIP
+This project is also available in PyPI server.
 
 ```bash
 pip install imagebaker
 ```
 
 #### Developing
-
-Clone this repository and install it locally:
+Please, clone this repository and install it locally:
 
 ```bash
+git clone https://github.com/q-viper/image-baker.git 
+cd image-baker
 pip install -e .
 ```
 
@@ -36,7 +38,7 @@ Run the following command to launch the GUI:
 imagebaker
 ```
 
-If the command does not work, try running the example script:
+If the command does not work, try running the example script after cloning the project.:
 
 ```bash
 python examples/app.py
@@ -61,9 +63,15 @@ python examples/app.py
 * **Right Click**: Deselect an annotation/layer. While on annotating polygon, undo last point.
 * **Ctrl + Mouse Wheel**: Zoom In/Out on the mouse position i.e. resizes the viewport.
 * **Ctrl + Drag**: If done on the background, the viewport is panned.
-* **Ctrl + S**: Save State.
+* **Ctrl + S**: Save State on Baker Tab.
+* **Ctrl + D**: Draw Mode on Baker Tab. Drawing can happen on a selected or main layer.
+* **Ctrl + E**: Erase Mode on Baker Tab.
+* **Wheel**: Change size of the drawing pointer.
+
 
 
 ## Contributions
 
-Contributions are welcome! Feel free to open issues or submit pull requests to improve the project.
+Contributions are welcome! 
+
+Do you find this project to be useful and looking for some features that is not implemented yet? Feel free to open issues or submit pull requests to improve the project.

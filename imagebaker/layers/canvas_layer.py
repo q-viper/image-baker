@@ -1,9 +1,8 @@
 from imagebaker.core.configs import CanvasConfig
-from imagebaker.core.defs import Annotation, MouseMode
+from imagebaker.core.defs import Annotation, MouseMode, BakingResult, DrawingState
 from imagebaker.layers import BaseLayer
 from imagebaker.core.configs import CursorDef
 from imagebaker import logger
-from imagebaker.core.defs import BakingResult
 from imagebaker.workers import BakerWorker
 from imagebaker.utils.image import qpixmap_to_numpy, draw_annotations
 
@@ -56,6 +55,8 @@ class CanvasLayer(BaseLayer):
         self.last_pan_point = None
         self.state_thumbnail = dict()
 
+        self._last_draw_point = None  # Track the last point for smooth drawing
+
     def init_ui(self):
         logger.info(f"Initializing Layer UI of {self.layer_name}")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -63,7 +64,8 @@ class CanvasLayer(BaseLayer):
 
     def handle_key_release(self, event: QKeyEvent):
         if event.key() == Qt.Key_Control:
-            self.mouse_mode = MouseMode.IDLE
+            if self.mouse_mode not in [MouseMode.DRAW, MouseMode.ERASE]:
+                self.mouse_mode = MouseMode.IDLE
 
     def _update_back_buffer(self):
         # Initialize the back buffer
@@ -103,7 +105,6 @@ class CanvasLayer(BaseLayer):
         self.image = self._back_buffer
 
     ## Helper functions ##
-
     def handle_key_press(self, event: QKeyEvent):
         # Handle Delete key
         if event.key() == Qt.Key_Delete:
@@ -112,7 +113,8 @@ class CanvasLayer(BaseLayer):
 
         # Handle Ctrl key
         if event.key() == Qt.Key_Control:
-            self.mouse_mode = MouseMode.PAN
+            if self.mouse_mode not in [MouseMode.DRAW, MouseMode.ERASE]:
+                self.mouse_mode = MouseMode.PAN
 
             return  # Important: return after handling
 
@@ -174,6 +176,47 @@ class CanvasLayer(BaseLayer):
 
                 if layer.selected:
                     self._draw_transform_handles(painter, layer)
+                if layer.layer_state.drawing_states:
+                    painter.save()
+                    painter.translate(layer.position)
+                    painter.rotate(layer.rotation)
+                    painter.scale(layer.scale_x, layer.scale_y)
+
+                    for state in layer.layer_state.drawing_states:
+                        painter.setRenderHints(QPainter.Antialiasing)
+                        painter.setPen(
+                            QPen(
+                                state.color,
+                                state.size,
+                                Qt.SolidLine,
+                                Qt.RoundCap,
+                                Qt.RoundJoin,
+                            )
+                        )
+                        # Draw the point after applying transformations
+                        painter.drawPoint(state.position)
+
+                    painter.restore()
+        if self.layer_state.drawing_states:
+            painter.save()
+            painter.translate(self.position)
+            painter.rotate(self.rotation)
+            painter.scale(self.scale_x, self.scale_y)
+
+            for state in self.layer_state.drawing_states:
+                painter.setRenderHints(QPainter.Antialiasing)
+                painter.setPen(
+                    QPen(
+                        state.color,
+                        state.size,
+                        Qt.SolidLine,
+                        Qt.RoundCap,
+                        Qt.RoundJoin,
+                    )
+                )
+                painter.drawPoint(state.position)
+
+            painter.restore()
         painter.end()
 
     def _draw_transform_handles(self, painter, layer):
@@ -271,7 +314,45 @@ class CanvasLayer(BaseLayer):
                 edge + QPointF(0, handle_size),
             )
 
+    def _add_drawing_state(self, pos: QPointF):
+        """Add a new drawing state."""
+        self.selected_layer = self._get_selected_layer()
+        layer = self.selected_layer if self.selected_layer else self
+
+        # Convert the position to be relative to the layer
+        relative_pos = pos - layer.position
+
+        if self.mouse_mode == MouseMode.ERASE:
+            # Remove drawing states within the eraser's area
+            layer.layer_state.drawing_states = [
+                state
+                for state in layer.layer_state.drawing_states
+                if (state.position - relative_pos).manhattanLength() > self.brush_size
+            ]
+        elif self.mouse_mode == MouseMode.DRAW:
+            # Add a new drawing state only if the position has changed
+            # if self._last_draw_point is None or self._last_draw_point != relative_pos:
+            drawing_state = DrawingState(
+                position=relative_pos,  # Store relative position
+                color=self.drawing_color,
+                size=self.brush_size,
+            )
+            layer.layer_state.drawing_states.append(drawing_state)
+            self._last_draw_point = relative_pos  # Update the last draw point
+            # logger.debug(f"Added drawing state at position: {relative_pos}")
+
+        self.update()  # Refresh the canvas to show the new drawing
+
     def handle_wheel(self, event: QWheelEvent):
+        if self.mouse_mode == MouseMode.DRAW or self.mouse_mode == MouseMode.ERASE:
+            # Adjust the brush size using the mouse wheel
+            delta = event.angleDelta().y() / 120  # Each step is 120 units
+            self.brush_size = max(
+                1, self.brush_size + int(delta)
+            )  # Ensure size is >= 1
+            self.messageSignal.emit(f"Brush size: {self.brush_size}")
+            self.update()  # Refresh the canvas to show the updated brush cursor
+            return
         if event.modifiers() & Qt.ControlModifier:
             # Get mouse position in widget coordinates
             mouse_pos = event.position()
@@ -302,13 +383,29 @@ class CanvasLayer(BaseLayer):
             self.update()
 
     def handle_mouse_release(self, event: QMouseEvent):
+
         if event.button() == Qt.LeftButton:
             self._active_handle = None
             self._dragging_layer = None
-            self.mouse_mode = MouseMode.IDLE
+
+            # Reset drawing state
+            if self.mouse_mode in [MouseMode.DRAW, MouseMode.ERASE]:
+                self._last_draw_point = None
+                self.update()  # Refresh the canvas to show the updated brush cursor
 
     def handle_mouse_move(self, event: QMouseEvent):
         pos = (event.position() - self.pan_offset) / self.scale
+        # logger.info(f"Drawing states: {self.layer_state.drawing_states}")
+
+        # Update cursor position for the brush
+        self._cursor_position = event.position()
+
+        if event.buttons() & Qt.LeftButton:
+            # Handle drawing or erasing
+            if self.mouse_mode in [MouseMode.DRAW, MouseMode.ERASE]:
+                self._add_drawing_state(pos)
+                # self._last_draw_point = pos
+                return
 
         if self.mouse_mode == MouseMode.PAN:
             if (
@@ -443,6 +540,12 @@ class CanvasLayer(BaseLayer):
     def handle_mouse_press(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
             pos = (event.position() - self.pan_offset) / self.scale
+            if self.mouse_mode in [MouseMode.DRAW, MouseMode.ERASE]:
+                logger.info(f"Drawing mode: {self.mouse_mode} at position: {pos}")
+                # Add a drawing state immediately on mouse press
+                self._last_draw_point = pos
+                self._add_drawing_state(pos)  # Add the drawing state here
+                return
             if event.modifiers() & Qt.ControlModifier:
                 self.mouse_mode = MouseMode.PAN
                 self.last_pan_point = event.position()
@@ -531,6 +634,7 @@ class CanvasLayer(BaseLayer):
         elif event.button() == Qt.RightButton:
             for layer in self.layers:
                 layer.selected = False
+            self.mouse_mode = MouseMode.IDLE
             self.layersChanged.emit()
             self.update()
 
@@ -574,7 +678,7 @@ class CanvasLayer(BaseLayer):
                 return layer
         return None
 
-    def add_layer(self, layer, index=-1):
+    def add_layer(self, layer: BaseLayer, index=-1):
         layer.layer_name = f"{len(self.layers) + 1}_" + layer.layer_name
         if index >= 0:
             self.layers.append(layer)
@@ -709,6 +813,7 @@ class CanvasLayer(BaseLayer):
 
             # Update the slider position
             self.parentWidget().timeline_slider.setValue(step)
+            # Clear the current drawing states
 
             for state in states:
                 # Get the layer corresponding to the state

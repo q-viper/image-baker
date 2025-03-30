@@ -1,10 +1,19 @@
 from imagebaker.core.configs import LayerConfig, CanvasConfig, CursorDef
-from imagebaker.core.defs import Annotation, MouseMode, LayerState
-from imagebaker import logger
+from imagebaker.core.defs import Annotation, MouseMode, LayerState, DrawingState
 from imagebaker.utils.state_utils import calculate_intermediate_states
+from imagebaker import logger
 
 from PySide6.QtCore import QPointF, QPoint, Qt, Signal, QSizeF, QSize
-from PySide6.QtGui import QColor, QPixmap, QPainter, QMouseEvent, QKeyEvent, QImage
+from PySide6.QtGui import (
+    QColor,
+    QPixmap,
+    QPainter,
+    QMouseEvent,
+    QKeyEvent,
+    QImage,
+    QPen,
+    QCursor,
+)
 from PySide6.QtWidgets import QWidget
 
 from typing import Optional
@@ -70,6 +79,8 @@ class BaseLayer(QWidget):
         self.states: dict[int, list[LayerState]] = dict()
         self.previous_state = None
         self.current_step = 0
+        self.drawing_color = QColor(Qt.red)  # Default drawing color
+        self.brush_size = 5  # Default brush size
 
         if isinstance(config, LayerConfig):
             self.current_label = self.config.predefined_labels[0].name
@@ -90,30 +101,59 @@ class BaseLayer(QWidget):
         calculated between the previous state and the current state.
         """
         curr_states = {}
+        mode = self.mouse_mode
 
         for layer in self.layers:
             # Calculate intermediate states between previous_state and current_state
             intermediate_states = calculate_intermediate_states(
                 layer.previous_state, layer.layer_state.copy(), steps
             )
+            is_selected = layer.selected
 
             for step, state in enumerate(intermediate_states):
-                state.selected = False
                 step += self.current_step
+
+                logger.info(f"Saving state {step} for layer {layer.layer_id}")
+                state.selected = False
                 if step not in curr_states:
                     curr_states[step] = []
+
+                # Deep copy the drawing states to avoid unintended modifications
+                state.drawing_states = [
+                    DrawingState(
+                        position=d.position,
+                        color=d.color,
+                        size=d.size,
+                    )
+                    for d in layer.layer_state.drawing_states
+                ]
                 curr_states[step].append(state)
+
             # Update the layer's previous_state to the current state
             layer.previous_state = layer.layer_state.copy()
+            layer.selected = is_selected
 
         # Save the calculated states in self.states
         for step, states in curr_states.items():
             self.states[step] = states
             self.current_step = step
+
+        # Save the current layer's state
         self.previous_state = self.layer_state.copy()
+        self.layer_state.drawing_states = [
+            DrawingState(
+                position=d.position,
+                color=d.color,
+                size=d.size,
+            )
+            for d in self.layer_state.drawing_states
+        ]
 
         # Emit a message signal indicating the state has been saved
         self.messageSignal.emit(f"Saved state {self.current_step}")
+        self.mouse_mode = mode
+
+        self.update()
 
     def minimumSizeHint(self):
         return QSize(100, 100)
@@ -143,6 +183,36 @@ class BaseLayer(QWidget):
             self.setCursor(CursorDef.TRANSFORM_LEFTRIGHT)
         elif MouseMode.GRAB == self.mouse_mode:
             self.setCursor(CursorDef.GRAB_CURSOR)
+        elif self.mouse_mode == MouseMode.DRAW:
+            # Create a custom cursor for drawing (circle representing brush size)
+            self.setCursor(self._create_custom_cursor(self.drawing_color, "circle"))
+
+        elif self.mouse_mode == MouseMode.ERASE:
+            # Create a custom cursor for erasing (square representing eraser size)
+            self.setCursor(self._create_custom_cursor(Qt.white, "square"))
+
+        else:
+            # Reset to default cursor
+            self.setCursor(Qt.ArrowCursor)
+
+    def _create_custom_cursor(self, color: QColor, shape: str) -> QCursor:
+        """Create a custom cursor with the given color and shape."""
+        pixmap = QPixmap(self.brush_size * 2, self.brush_size * 2)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHints(QPainter.Antialiasing)
+        painter.setPen(QPen(Qt.black, 1))  # Border color for the cursor
+        painter.setBrush(color)
+
+        if shape == "circle":
+            painter.drawEllipse(
+                pixmap.rect().center(), self.brush_size, self.brush_size
+            )
+        elif shape == "square":
+            painter.drawRect(pixmap.rect().adjusted(1, 1, -1, -1))
+
+        painter.end()
+        return QCursor(pixmap)
 
     def set_image(self, image_path: Path | QPixmap | QImage):
         if isinstance(image_path, Path):
@@ -475,3 +545,11 @@ class BaseLayer(QWidget):
     @status.setter
     def status(self, value: str):
         self.layer_state.status = value
+
+    @property
+    def drawing_states(self) -> list[DrawingState]:
+        return self.layer_state.drawing_states
+
+    @drawing_states.setter
+    def drawing_states(self, value: list[DrawingState]):
+        self.layer_state.drawing_states = value
