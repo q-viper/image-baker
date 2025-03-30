@@ -30,6 +30,8 @@ jobs:
       # Step 4: Deploy documentation to GitHub Pages
       - name: Deploy Docs
         run: mkdocs gh-deploy --force
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-and-publish:
     runs-on: ubuntu-latest
