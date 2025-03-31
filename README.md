@@ -1,4 +1,14 @@
 # Image-Baker
+![Dependabot Status](https://img.shields.io/badge/dependabot-active-brightgreen)
+![GitHub License](https://img.shields.io/github/license/q-viper/image-baker)
+![commit activity](https://img.shields.io/github/commit-activity/w/q-viper/SmokeSim/master)
+![code size in bytes](https://img.shields.io/github/languages/code-size/q-viper/image-baker)
+<!-- ![Tests](https://github.com/q-viper/SmokeSim/actions/workflows/test-on-push.yml/badge.svg) -->
+![Code Formatting](https://github.com/q-viper/image-baker/actions/workflows/black-formatter.yml/badge.svg)
+
+![](assets/demo.gif)
+
+*An example of baked images. (Annotations will also be extracted for all layers)*
 
 Let's bake an image.
 
