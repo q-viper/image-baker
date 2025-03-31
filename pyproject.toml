@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "imagebaker"
-version = "0.0.41"
+version = "0.0.4"
 description = "A package for baking images."
 readme = "README.md"
 license = { text = "MIT" }
@@ -30,8 +30,8 @@ dependencies = [
     "loguru"
 ]
 
-[tool.setuptools]
-packages = { find = "." }
+[project.scripts]
+imagebaker = "imagebaker.window.app:app_cli"
 
 [project.urls]
 Homepage = "https://github.com/q-viper/Image-Baker"
