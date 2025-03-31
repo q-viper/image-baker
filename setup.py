@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="imagebaker",
-    version="0.0.46",
+    version="0.0.48",
     author="Ramkrishna Acharya",
     author_email="qramkrishna@gmail.com",
     description="A package for baking images.",
@@ -25,7 +25,7 @@ setuptools.setup(
         "matplotlib>=3.4",
         "opencv-python>=4.5",
         "black>=23.1",
-        "pydantic>=2.0",
+        "pydantic>=2.11.1",
         "flake8>=6.0",
         "typer>=0.9",
         "PySide6==6.8.3",
