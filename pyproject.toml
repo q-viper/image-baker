@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "imagebaker"
-version = "0.0.4"
+version = "0.0.41"
 description = "A package for baking images."
 readme = "README.md"
 license = { text = "MIT" }
