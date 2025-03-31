@@ -8,7 +8,7 @@
 
 
 <p align="center">
-    <img src="assets/demo_centered.gif" alt="Centered Demo" />
+    <img src="assets/demo.gif" alt="Centered Demo" />
 </p>
 
 
