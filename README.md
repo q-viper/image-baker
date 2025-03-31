@@ -6,7 +6,11 @@
 <!-- ![Tests](https://github.com/q-viper/SmokeSim/actions/workflows/test-on-push.yml/badge.svg) -->
 ![Code Formatting](https://github.com/q-viper/image-baker/actions/workflows/black-formatter.yml/badge.svg)
 
-![](assets/demo.gif)
+
+<p align="center">
+    <img src="assets/demo_centered.gif" alt="Centered Demo" />
+</p>
+
 
 *An example of baked images. (Each object is a layer and an annotation will also be extracted for all layers.)*
 
