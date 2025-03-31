@@ -8,7 +8,7 @@
 
 ![](assets/demo.gif)
 
-*An example of baked images. (Annotations will also be extracted for all layers)*
+*An example of baked images. (Each object is a layer and an annotation will also be extracted for all layers.)*
 
 Let's bake an image.
 
