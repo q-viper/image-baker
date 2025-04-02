@@ -1,6 +1,8 @@
 from imagebaker.core.configs import LayerConfig, CanvasConfig
 from imagebaker import logger
 from imagebaker.tabs import LayerifyTab, BakerTab
+from imagebaker import __version__
+
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
@@ -37,7 +39,7 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         """Initialize the main window and set up tabs."""
         try:
-            self.setWindowTitle("Image Baker")
+            self.setWindowTitle(f"Image Baker v{__version__}")
             self.setGeometry(100, 100, 1200, 800)
 
             self.status_bar = self.statusBar()

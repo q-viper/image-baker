@@ -1,5 +1,5 @@
 ## April 2 2025
-Worked on [#3](https://github.com/q-viper/image-baker/issues/3), [#4](https://github.com/q-viper/image-baker/issues/4), [#5](https://github.com/q-viper/image-baker/issues/5).
+Worked on [#3](https://github.com/q-viper/image-baker/issues/3), [#4](https://github.com/q-viper/image-baker/issues/4), [#5](https://github.com/q-viper/image-baker/issues/5) and [#6](https://github.com/q-viper/image-baker/issues/6).
 
 ## Fixed
 * Handling of point movement in polygon.

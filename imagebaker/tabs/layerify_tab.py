@@ -114,7 +114,9 @@ class LayerifyTab(QWidget):
     def init_ui(self):
         """Initialize the UI components"""
         # Create annotation list and image list panel
-        self.annotation_list = AnnotationList(None, parent=self.main_window)
+        self.annotation_list = AnnotationList(
+            None, parent=self.main_window, max_name_length=self.config.max_name_length
+        )
         self.image_list_panel = ImageListPanel(
             self.image_entries, self.processed_images
         )

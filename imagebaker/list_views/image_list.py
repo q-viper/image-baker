@@ -25,6 +25,7 @@ class ImageListPanel(QDockWidget):
         image_entries: list["ImageEntry"],
         processed_images: set[Path],
         parent=None,
+        max_name_length=15,
     ):
         """
         :param image_entries: List of image paths to display.
@@ -35,6 +36,7 @@ class ImageListPanel(QDockWidget):
         self.processed_images = processed_images
         self.current_page = 0
         self.images_per_page = 10
+        self.max_name_length = max_name_length
         self.init_ui()
 
     def init_ui(self):
@@ -104,7 +106,7 @@ class ImageListPanel(QDockWidget):
                 thumbnail_pixmap = QPixmap(str(image_entry.data)).scaled(
                     50, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation
                 )
-                name_label_text = Path(image_entry.data).name
+                name_label_text = Path(image_entry.data).name[: self.max_name_length]
 
             thumbnail_label.setPixmap(thumbnail_pixmap)
             item_layout.addWidget(thumbnail_label)

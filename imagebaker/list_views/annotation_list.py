@@ -23,9 +23,10 @@ from imagebaker import logger
 class AnnotationList(QDockWidget):
     messageSignal = Signal(str)
 
-    def __init__(self, layer: AnnotableLayer, parent=None):
+    def __init__(self, layer: AnnotableLayer, parent=None, max_name_length=15):
         super().__init__("Annotations", parent)
         self.layer = layer
+        self.max_name_length = max_name_length
         self.init_ui()
 
     def init_ui(self):
@@ -100,7 +101,7 @@ class AnnotationList(QDockWidget):
                 else ann.annotator
             )
             secondary_text.append(score_text)
-            short_path = ann.file_path.stem
+            short_path = ann.file_path.stem[: self.max_name_length]
             secondary_text.append(f"<span style='color:#666;'>{short_path}</span>")
 
             if secondary_text:
