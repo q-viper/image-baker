@@ -472,10 +472,13 @@ class AnnotableLayer(BaseLayer):
                     self.selected_annotation.polygon[self.active_point_index] = (
                         clamped_pos
                     )
+                elif self.selected_annotation.points:
+                    self.selected_annotation.points[0] = clamped_pos
                 self.annotationMoved.emit()
                 self.annotationUpdated.emit(self.selected_annotation)
                 self.update()
                 return
+
             if self.mouse_mode == MouseMode.PAN and event.buttons() & Qt.LeftButton:
                 if self.pan_start:
                     delta = event.position() - self.pan_start
@@ -534,6 +537,7 @@ class AnnotableLayer(BaseLayer):
                 self.mouse_mode = MouseMode.IDLE
                 for ann in self.annotations:
                     ann.selected = False
+                    self.annotationUpdated.emit(ann)
                 self.update()
 
         # If left-clicked
@@ -559,7 +563,9 @@ class AnnotableLayer(BaseLayer):
                 elif self.selected_annotation.polygon:
                     self.initial_polygon = QPolygonF(self.selected_annotation.polygon)
                     if "point_" in self.active_handle:
-                        self.active_point = int(self.active_handle.split("_")[1])
+                        self.active_point_index = int(self.active_handle.split("_")[1])
+                elif self.selected_annotation.points:
+                    self.active_point_index = 0
 
             # If pan mode
             if self.mouse_mode == MouseMode.PAN:
@@ -646,6 +652,11 @@ class AnnotableLayer(BaseLayer):
                 if annotation.polygon.containsPoint(pos, Qt.OddEvenFill):
                     return annotation, "move"
 
+            # Check points
+            elif annotation.points:
+                if (annotation.points[0] - pos).manhattanLength() < margin:
+                    return annotation, "point_0"
+
         return None, None
 
     def handle_mouse_double_click(self, event: QMouseEvent, pos: QPoint):
@@ -656,6 +667,73 @@ class AnnotableLayer(BaseLayer):
                 break
         # if left double click
         if event.button() == Qt.LeftButton:
+            img_pos = self.widget_to_image_pos(event.position())
+
+            self.selected_annotation, self.active_handle = (
+                self.find_annotation_and_handle_at(img_pos)
+            )
+
+            if self.selected_annotation:
+                if self.selected_annotation.polygon and self.active_handle:
+                    if "point_" in self.active_handle:
+                        index = int(self.active_handle.split("_")[1])
+                        # Remove the point at the clicked index
+                        polygon = self.selected_annotation.polygon
+                        polygon = QPolygonF(
+                            [p for i, p in enumerate(polygon) if i != index]
+                        )
+
+                        self.selected_annotation.polygon = polygon
+                        self.annotationUpdated.emit(self.selected_annotation)
+                        self.update()
+                        logger.info(f"Removed point at index {index}")
+                        return
+
+                # Check if an edge was double-clicked
+                polygon = self.selected_annotation.polygon
+                if polygon:
+                    for i in range(len(polygon)):
+                        start_point = polygon[i]
+                        end_point = polygon[
+                            (i + 1) % len(polygon)
+                        ]  # Wrap around to the first point
+
+                        # Calculate the vector along the edge and the vector from the start point to the clicked position
+                        line_vector = end_point - start_point
+                        point_vector = img_pos - start_point
+
+                        # Calculate the length of the edge
+                        line_length_squared = (
+                            line_vector.x() ** 2 + line_vector.y() ** 2
+                        )
+                        if line_length_squared == 0:
+                            continue  # Avoid division by zero for degenerate edges
+
+                        # Project the point onto the line (normalized)
+                        projection = (
+                            point_vector.x() * line_vector.x()
+                            + point_vector.y() * line_vector.y()
+                        ) / line_length_squared
+
+                        # Clamp the projection to the range [0, 1] to ensure it lies on the segment
+                        projection = max(0, min(1, projection))
+
+                        # Calculate the projection point on the edge
+                        projection_point = start_point + projection * line_vector
+
+                        # Calculate the perpendicular distance from the clicked position to the edge
+                        perpendicular_distance = (
+                            img_pos - projection_point
+                        ).manhattanLength()
+
+                        # Check if the perpendicular distance is within the margin
+                        if perpendicular_distance < 10:  # Margin of 10
+                            # Insert a new point at the projection point
+                            polygon.insert(i + 1, projection_point)
+                            self.annotationUpdated.emit(self.selected_annotation)
+                            self.update()
+                            return
+
             # if drawing a polygon, close the polygon
             if (
                 self.current_annotation
@@ -670,20 +748,20 @@ class AnnotableLayer(BaseLayer):
                 return
 
             # did we click on an annotation?
-            annotation = self.find_annotation_at(self.widget_to_image_pos(pos))
-            if annotation:
-                # toggle selection
-                annotation.selected = not annotation.selected
+            # annotation = self.find_annotation_at(self.widget_to_image_pos(pos))
+            # if annotation:
+            #     # toggle selection
+            #     annotation.selected = not annotation.selected
 
-                # make all other annotations unselected
-                for ann in self.annotations:
-                    if ann != annotation:
-                        ann.selected = False
-            else:
-                # we clicked on the background
-                # make all annotations unselected
-                for ann in self.annotations:
-                    ann.selected = False
+            #     # make all other annotations unselected
+            #     for ann in self.annotations:
+            #         if ann != annotation:
+            #             ann.selected = False
+            # else:
+            #     # we clicked on the background
+            #     # make all annotations unselected
+            #     for ann in self.annotations:
+            #         ann.selected = False
             # update the view
             for ann in self.annotations:
                 self.annotationUpdated.emit(ann)

@@ -8,6 +8,11 @@ from pydantic import BaseModel, Field
 from imagebaker.core.defs import Label, ModelType
 from imagebaker import logger
 
+try:
+    from imagebaker import __version__
+except ImportError:
+    __version__ = "unknown"
+
 
 class DrawConfig(BaseModel):
     color: QColor = Field(default_factory=lambda: QColor(255, 255, 255))
@@ -37,11 +42,13 @@ class DrawConfig(BaseModel):
 
 class BaseConfig(BaseModel):
     project_name: str = "ImageBaker"
-    version: str = "0.1.0"
+    version: str = __version__
     project_dir: Path = Path(".")
 
     is_debug: bool = True
     deque_maxlen: int = 10
+    # max num_characters to show in name
+    max_name_length: int = 15
 
     # drawing configs #
     # ON SELECTION
@@ -87,6 +94,8 @@ class LayerConfig(BaseConfig):
             Label("Custom", QColor(128, 128, 128)),
         ]
     )
+    # whether to search image in subfolders as well
+    full_search: bool = False
 
     def get_label_color(self, label):
         for lbl in self.predefined_labels:

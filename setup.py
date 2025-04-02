@@ -5,7 +5,8 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="imagebaker",
-    version="0.0.48",
+    use_scm_version=True,
+    setup_requires=["setuptools_scm"],
     author="Ramkrishna Acharya",
     author_email="qramkrishna@gmail.com",
     description="A package for baking images.",

@@ -197,18 +197,7 @@ class LayerifyTab(QWidget):
         if not self.image_entries:
             assets_folder = self.config.assets_folder
             if assets_folder.exists() and assets_folder.is_dir():
-                for img_path in assets_folder.rglob("*.*"):
-                    if img_path.suffix.lower() in [
-                        ".jpg",
-                        ".jpeg",
-                        ".png",
-                        ".bmp",
-                        ".tiff",
-                    ]:
-                        # Add regular images as dictionaries with type and data
-                        self.image_entries.append(
-                            ImageEntry(is_baked_result=False, data=img_path)
-                        )
+                self._load_images_from_folder(assets_folder)
 
         # Load images into layers if any are found
         if self.image_entries:
@@ -690,6 +679,27 @@ class LayerifyTab(QWidget):
         self.model_combo.currentIndexChanged.connect(self.handle_model_change)
         toolbar_layout.addWidget(self.model_combo)
 
+    def _load_images_from_folder(self, folder_path: Path):
+        """Load images from a folder and update the image list."""
+        self.image_entries = []  # Clear the existing image paths
+
+        if self.config.full_search:
+            image_paths = list(folder_path.rglob("*.*"))
+        else:
+            image_paths = list(folder_path.glob("*.*"))
+
+        for img_path in image_paths:
+            if img_path.suffix.lower() in [
+                ".jpg",
+                ".jpeg",
+                ".png",
+                ".bmp",
+                ".tiff",
+            ]:
+                self.image_entries.append(
+                    ImageEntry(is_baked_result=False, data=img_path)
+                )
+
     def select_folder(self):
         """Allow the user to select a folder and load images from it."""
         folder_path = QFileDialog.getExistingDirectory(self, "Select Folder")
@@ -697,18 +707,7 @@ class LayerifyTab(QWidget):
             self.image_entries = []  # Clear the existing image paths
             folder_path = Path(folder_path)
 
-            # Use rglob to get all image files in the folder and subfolders
-            for img_path in folder_path.rglob("*.*"):
-                if img_path.suffix.lower() in [
-                    ".jpg",
-                    ".jpeg",
-                    ".png",
-                    ".bmp",
-                    ".tiff",
-                ]:
-                    self.image_entries.append(
-                        ImageEntry(is_baked_result=False, data=img_path)
-                    )
+            self._load_images_from_folder(folder_path)
 
             self.curr_image_idx = 0  # Reset the current image index
 
