@@ -7,6 +7,8 @@ from transformers import RTDetrV2ForObjectDetection, RTDetrImageProcessor
 
 from loguru import logger
 import time
+from imagebaker.utils.vis import annotate_detection
+from imagebaker.utils import generate_color_map
 
 # Import your base classes
 from imagebaker.models.base_model import (
@@ -15,6 +17,7 @@ from imagebaker.models.base_model import (
     ModelType,
     PredictionResult,
 )
+from imagebaker.utils import generate_color_map
 
 
 class RTDetrModelConfig(DefaultModelConfig):
@@ -61,38 +64,14 @@ class RTDetrDetectionModel(BaseDetectionModel):
 
         # Generate color map for annotations if not provided
         if not self.config.color_map:
-            self.generate_color_map()
+            color_map = generate_color_map(len(self.config.class_names))
+            self.config.color_map = {
+                class_name: color_map[i]
+                for i, class_name in enumerate(self.config.class_names)
+            }
 
         logger.info(f"Loaded model with {len(self.config.class_names)} classes")
         logger.info(f"Model running on {self.config.device}")
-
-    def generate_color_map(self):
-        """Generate a color map for the classes"""
-        num_classes = len(self.config.class_names)
-        np.random.seed(42)  # For reproducible colors
-
-        colors = {}
-        for i, class_name in enumerate(self.config.class_names):
-            # Generate distinct colors with good visibility
-            # Using HSV color space for better distribution
-            hue = i / num_classes
-            saturation = 0.8 + np.random.random() * 0.2
-            value = 0.8 + np.random.random() * 0.2
-
-            # Convert HSV to BGR (OpenCV uses BGR)
-            hsv_color = np.array(
-                [[[hue * 180, saturation * 255, value * 255]]], dtype=np.uint8
-            )
-            bgr_color = cv2.cvtColor(hsv_color, cv2.COLOR_HSV2BGR)[0][0]
-
-            # Store as (B, G, R) tuple
-            colors[class_name] = (
-                int(bgr_color[0]),
-                int(bgr_color[1]),
-                int(bgr_color[2]),
-            )
-
-        self.config.color_map = colors
 
     def preprocess(self, image: np.ndarray):
         """Convert numpy array to PIL Image for the RTDetr processor"""
@@ -136,77 +115,6 @@ class RTDetrDetectionModel(BaseDetectionModel):
 
         return results[0]  # Return the first (and only) result
 
-    def annotate_image(
-        self, image: np.ndarray, results: List[PredictionResult]
-    ) -> np.ndarray:
-        """
-        Draw bounding boxes and labels on the image
-
-        Args:
-            image: The original image as a numpy array
-            results: List of PredictionResult objects
-
-        Returns:
-            Annotated image as a numpy array
-        """
-        annotated_image = image.copy()
-
-        for result in results:
-            # Extract data from result
-            box = result.rectangle  # [x1, y1, x2, y2]
-            score = result.score
-            class_name = result.class_name
-
-            if not box:
-                continue
-
-            # Get color for this class
-            color = self.config.color_map.get(
-                class_name, (0, 255, 0)
-            )  # Default to green if not found
-
-            # Draw bounding box
-            cv2.rectangle(
-                annotated_image,
-                (box[0], box[1]),
-                (box[2], box[3]),
-                color,
-                self.config.box_thickness,
-            )
-
-            # Prepare label text with class name and score
-            label_text = f"{class_name}: {score:.2f}"
-
-            # Calculate text size to create background rectangle
-            (text_width, text_height), baseline = cv2.getTextSize(
-                label_text,
-                self.config.font_face,
-                self.config.text_scale,
-                self.config.text_thickness,
-            )
-
-            # Draw text background
-            cv2.rectangle(
-                annotated_image,
-                (box[0], box[1] - text_height - 5),
-                (box[0] + text_width, box[1]),
-                color,
-                -1,  # Fill the rectangle
-            )
-
-            # Draw text
-            cv2.putText(
-                annotated_image,
-                label_text,
-                (box[0], box[1] - 5),
-                self.config.font_face,
-                self.config.text_scale,
-                (255, 255, 255),  # White text
-                self.config.text_thickness,
-            )
-
-        return annotated_image
-
     def postprocess(self, output) -> List[PredictionResult]:
         """Convert model output to PredictionResult objects"""
         results = []
@@ -236,19 +144,17 @@ class RTDetrDetectionModel(BaseDetectionModel):
                 rectangle=[x, y, w, h],
                 annotation_time=f"{annotation_time:.6f}",
             )
+            if self.config.return_annotated_image:
+                result.annotated_image = annotate_detection(
+                    self._original_image,
+                    [result],
+                    box_thickness=self.config.box_thickness,
+                    text_thickness=self.config.text_thickness,
+                    text_scale=self.config.text_scale,
+                    font_face=self.config.font_face,
+                    color_map=self.config.color_map,
+                )
 
             results.append(result)
-
-        # If needed, add annotated image
-        if (
-            self.config.return_annotated_image
-            and len(results) > 0
-            and hasattr(self, "_original_image")
-        ):
-            annotated_image = self.annotate_image(self._original_image, results)
-
-            # Update all results with the same annotated image
-            for result in results:
-                result.annotated_image = annotated_image
 
         return results

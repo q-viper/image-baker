@@ -39,7 +39,7 @@ class BaseModel(ABC):
         return image
 
     # @abstractmethod
-    def postprocess(self, output) -> PredictionResult:
+    def postprocess(self, output) -> list[PredictionResult]:
         return output
 
     def predict(

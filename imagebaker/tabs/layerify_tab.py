@@ -463,6 +463,7 @@ class LayerifyTab(QWidget):
     def handle_model_error(self, error):
         logger.error(f"Model error: {error}")
         QMessageBox.critical(self, "Error", f"Model error: {error}")
+        self.loading_dialog.close()
 
     def save_annotations(self):
         """Save annotations to a JSON file."""
