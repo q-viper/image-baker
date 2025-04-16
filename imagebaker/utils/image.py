@@ -49,8 +49,11 @@ def draw_annotations(image: np.ndarray, annotations: list[Annotation]) -> np.nda
     Returns:
         np.ndarray: Image with annotations drawn.
     """
+    color = (0, 255, 0, 255) if image.shape[2] == 4 else (0, 255, 0)
+
     for i, ann in enumerate(annotations):
         if ann.rectangle:
+            # if image has alpha channel, make color full alpha
             cv2.rectangle(
                 image,
                 (int(ann.rectangle.x()), int(ann.rectangle.y())),
@@ -58,7 +61,7 @@ def draw_annotations(image: np.ndarray, annotations: list[Annotation]) -> np.nda
                     int(ann.rectangle.x() + ann.rectangle.width()),
                     int(ann.rectangle.y() + ann.rectangle.height()),
                 ),
-                (0, 255, 0),
+                color,
                 2,
             )
             rect_center = ann.rectangle.center()
@@ -69,7 +72,7 @@ def draw_annotations(image: np.ndarray, annotations: list[Annotation]) -> np.nda
                 (int(rect_center.x()), int(rect_center.y())),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 1,
-                (0, 255, 0),
+                color,
                 2,
             )
         elif ann.polygon:
@@ -77,7 +80,7 @@ def draw_annotations(image: np.ndarray, annotations: list[Annotation]) -> np.nda
                 image,
                 [np.array([[int(p.x()), int(p.y())] for p in ann.polygon])],
                 True,
-                (0, 255, 0),
+                color,
                 2,
             )
             polygon_center = ann.polygon.boundingRect().center()
@@ -87,19 +90,19 @@ def draw_annotations(image: np.ndarray, annotations: list[Annotation]) -> np.nda
                 (int(polygon_center.x()), int(polygon_center.y())),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 1,
-                (0, 255, 0),
+                color,
                 2,
             )
         elif ann.points:
             for p in ann.points:
-                cv2.circle(image, (int(p.x()), int(p.y())), 5, (0, 255, 0), -1)
+                cv2.circle(image, (int(p.x()), int(p.y())), 5, color, -1)
             cv2.putText(
                 image,
                 ann.label,
                 (int(ann.points[0].x()), int(ann.points[0].y())),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 1,
-                (0, 255, 0),
+                color,
                 2,
             )
     return image

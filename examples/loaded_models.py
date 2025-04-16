@@ -14,13 +14,13 @@ from imagebaker.models.base_model import BaseDetectionModel
 from imagebaker import logger
 
 # Import models from the examples folder
-# from examples.rtdetr_v2 import RTDetrModelConfig, RTDetrDetectionModel
-# from examples.segmentation import (
-#     YoloSegmentationModel,
-#     YoloSegmentationModelConfig,
-# )
+from examples.rtdetr_v2 import RTDetrModelConfig, RTDetrDetectionModel
+from examples.segmentation import (
+    YoloSegmentationModel,
+    YoloSegmentationModelConfig,
+)
 
-# from examples.sam_model import SegmentAnythingModel, SAMModelConfig
+from examples.sam_model import SegmentAnythingModel, SAMModelConfig
 
 
 class ClassificationModel(BaseClassificationModel):
@@ -40,22 +40,22 @@ class DetectionModel(BaseDetectionModel):
 
 
 return_annotated_image = True
-# detector = RTDetrDetectionModel(
-#     RTDetrModelConfig(return_annotated_image=return_annotated_image)
-# )
+detector = RTDetrDetectionModel(
+    RTDetrModelConfig(return_annotated_image=return_annotated_image)
+)
 
-# classification = ClassificationModel(
-#     DefaultModelConfig(
-#         model_type=ModelType.CLASSIFICATION,
-#         return_annotated_image=return_annotated_image,
-#     )
-# )
-# segmentation = YoloSegmentationModel(
-#     YoloSegmentationModelConfig(return_annotated_image=return_annotated_image)
-# )
-# prompt = SegmentAnythingModel(
-#     SAMModelConfig(return_annotated_image=return_annotated_image)
-# )
+classification = ClassificationModel(
+    DefaultModelConfig(
+        model_type=ModelType.CLASSIFICATION,
+        return_annotated_image=return_annotated_image,
+    )
+)
+segmentation = YoloSegmentationModel(
+    YoloSegmentationModelConfig(return_annotated_image=return_annotated_image)
+)
+prompt = SegmentAnythingModel(
+    SAMModelConfig(return_annotated_image=return_annotated_image)
+)
 dummy_detector = DetectionModel(
     DefaultModelConfig(
         model_type=ModelType.DETECTION, return_annotated_image=return_annotated_image
@@ -65,10 +65,10 @@ dummy_detector = DetectionModel(
 
 LOADED_MODELS = {
     "DummyDetectionModel": dummy_detector,
-    # "PromptModel": prompt,
-    # "SegmentationModel": segmentation,
-    # "RTDetrV2": detector,
-    # "ClassificationModel": classification,
+    "PromptModel": prompt,
+    "SegmentationModel": segmentation,
+    "RTDetrV2": detector,
+    "ClassificationModel": classification,
 }
 
 logger.info(f"Loaded models: {LOADED_MODELS}")

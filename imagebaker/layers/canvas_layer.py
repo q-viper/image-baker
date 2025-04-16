@@ -1030,7 +1030,7 @@ class CanvasLayer(BaseLayer):
                     logger.info(f"Saved baked image to {filename}")
                     if self.config.write_annotations:
                         image = qpixmap_to_numpy(image.copy())
-                        image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
+                        image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGRA)
                         drawn = draw_annotations(image, annotations)
                         write_to = filename.parent / f"annotated_{filename.name}"
 
