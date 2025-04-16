@@ -59,9 +59,13 @@ def calculate_intermediate_states(
             visible=current_state.visible,
             allow_annotation_export=current_state.allow_annotation_export,
             playing=current_state.playing,
-            selected=current_state.selected,
+            selected=False,
             is_annotable=current_state.is_annotable,
             status=current_state.status,
+            edge_opacity=previous_state.edge_opacity
+            + (current_state.edge_opacity - previous_state.edge_opacity) * (i / steps),
+            edge_width=previous_state.edge_width
+            + (current_state.edge_width - previous_state.edge_width) * (i / steps),
         )
 
         # Deep copy the drawing_states from the previous_state

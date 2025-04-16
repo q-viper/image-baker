@@ -76,6 +76,8 @@ class LayerState:
     is_annotable: bool = True
     status: str = "Ready"
     drawing_states: list[DrawingState] = field(default_factory=list)
+    edge_opacity: int = 100
+    edge_width: int = 10
 
     def copy(self):
         return LayerState(
@@ -105,6 +107,8 @@ class LayerState:
                 )
                 for d in self.drawing_states
             ],
+            edge_opacity=self.edge_opacity,
+            edge_width=self.edge_width,
         )
 
 

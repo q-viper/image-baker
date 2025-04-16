@@ -66,6 +66,7 @@ class BakerTab(QWidget):
             max_xpos=self.config.max_xpos,
             max_ypos=self.config.max_ypos,
             max_scale=self.config.max_scale,
+            max_edge_width=self.config.max_edge_width,
         )
         self.layer_list = LayerList(
             canvas=self.current_canvas,
@@ -415,15 +416,7 @@ class BakerTab(QWidget):
         """Seek to a specific state using the timeline slider."""
         self.messageSignal.emit(f"Seeking to step {step}")
         logger.info(f"Seeking to step {step}")
-
-        # Get the states for the selected step
-        if step in self.current_canvas.states:
-            states = self.current_canvas.states[step]
-            for state in states:
-                layer = self.current_canvas.get_layer(state.layer_id)
-                if layer:
-                    layer.layer_state = state
-                    layer.update()
+        self.current_canvas.seek_state(step)
 
         # Update the canvas
         self.current_canvas.update()

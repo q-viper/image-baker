@@ -49,10 +49,23 @@ class BakerWorker(QObject):
                 top_left = QPointF(sys.maxsize, sys.maxsize)
                 bottom_right = QPointF(-sys.maxsize, -sys.maxsize)
 
+                # contains all states in currenct step
                 for state in states:
                     layer = self._get_layer(state.layer_id)
                     if layer and layer.visible and not layer.image.isNull():
+                        update_opacities = False
+                        logger.debug(
+                            f"Updating layer {layer.layer_name} with state: {state}"
+                        )
+
+                        if (
+                            layer.edge_width != state.edge_width
+                            or layer.edge_opacity != state.edge_opacity
+                        ):
+                            update_opacities = True
                         layer.layer_state = state
+                        if update_opacities:
+                            layer._apply_edge_opacity()
                         layer.update()
 
                         transform = QTransform()

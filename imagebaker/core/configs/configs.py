@@ -119,6 +119,7 @@ class CanvasConfig(BaseConfig):
     write_labels: bool = True
     write_masks: bool = True
     fps: int = 5
+    max_edge_width: int = 100
 
     @property
     def export_folder(self):

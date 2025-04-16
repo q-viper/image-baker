@@ -18,6 +18,8 @@ from PySide6.QtWidgets import QWidget
 
 from typing import Optional
 from pathlib import Path
+import cv2
+import numpy as np
 
 
 class BaseLayer(QWidget):
@@ -157,7 +159,8 @@ class BaseLayer(QWidget):
         self.offset: QPointF = QPointF(0, 0)
         self.pan_start: QPointF = None
         self.pan_offset: QPointF = None
-        self.image = QPixmap()
+        self._image = QPixmap()
+        self._original_image = QPixmap()
         self.annotations: list[Annotation] = []
         self.current_annotation: Optional[Annotation] = None
         self.copied_annotation: Optional[Annotation] = None
@@ -365,7 +368,119 @@ class BaseLayer(QWidget):
             self.reset_view()
             self.update()
 
+        self._original_image = self.image.copy()  # Store a copy of the original image
         self.original_size = QSizeF(self.image.size())  # Store original size
+
+    @property
+    def image(self):
+        """
+        Get the current image of the canvas layer.
+
+        Returns:
+            QPixmap: The current image of the canvas layer.
+        """
+        return self._image
+
+    @image.setter
+    def image(self, value: QPixmap):
+        """
+        Set the image of the canvas layer.
+
+        Args:
+            value (QPixmap): The new image for the canvas layer.
+        """
+        self._image = value
+
+    def _apply_edge_opacity(self):
+        """
+        Apply edge opacity to the image. This function modifies the edges of the image
+        to have reduced opacity based on the configuration.
+        """
+        logger.debug("Applying edge opacity to the image.")
+        edge_width = self.edge_width
+        edge_opacity = self.edge_opacity
+
+        # Convert QPixmap to QImage for pixel manipulation
+        image = self._original_image.toImage()
+        image = image.convertToFormat(
+            QImage.Format_ARGB32
+        )  # Ensure format supports alpha
+
+        width = image.width()
+        height = image.height()
+        annotation = self.annotations[0] if self.annotations else None
+        if annotation is None:
+            return
+
+        if annotation.rectangle:
+            for x in range(width):
+                for y in range(height):
+                    color = image.pixelColor(x, y)
+                    if color.alpha() != 0:  # If the pixel is not fully transparent
+                        # Calculate horizontal and vertical distances to the edges
+                        horizontal_distance = min(x, width - x - 1)
+                        vertical_distance = min(y, height - y - 1)
+
+                        # If the pixel is within the edge region
+                        if (
+                            horizontal_distance < edge_width
+                            or vertical_distance < edge_width
+                        ):
+                            distance_to_edge = min(
+                                horizontal_distance, vertical_distance
+                            )
+                            # Calculate the new alpha based on the distance to the edge
+                            factor = (edge_width - distance_to_edge) / edge_width
+                            new_alpha = int(
+                                color.alpha()
+                                * ((1 - factor) + (factor * (edge_opacity / 255.0)))
+                            )
+                            color.setAlpha(new_alpha)
+                            image.setPixelColor(x, y, color)
+
+        elif annotation.polygon:
+            # Extract alpha channel and find contours
+            alpha_image = image.convertToFormat(QImage.Format_Alpha8)
+            bytes_per_line = (
+                alpha_image.bytesPerLine()
+            )  # Get the stride (bytes per line)
+            alpha_data = alpha_image.bits().tobytes()
+
+            # Extract only the valid data (remove padding)
+            alpha_array = np.frombuffer(alpha_data, dtype=np.uint8).reshape(
+                (alpha_image.height(), bytes_per_line)
+            )[
+                :, : alpha_image.width()
+            ]  # Remove padding to match the actual width
+
+            # Use OpenCV to find contours
+            contours, _ = cv2.findContours(
+                alpha_array, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+
+            # Iterate over each pixel and apply edge opacity
+            for x in range(width):
+                for y in range(height):
+                    color = image.pixelColor(x, y)
+                    if color.alpha() != 0:  # If the pixel is not fully transparent
+                        # Calculate distance to the nearest contour
+                        distance_to_edge = cv2.pointPolygonTest(
+                            contours[0], (x, y), True
+                        )  # True for distance calculation
+
+                        # If the pixel is within the edge region
+                        if 0 <= distance_to_edge < edge_width:
+                            # Calculate the new alpha based on the distance to the edge
+                            factor = (edge_width - distance_to_edge) / edge_width
+                            new_alpha = int(
+                                color.alpha()
+                                * ((1 - factor) + (factor * (edge_opacity / 255.0)))
+                            )
+                            color.setAlpha(new_alpha)
+                            image.setPixelColor(x, y, color)
+
+        # Convert the modified QImage back to QPixmap
+        self.image = QPixmap.fromImage(image)
 
     def get_thumbnail(self, annotation: Annotation = None):
         """
@@ -722,3 +837,19 @@ class BaseLayer(QWidget):
     @drawing_states.setter
     def drawing_states(self, value: list[DrawingState]):
         self.layer_state.drawing_states = value
+
+    @property
+    def edge_opacity(self) -> int:
+        return self.layer_state.edge_opacity
+
+    @edge_opacity.setter
+    def edge_opacity(self, value: int):
+        self.layer_state.edge_opacity = value
+
+    @property
+    def edge_width(self) -> int:
+        return self.layer_state.edge_width
+
+    @edge_width.setter
+    def edge_width(self, value: int):
+        self.layer_state.edge_width = value

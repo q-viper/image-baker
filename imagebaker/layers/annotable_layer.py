@@ -54,6 +54,7 @@ class AnnotableLayer(BaseLayer):
         self.file_path: Path = Path("Runtime")
         self.layers: list[BaseLayer] = []
         self.is_annotable = True
+        self.handle_zoom: float = 1
 
     def init_ui(self):
         logger.info(f"Initializing Layer UI of {self.layer_name}")
@@ -157,14 +158,14 @@ class AnnotableLayer(BaseLayer):
             self.config.normal_draw_config.brush_alpha,
         )
 
-        pen = QPen(pen_color, self.config.normal_draw_config.line_width)
+        pen = QPen(pen_color, self.config.normal_draw_config.line_width / self.scale)
         brush = QBrush(brush_color, Qt.DiagCrossPattern)
 
         if annotation.selected:
             painter.setPen(
                 QPen(
                     self.config.selected_draw_config.color,
-                    self.config.selected_draw_config.line_width,
+                    self.config.selected_draw_config.line_width / self.scale,
                 )
             )
             painter.setBrush(
@@ -184,8 +185,8 @@ class AnnotableLayer(BaseLayer):
             elif annotation.points:
                 painter.drawEllipse(
                     annotation.points[0],
-                    self.config.selected_draw_config.ellipse_size,
-                    self.config.selected_draw_config.ellipse_size,
+                    self.config.selected_draw_config.ellipse_size / self.scale,
+                    self.config.selected_draw_config.ellipse_size / self.scale,
                 )
 
         if is_temp:
@@ -200,8 +201,8 @@ class AnnotableLayer(BaseLayer):
             for point in annotation.points:
                 painter.drawEllipse(
                     point,
-                    self.config.normal_draw_config.point_size,
-                    self.config.normal_draw_config.point_size,
+                    self.config.normal_draw_config.point_size / self.scale,
+                    self.config.normal_draw_config.point_size / self.scale,
                 )
         elif annotation.rectangle:
             painter.drawRect(annotation.rectangle)
@@ -223,28 +224,34 @@ class AnnotableLayer(BaseLayer):
             ]
             painter.save()
             painter.setPen(
-                QPen(Qt.black, self.config.normal_draw_config.control_point_size)
+                QPen(
+                    Qt.black,
+                    self.config.normal_draw_config.control_point_size / self.scale,
+                )
             )
             painter.setBrush(QBrush(Qt.white))
             for corner in corners:
                 painter.drawEllipse(
                     corner,
-                    self.config.normal_draw_config.point_size,
-                    self.config.normal_draw_config.point_size,
+                    self.config.normal_draw_config.point_size / self.scale,
+                    self.config.normal_draw_config.point_size / self.scale,
                 )
             painter.restore()
 
         if annotation.polygon and len(annotation.polygon) > 0:
             painter.save()
             painter.setPen(
-                QPen(Qt.white, self.config.normal_draw_config.control_point_size)
+                QPen(
+                    Qt.white,
+                    self.config.normal_draw_config.control_point_size / self.scale,
+                )
             )
             painter.setBrush(QBrush(Qt.darkGray))
             for point in annotation.polygon:
                 painter.drawEllipse(
                     point,
-                    self.config.normal_draw_config.point_size,
-                    self.config.normal_draw_config.point_size,
+                    self.config.normal_draw_config.point_size / self.scale,
+                    self.config.normal_draw_config.point_size / self.scale,
                 )
             painter.restore()
 
@@ -266,7 +273,7 @@ class AnnotableLayer(BaseLayer):
             # Set up font
             font = painter.font()
             font.setPixelSize(
-                self.config.normal_draw_config.label_font_size
+                self.config.normal_draw_config.label_font_size * self.scale
             )  # Fixed screen size
             painter.setFont(font)
 
@@ -300,7 +307,10 @@ class AnnotableLayer(BaseLayer):
             painter.save()
             handle_color = self.config.selected_draw_config.handle_color
             painter.setPen(
-                QPen(handle_color, self.config.selected_draw_config.handle_width)
+                QPen(
+                    handle_color,
+                    self.config.selected_draw_config.handle_width / self.scale,
+                )
             )
             painter.setBrush(QBrush(handle_color))
 
@@ -315,8 +325,8 @@ class AnnotableLayer(BaseLayer):
                 ]:
                     painter.drawEllipse(
                         corner,
-                        self.config.selected_draw_config.handle_point_size,
-                        self.config.selected_draw_config.handle_point_size,
+                        self.config.selected_draw_config.handle_point_size / self.scale,
+                        self.config.selected_draw_config.handle_point_size / self.scale,
                     )
                 # Draw edge handles
                 for edge in [
@@ -327,8 +337,8 @@ class AnnotableLayer(BaseLayer):
                 ]:
                     painter.drawEllipse(
                         edge,
-                        self.config.selected_draw_config.handle_edge_size,
-                        self.config.selected_draw_config.handle_edge_size,
+                        self.config.selected_draw_config.handle_edge_size / self.scale,
+                        self.config.selected_draw_config.handle_edge_size / self.scale,
                     )
 
             elif annotation.polygon:
@@ -336,8 +346,8 @@ class AnnotableLayer(BaseLayer):
                 for point in annotation.polygon:
                     painter.drawEllipse(
                         point,
-                        self.config.selected_draw_config.handle_point_size,
-                        self.config.selected_draw_config.handle_point_size,
+                        self.config.selected_draw_config.handle_point_size / self.scale,
+                        self.config.selected_draw_config.handle_point_size / self.scale,
                     )
 
             painter.restore()
@@ -906,6 +916,8 @@ class AnnotableLayer(BaseLayer):
             f"{annotation.label} {annotation.annotation_id} {annotation.annotator}"
         )
 
+        new_layer._apply_edge_opacity()
+        new_layer.update()
         self.messageSignal.emit(f"Layerified: {new_layer.layer_name}")
         logger.info(f"Num annotations: {len(self.annotations)}")
 

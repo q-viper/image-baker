@@ -27,6 +27,7 @@ from PySide6.QtGui import (
     QMouseEvent,
     QKeyEvent,
     QTransform,
+    QImage,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -57,7 +58,6 @@ class CanvasLayer(BaseLayer):
             config (CanvasConfig): Configuration settings for the canvas layer.
         """
         super().__init__(parent, config)
-        self.image = QPixmap()
         self.is_annotable = False
         self.last_pan_point = None
         self.state_thumbnail = dict()
@@ -178,6 +178,7 @@ class CanvasLayer(BaseLayer):
                 opacity = layer.opacity / 255.0
                 temp_painter.setOpacity(opacity)  # Scale opacity to 0.0-1.0
                 temp_painter.drawPixmap(0, 0, layer.image)
+
                 temp_painter.end()
 
                 # Draw the modified pixmap
@@ -287,20 +288,20 @@ class CanvasLayer(BaseLayer):
         painter.setPen(
             QPen(
                 self.config.selected_draw_config.handle_color,
-                self.config.selected_draw_config.handle_width,
+                self.config.selected_draw_config.handle_width / self.scale,
             )
         )
         painter.setBrush(self.config.selected_draw_config.handle_color)
         painter.drawEllipse(
             rotation_pos,
-            self.config.selected_draw_config.handle_point_size * 2,
-            self.config.selected_draw_config.handle_point_size * 2,
+            self.config.selected_draw_config.handle_point_size * 1.1 / self.scale,
+            self.config.selected_draw_config.handle_point_size * 1.1 / self.scale,
         )
         # now draw rotation symbol
         painter.setPen(
             QPen(
                 self.config.selected_draw_config.handle_color,
-                self.config.selected_draw_config.handle_width,
+                self.config.selected_draw_config.handle_width / self.scale,
             )
         )
         painter.drawLine(
@@ -323,21 +324,23 @@ class CanvasLayer(BaseLayer):
         # Draw scale handles
         handle_color = self.config.selected_draw_config.handle_color
         painter.setPen(
-            QPen(handle_color, self.config.selected_draw_config.handle_width)
+            QPen(
+                handle_color, self.config.selected_draw_config.handle_width / self.scale
+            )
         )
         painter.setBrush(self.config.selected_draw_config.handle_color)
         for corner in corners:
             painter.drawEllipse(
                 corner,
-                self.config.selected_draw_config.handle_point_size,
-                self.config.selected_draw_config.handle_point_size,
+                self.config.selected_draw_config.handle_point_size / self.scale,
+                self.config.selected_draw_config.handle_point_size / self.scale,
             )
         for edge in edges:
             # draw small circles on the edges
             painter.drawEllipse(
                 edge,
-                self.config.selected_draw_config.handle_edge_size,
-                self.config.selected_draw_config.handle_edge_size,
+                self.config.selected_draw_config.handle_edge_size / self.scale,
+                self.config.selected_draw_config.handle_edge_size / self.scale,
             )
             # draw sides
             painter.drawLine(
@@ -874,6 +877,33 @@ class CanvasLayer(BaseLayer):
         """
         self.export_current_state(export_to_annotation_tab=True)
 
+    def seek_state(self, step):
+        """Seek to a specific state using the timeline slider."""
+        self.messageSignal.emit(f"Seeking to step {step}")
+        logger.info(f"Seeking to step {step}")
+
+        # Get the states for the selected step
+        if step in self.states:
+            states = self.states[step]
+            for state in states:
+                layer = self.get_layer(state.layer_id)
+                if layer:
+                    # Update the layer's state
+                    update_opacities = False
+                    logger.debug(
+                        f"Updating layer {layer.layer_name} with state: {state}"
+                    )
+
+                    if (
+                        layer.edge_width != state.edge_width
+                        or layer.edge_opacity != state.edge_opacity
+                    ):
+                        update_opacities = True
+                    layer.layer_state = state
+                    if update_opacities:
+                        layer._apply_edge_opacity()
+                    layer.update()
+
     def play_states(self):
         """Play all the states stored in self.states."""
         if len(self.states) == 0:
@@ -896,7 +926,19 @@ class CanvasLayer(BaseLayer):
                 layer = self.get_layer(state.layer_id)
                 if layer:
                     # Update the layer's state
+                    update_opacities = False
+                    logger.debug(
+                        f"Updating layer {layer.layer_name} with state: {state}"
+                    )
+
+                    if (
+                        layer.edge_width != state.edge_width
+                        or layer.edge_opacity != state.edge_opacity
+                    ):
+                        update_opacities = True
                     layer.layer_state = state
+                    if update_opacities:
+                        layer._apply_edge_opacity()
                     layer.update()
 
             # Update the UI to reflect the changes

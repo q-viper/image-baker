@@ -20,7 +20,14 @@ class LayerSettings(QDockWidget):
     layerState = Signal(LayerState)
     messageSignal = Signal(str)
 
-    def __init__(self, parent=None, max_xpos=1000, max_ypos=1000, max_scale=100):
+    def __init__(
+        self,
+        parent=None,
+        max_xpos=1000,
+        max_ypos=1000,
+        max_scale=100,
+        max_edge_width=10,
+    ):
         super().__init__("BaseLayer Settings", parent)
         self.selected_layer: BaseLayer = None
 
@@ -29,6 +36,7 @@ class LayerSettings(QDockWidget):
         self.max_xpos = max_xpos
         self.max_ypos = max_ypos
         self.max_scale = max_scale
+        self.max_edge_width = max_edge_width
         self.init_ui()
         self.setFeatures(
             QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable
@@ -67,6 +75,12 @@ class LayerSettings(QDockWidget):
         self.main_layout.addWidget(self.scale_y_slider["widget"])
         self.rotation_slider = self.create_slider("Rotation:", 0, 360, 0, 1)
         self.main_layout.addWidget(self.rotation_slider["widget"])
+        self.edge_opacity_slider = self.create_slider("Edge Opacity:", 0, 255, 255, 1)
+        self.main_layout.addWidget(self.edge_opacity_slider["widget"])
+        self.edge_width_slider = self.create_slider(
+            "Edge Width:", 0, self.max_edge_width, 5, 1
+        )
+        self.main_layout.addWidget(self.edge_width_slider["widget"])
 
         # Add stretch to push content to the top
         self.main_layout.addStretch()
@@ -125,7 +139,6 @@ class LayerSettings(QDockWidget):
 
         try:
             self._disable_updates = True
-
             if sender == self.opacity_slider["slider"]:
                 self.selected_layer.opacity = value
             elif sender == self.x_slider["slider"]:
@@ -138,6 +151,12 @@ class LayerSettings(QDockWidget):
                 self.selected_layer.scale_y = value / 100.0
             elif sender == self.rotation_slider["slider"]:
                 self.selected_layer.rotation = value
+            elif sender == self.edge_opacity_slider["slider"]:
+                self.selected_layer.edge_opacity = value
+                self.selected_layer._apply_edge_opacity()
+            elif sender == self.edge_width_slider["slider"]:
+                self.selected_layer.edge_width = value
+                self.selected_layer._apply_edge_opacity()
 
             self.selected_layer.update()  # Trigger a repaint
 
@@ -154,6 +173,10 @@ class LayerSettings(QDockWidget):
             rotation=self.selected_layer.rotation,
             scale_x=self.selected_layer.scale_x,
             scale_y=self.selected_layer.scale_y,
+            opacity=self.selected_layer.opacity,
+            edge_opacity=self.selected_layer.edge_opacity,
+            edge_width=self.selected_layer.edge_width,
+            visible=self.selected_layer.visible,
         )
         logger.info(f"Storing state {bake_settings}")
         self.messageSignal.emit(f"Stored state for {bake_settings.layer_name}")
@@ -210,6 +233,12 @@ class LayerSettings(QDockWidget):
                 )
                 self.rotation_slider["slider"].setValue(
                     int(self.selected_layer.rotation)
+                )
+                self.edge_opacity_slider["slider"].setValue(
+                    int(self.selected_layer.edge_opacity)
+                )
+                self.edge_width_slider["slider"].setValue(
+                    int(self.selected_layer.edge_width)
                 )
             else:
                 self.widget.setEnabled(False)
