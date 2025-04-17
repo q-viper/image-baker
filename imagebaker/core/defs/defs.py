@@ -210,6 +210,10 @@ class Annotation:
     def load_from_json(path: str):
         import json
 
+        # if path does not exist, return empty list
+        if not Path(path).exists():
+            return []
+
         with open(path, "r") as f:
             data = json.load(f)
 

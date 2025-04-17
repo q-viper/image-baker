@@ -19,6 +19,7 @@ from pathlib import Path
 
 class ImageListPanel(QDockWidget):
     imageSelected = Signal(Path)
+    activeImageEntries = Signal(list)
 
     def __init__(
         self,
@@ -26,6 +27,7 @@ class ImageListPanel(QDockWidget):
         processed_images: set[Path],
         parent=None,
         max_name_length=15,
+        images_per_page=10,
     ):
         """
         :param image_entries: List of image paths to display.
@@ -35,7 +37,7 @@ class ImageListPanel(QDockWidget):
         self.image_entries: list["ImageEntry"] = image_entries
         self.processed_images = processed_images
         self.current_page = 0
-        self.images_per_page = 10
+        self.images_per_page = images_per_page
         self.max_name_length = max_name_length
         self.init_ui()
 
@@ -90,7 +92,20 @@ class ImageListPanel(QDockWidget):
         """Update the image list with image paths and baked results."""
         self.list_widget.clear()
 
-        for idx, image_entry in enumerate(image_entries):
+        # Calculate the range of images to display for the current page
+        start_index = self.current_page * self.images_per_page
+        end_index = min(start_index + self.images_per_page, len(image_entries))
+
+        # Update the pagination label
+        self.pagination_label.setText(
+            f"Showing {start_index + 1} to {end_index} of {len(image_entries)}"
+        )
+
+        # Display only the images for the current page
+        active_image_entries = []
+        for idx, image_entry in enumerate(
+            image_entries[start_index:end_index], start=start_index + 1
+        ):
             item_widget = QWidget()
             item_layout = QHBoxLayout(item_widget)
             item_layout.setContentsMargins(5, 5, 5, 5)
@@ -101,7 +116,7 @@ class ImageListPanel(QDockWidget):
                 thumbnail_pixmap = (
                     image_entry.data.get_thumbnail()
                 )  # Baked result thumbnail
-                name_label_text = f"Baked Result {idx + 1}"
+                name_label_text = f"Baked Result {idx}"
             else:
                 thumbnail_pixmap = QPixmap(str(image_entry.data)).scaled(
                     50, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation
@@ -126,11 +141,9 @@ class ImageListPanel(QDockWidget):
 
             # Store metadata for the image
             list_item.setData(Qt.UserRole, image_entry)
-        self.pagination_label.setText(
-            f"Showing {self.current_page * self.images_per_page + 1} to "
-            f"{min((self.current_page + 1) * self.images_per_page, len(image_entries))} "
-            f"of {len(image_entries)}"
-        )
+            active_image_entries.append(image_entry)
+
+        self.activeImageEntries.emit(active_image_entries)
         self.update()
 
     def handle_item_clicked(self, item: QListWidgetItem):

@@ -1,4 +1,5 @@
 # local files and folders
+.imagebaker
 *.json
 new_gui
 gui

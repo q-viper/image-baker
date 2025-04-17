@@ -42,6 +42,7 @@ class AnnotableLayer(BaseLayer):
     annotationCleared = Signal()
     annotationMoved = Signal()
     layersChanged = Signal()
+    labelUpdated = Signal(tuple)
 
     def __init__(self, parent, config: LayerConfig, canvas_config: CanvasConfig):
         super().__init__(parent, config)
@@ -534,13 +535,11 @@ class AnnotableLayer(BaseLayer):
                     self.current_annotation.polygon = QPolygonF(
                         [p for p in self.current_annotation.polygon][:-1]
                     )
-                    self.update()
 
                 # If the polygon is now empty, reset to idle mode
                 if len(self.current_annotation.polygon) == 0:
                     self.current_annotation = None
                     self.mouse_mode = MouseMode.IDLE
-                    self.update()
 
             # If not drawing a polygon, go to idle mode
             if not self.current_annotation:
@@ -548,7 +547,7 @@ class AnnotableLayer(BaseLayer):
                 for ann in self.annotations:
                     ann.selected = False
                     self.annotationUpdated.emit(ann)
-                self.update()
+            self.update()
 
         # If left-clicked
         if event.button() == Qt.LeftButton:
@@ -751,8 +750,8 @@ class AnnotableLayer(BaseLayer):
                 and len(self.current_annotation.polygon) >= 3
             ):
                 self.current_annotation.is_complete = True
+
                 self.finalize_annotation()
-                self.annotationAdded.emit(self.current_annotation)
                 self.current_annotation = None
 
                 return
@@ -794,6 +793,7 @@ class AnnotableLayer(BaseLayer):
             self, "Edit Label", "Enter new label:", text=annotation.label
         )
         if ok and new_label:
+            self.labelUpdated.emit((annotation.label, new_label))
             annotation.label = new_label
             self.annotationUpdated.emit(annotation)  # Emit signal
             self.update()

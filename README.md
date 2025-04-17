@@ -82,6 +82,9 @@ After cloning and going to the project directory, the following code should work
 * **Ctrl + D**: Draw Mode on Baker Tab. Drawing can happen on a selected or main layer.
 * **Ctrl + E**: Erase Mode on Baker Tab.
 * **Wheel**: Change the size of the drawing pointer.
+* **Q**: Point mode on annotation.
+* **W**: Polygon mode on annotation.
+* **E**: Rectangle mode on annotation.
 
 ## Demo
 ### Annotation Page

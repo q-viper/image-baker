@@ -224,6 +224,8 @@ class BakerWorker(QObject):
             self.finished.emit(results)
 
         except Exception as e:
+            import traceback
+
             logger.error(f"Error in BakerWorker: {e}")
             self.error.emit(str(e))
             traceback.print_exc()
@@ -248,9 +250,14 @@ class BakerWorker(QObject):
             new_annotation.points = ann.points
         elif ann.rectangle:
             xywhs = mask_to_rectangles(alpha_channel, merge_rectangles=True)
-            new_annotation.rectangle = QRectF(
-                xywhs[0][0], xywhs[0][1], xywhs[0][2], xywhs[0][3]
-            )
+            if len(xywhs) == 0:
+                logger.info("No rectangles found")
+                # return None
+            else:
+                logger.info(f"Found {len(xywhs)} rectangles")
+                new_annotation.rectangle = QRectF(
+                    xywhs[0][0], xywhs[0][1], xywhs[0][2], xywhs[0][3]
+                )
         elif ann.polygon:
             polygon = mask_to_polygons(alpha_channel, merge_polygons=True)
             poly = QPolygonF([QPointF(p[0], p[1]) for p in polygon[0]])

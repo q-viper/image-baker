@@ -40,6 +40,7 @@ from imagebaker.core.defs import (
 from collections import deque
 from typing import Deque
 from dataclasses import dataclass
+import os
 
 
 @dataclass
@@ -103,13 +104,17 @@ class LayerifyTab(QWidget):
         """Connect all necessary signals"""
         # Connect all layers in the deque to annotation list
         for layer in self.annotable_layers:
-            layer.annotationAdded.connect(self.annotation_list.update_list)
-            layer.annotationUpdated.connect(self.annotation_list.update_list)
+            # layer.annotationAdded.connect(self.annotation_list.update_list)
+            layer.annotationAdded.connect(self.on_annotation_added)
+            # layer.annotationUpdated.connect(self.annotation_list.update_list)
+            layer.annotationUpdated.connect(self.on_annotation_updated)
             layer.messageSignal.connect(self.messageSignal)
             layer.layerSignal.connect(self.add_layer)
+            layer.labelUpdated.connect(self.on_label_update)
 
         # Connect image list panel signals
         self.image_list_panel.imageSelected.connect(self.on_image_selected)
+        self.image_list_panel.activeImageEntries.connect(self.update_active_entries)
 
     def init_ui(self):
         """Initialize the UI components"""
@@ -118,7 +123,9 @@ class LayerifyTab(QWidget):
             None, parent=self.main_window, max_name_length=self.config.max_name_length
         )
         self.image_list_panel = ImageListPanel(
-            self.image_entries, self.processed_images
+            self.image_entries,
+            self.processed_images,
+            images_per_page=self.config.deque_maxlen,
         )
 
         self.main_window.addDockWidget(Qt.LeftDockWidgetArea, self.image_list_panel)
@@ -166,6 +173,8 @@ class LayerifyTab(QWidget):
         if not image_entry.is_baked_result:  # Regular image
             image_path = image_entry.data
             self.curr_image_idx = self.image_entries.index(image_entry)
+            # convert curr_image_idx to correct index
+            self.curr_image_idx = self.curr_image_idx % len(self.annotable_layers)
 
             # Make the corresponding layer visible and set the image
             selected_layer = self.annotable_layers[self.curr_image_idx]
@@ -206,6 +215,8 @@ class LayerifyTab(QWidget):
             for i, layer in enumerate(self.annotable_layers):
                 if i < len(self.image_entries):
                     layer.set_image(self.image_entries[i].data)
+                    self.load_layer_annotations(layer)
+                    layer.layer_name = f"Layer_{i + 1}"
                     layer.setVisible(
                         i == 0
                     )  # Only the first layer is visible by default
@@ -224,12 +235,68 @@ class LayerifyTab(QWidget):
         self.image_list_panel.update_image_list(self.image_entries)
         self.update()
 
+    def save_layer_annotations(self, layer: AnnotableLayer):
+        """Save annotations for a specific layer"""
+        if len(layer.annotations) > 0:
+            file_path = layer.file_path
+            file_name = file_path.name
+            save_dir = self.config.cache_dir / f"{file_name}.json"
+            Annotation.save_as_json(layer.annotations, save_dir)
+            logger.info(f"Saved annotations for {layer.layer_name} to {save_dir}")
+
+    def load_layer_annotations(self, layer: AnnotableLayer):
+        """Load annotations for a specific layer"""
+        if layer.file_path:
+            file_path = layer.file_path
+            file_name = file_path.name
+            load_dir = self.config.cache_dir / f"{file_name}.json"
+            if load_dir.exists():
+                layer.annotations = Annotation.load_from_json(load_dir)
+                logger.info(
+                    f"Loaded annotations for {layer.layer_name} from {load_dir}"
+                )
+            else:
+                logger.warning(f"No annotations found for {layer.layer_name}")
+
+    def update_active_entries(self, image_entries: list[ImageEntry]):
+        """Update the active entries in the image list panel."""
+        self.curr_image_idx = 0
+        for i, layer in enumerate(self.annotable_layers):
+            self.save_layer_annotations(layer)
+            layer.annotations = []
+
+            if i < len(image_entries):
+                # get index on the self.image_entries
+                idx = self.image_entries.index(image_entries[i])
+                if self.image_entries[idx].is_baked_result:
+                    # if the image is a baked result, set the layer to the baked result
+                    layer = self.image_entries[idx].data
+                    layer.file_path = layer.file_path
+                else:
+                    layer.set_image(self.image_entries[idx].data)
+                self.load_layer_annotations(layer)
+
+                layer.layer_name = f"Layer_{idx + 1}"
+                layer.setVisible(i == 0)
+                if i == 0:
+                    self.layer = layer
+            else:
+                layer.setVisible(False)
+        logger.info("Updated active entries in image list panel.")
+
     def clear_annotations(self):
         """Safely clear all annotations"""
         try:
             # Clear layer annotations
             self.clearAnnotations.emit()
             self.messageSignal.emit("Annotations cleared")
+            # clear cache annotation of layer
+            annotation_path = (
+                self.config.cache_dir / f"{self.layer.file_path.name}.json"
+            )
+            if annotation_path.exists():
+                os.remove(annotation_path)
+                logger.info(f"Cleared annotations from {annotation_path}")
 
         except Exception as e:
             logger.error(f"Clear error: {str(e)}")
@@ -241,13 +308,17 @@ class LayerifyTab(QWidget):
         Args:
             annotation (Annotation): The annotation that was added.
         """
-        if annotation.label not in self.config.predefined_labels:
+
+        # if annotation.label is not in the predefined labels, add it
+        if annotation.label not in [lbl.name for lbl in self.config.predefined_labels]:
+            logger.info(f"Label {annotation.label} created.")
             self.config.predefined_labels.append(
                 Label(annotation.label, annotation.color)
             )
             self.update_label_combo()
         logger.info(f"Added annotation: {annotation.label}")
         self.messageSignal.emit(f"Added annotation: {annotation.label}")
+        self.save_layer_annotations(self.layer)
 
         # Refresh the annotation list
         self.annotation_list.update_list()
@@ -259,11 +330,12 @@ class LayerifyTab(QWidget):
         Args:
             annotation (Annotation): The updated annotation.
         """
-        logger.info(f"Updated annotation: {annotation.label}")
+        # logger.info(f"Updated annotation: {annotation}")
         self.messageSignal.emit(f"Updated annotation: {annotation.label}")
 
         # Refresh the annotation list
         self.annotation_list.update_list()
+        self.save_layer_annotations(self.layer)
 
     def update_label_combo(self):
         """
@@ -276,6 +348,27 @@ class LayerifyTab(QWidget):
             pixmap = QPixmap(16, 16)
             pixmap.fill(label.color)
             self.label_combo.addItem(QIcon(pixmap), label.name)
+        logger.info("Updated label combo box with predefined labels.")
+        self.label_combo.setCurrentText(self.current_label)
+
+    def on_label_update(self, old_new_label: tuple[str, str]):
+        new_labels = []
+        index = 0
+        for i, label in enumerate(self.config.predefined_labels):
+            if label.name == old_new_label[0]:
+                label.name = old_new_label[1]
+                index = i
+            new_labels.append(label)
+
+        self.config.predefined_labels = new_labels
+        logger.info(f"Updated label from {old_new_label[0]} to {old_new_label[1]}")
+        self.messageSignal.emit(
+            f"Updated label from {old_new_label[0]} to {old_new_label[1]}."
+        )
+
+        self.update_label_combo()
+        self.handle_label_change(index=index)
+        self.label_combo.update()
 
     def load_default_image(self):
         """
@@ -589,6 +682,24 @@ class LayerifyTab(QWidget):
         )
         msg = f"Label changed to {self.current_label}"
         self.messageSignal.emit(msg)
+        self.layer.selected_annotation = self.layer._get_selected_annotation()
+        if self.layer.selected_annotation:
+            annotations = []
+            for ann in self.layer.annotations:
+                if ann == self.layer.selected_annotation:
+                    ann.label = label_info.name
+                    ann.color = label_info.color
+                annotations.append(ann)
+
+            self.layer.annotations = annotations
+            self.on_annotation_updated(self.layer.selected_annotation)
+            # disable label change callback
+            self.label_combo.currentIndexChanged.disconnect()
+            self.label_combo.currentIndexChanged.connect(lambda: None)
+            self.update_label_combo()
+            # set it back
+            self.label_combo.currentIndexChanged.connect(self.handle_label_change)
+
         self.layer.update()
         self.update()
 
@@ -628,25 +739,13 @@ class LayerifyTab(QWidget):
             ("🎨", "Color", self.choose_color),
             ("🧅", "Layerify All", self.layerify_all),
             ("🏷️", "Add Label", self.add_new_label),
-            ("🗑️", "Clear", lambda x: self.clearAnnotations.emit()),
+            ("🗑️", "Clear", self.clear_annotations),
         ]
 
         # Folder navigation buttons
         self.select_folder_btn = QPushButton("Select Folder")
         self.select_folder_btn.clicked.connect(self.select_folder)
         toolbar_layout.addWidget(self.select_folder_btn)
-
-        self.next_image_btn = QPushButton("Next")
-        self.next_image_btn.clicked.connect(self.show_next_image)
-        toolbar_layout.addWidget(self.next_image_btn)
-
-        self.prev_image_btn = QPushButton("Prev")
-        self.prev_image_btn.clicked.connect(self.show_prev_image)
-        toolbar_layout.addWidget(self.prev_image_btn)
-
-        # Initially hide next/prev buttons
-        self.next_image_btn.setVisible(False)
-        self.prev_image_btn.setVisible(False)
 
         # Add mode buttons
         for icon, text, mode in modes:
@@ -703,11 +802,25 @@ class LayerifyTab(QWidget):
                     ImageEntry(is_baked_result=False, data=img_path)
                 )
 
+        # load from bake folder if it exists
+        bake_folder = self.config.bake_dir
+        if bake_folder.exists() and bake_folder.is_dir():
+            for img_path in bake_folder.glob("*.*"):
+                if img_path.suffix.lower() in [
+                    ".jpg",
+                    ".jpeg",
+                    ".png",
+                    ".bmp",
+                    ".tiff",
+                ]:
+                    self.image_entries.append(
+                        ImageEntry(is_baked_result=False, data=img_path)
+                    )
+
     def select_folder(self):
         """Allow the user to select a folder and load images from it."""
         folder_path = QFileDialog.getExistingDirectory(self, "Select Folder")
         if folder_path:
-            self.image_entries = []  # Clear the existing image paths
             folder_path = Path(folder_path)
 
             self._load_images_from_folder(folder_path)
@@ -726,37 +839,12 @@ class LayerifyTab(QWidget):
                 # Load the first set of images into the layers
                 self.load_default_images()
 
-                # Unhide the next/prev buttons if there are multiple images
-                self.next_image_btn.setVisible(len(self.image_entries) > 1)
-                self.prev_image_btn.setVisible(len(self.image_entries) > 1)
             else:
                 QMessageBox.warning(
                     self,
                     "No Images Found",
                     "No valid image files found in the selected folder.",
                 )
-
-    def show_next_image(self):
-        """Show next image in the list. If at the end, show first image."""
-        if self.curr_image_idx < len(self.image_entries) - 1:
-            self.curr_image_idx += 1
-        else:
-            self.curr_image_idx = 0
-        self.layer.set_image(self.image_entries[self.curr_image_idx]["data"])
-        self.messageSignal.emit(
-            f"Showing image {self.curr_image_idx + 1}/{len(self.image_entries)}"
-        )
-
-    def show_prev_image(self):
-        """Show previous image in the list. If at the start, show last image."""
-        if self.curr_image_idx > 0:
-            self.curr_image_idx -= 1
-        else:
-            self.curr_image_idx = len(self.image_entries) - 1
-        self.layer.set_image(self.image_entries[self.curr_image_idx]["data"])
-        self.messageSignal.emit(
-            f"Showing image {self.curr_image_idx + 1}/{len(self.image_entries)}"
-        )
 
     def __del__(self):
         logger.warning(f"Tab {id(self)} deleted")
@@ -770,10 +858,20 @@ class LayerifyTab(QWidget):
             config=self.config,
             canvas_config=self.canvas_config,
         )
-        layer.annotations = baking_result.annotations
+        # save it in cache
+        filename = baking_result.filename
+        filepath = self.config.bake_dir / filename.name
+        baking_result.image.save(str(filepath))
+        #
+        Annotation.save_as_json(
+            baking_result.annotations, self.config.cache_dir / f"{filename.name}.json"
+        )
 
-        layer.annotationAdded.connect(self.annotation_list.update_list)
-        layer.annotationUpdated.connect(self.annotation_list.update_list)
+        layer.set_image(filepath)
+
+        layer.annotationAdded.connect(self.on_annotation_added)
+        layer.annotationUpdated.connect(self.on_annotation_updated)
+        layer.labelUpdated.connect(self.on_label_update)
         layer.messageSignal.connect(self.messageSignal)
         layer.layerSignal.connect(self.add_layer)
 
@@ -785,7 +883,7 @@ class LayerifyTab(QWidget):
         self.annotable_layers.append(layer)
 
         # Add baked result to image_entries
-        baked_result_entry = ImageEntry(is_baked_result=True, data=layer)
+        baked_result_entry = ImageEntry(is_baked_result=False, data=filepath)
         self.image_entries.append(baked_result_entry)
         # baking_result.image.save(str(baking_result.filename))
         layer.update()
@@ -793,6 +891,12 @@ class LayerifyTab(QWidget):
         logger.info("A baked result has arrived, adding it to the image list.")
 
         # Update the image list panel
+        # find the page index where this layer is
+        page_index = (
+            self.image_entries.index(baked_result_entry) // self.config.deque_maxlen
+        )
+        # set the current page to the page index
+        self.image_list_panel.current_page = page_index
         self.image_list_panel.update_image_list(self.image_entries)
         self.image_list_panel.imageSelected.emit(baked_result_entry)
 
@@ -830,6 +934,19 @@ class LayerifyTab(QWidget):
                 self.layer.update()
                 self.annotation_list.update_list()
                 logger.info("Selected annotation deleted.")
+
+        # if clicked q, set the mode to point
+        elif key == Qt.Key_Q:
+            self.layer.set_mode(MouseMode.POINT)
+            logger.info("Mouse mode set to POINT.")
+        # if clicked w, set the mode to polygon
+        elif key == Qt.Key_W:
+            self.layer.set_mode(MouseMode.POLYGON)
+            logger.info("Mouse mode set to POLYGON.")
+        # if clicked e, set the mode to rectangle
+        elif key == Qt.Key_E:
+            self.layer.set_mode(MouseMode.RECTANGLE)
+            logger.info("Mouse mode set to RECTANGLE.")
 
         # Pass the event to the annotation list if it needs to handle it
         if self.annotation_list.hasFocus():

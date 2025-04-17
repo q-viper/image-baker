@@ -74,6 +74,22 @@ class BaseConfig(BaseModel):
             logger.info(f"Created assets folder at {asset_dir}")
         return asset_dir
 
+    @property
+    def cache_dir(self):
+        cache_dir = self.project_dir / ".imagebaker" / "cache"
+        if not cache_dir.exists():
+            cache_dir.mkdir(parents=True)
+            logger.info(f"Created cache folder at {cache_dir}")
+        return cache_dir
+
+    @property
+    def bake_dir(self):
+        bake_dir = self.project_dir / ".imagebaker" / "bake"
+        if not bake_dir.exists():
+            bake_dir.mkdir(parents=True)
+            logger.info(f"Created bake folder at {bake_dir}")
+        return bake_dir
+
     class Config:
         arbitrary_types_allowed = True
 
@@ -96,6 +112,7 @@ class LayerConfig(BaseConfig):
     )
     # whether to search image in subfolders as well
     full_search: bool = False
+    cleanup_on_exit: bool = False
 
     def get_label_color(self, label):
         for lbl in self.predefined_labels:

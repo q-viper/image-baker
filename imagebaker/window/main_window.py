@@ -175,9 +175,15 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(status_text)
 
     def closeEvent(self, event):
-        # Clean up tabs first
-        if hasattr(self, "layerify_tab"):
-            self.layerify_tab.deleteLater()
-        if hasattr(self, "baker_tab"):
-            self.baker_tab.deleteLater()
-        super().closeEvent(event)
+        logger.info("Closing the application.")
+        if self.layerify_config.cleanup_on_exit:
+            import shutil
+
+            if self.layerify_config.bake_dir.exists():
+                shutil.rmtree(self.layerify_config.bake_dir)
+                logger.info(f"Deleted bake directory: {self.layerify_config.bake_dir}")
+            if self.layerify_config.cache_dir.exists():
+                shutil.rmtree(self.layerify_config.cache_dir)
+                logger.info(
+                    f"Deleted cache directory: {self.layerify_config.cache_dir}"
+                )

@@ -52,6 +52,7 @@ class AnnotationList(QDockWidget):
         if self.layer is None:
             return
         for idx, ann in enumerate(self.layer.annotations):
+
             item = QListWidgetItem(self.list_widget)
 
             # Create container widget
