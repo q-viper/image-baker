@@ -169,7 +169,9 @@ class LayerifyTab(QWidget):
         for idx, layer in enumerate(self.annotable_layers):
             layer.setVisible(False)
             # logger.info(f"Layer {idx} hidden.")
-
+        current_label = self.layer.current_label
+        current_color = self.layer.current_color
+        
         if not image_entry.is_baked_result:  # Regular image
             image_path = image_entry.data
             self.curr_image_idx = self.image_entries.index(image_entry)
@@ -194,6 +196,9 @@ class LayerifyTab(QWidget):
             # logger.info(f"Layer {self.curr_image_idx} made visible for baked result.")
             self.layer = baked_result_layer  # Set the baked result as the current layer
 
+        # Set the current label and color
+        self.layer.current_label = current_label
+        self.layer.current_color = current_color
         self.annotation_list.layer = self.layer
         self.annotation_list.update_list()
 

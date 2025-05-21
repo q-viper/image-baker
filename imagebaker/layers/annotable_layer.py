@@ -602,6 +602,15 @@ class AnnotableLayer(BaseLayer):
             elif self.mouse_mode == MouseMode.POLYGON:
                 # If not double-click
                 if not self.current_annotation:
+                    # if this point is equal to the last point of the previous polygon, then ignore it
+                    if len(self.annotations) > 0:
+                        last_polygon = self.annotations[-1].polygon
+                        if last_polygon:
+                            last_point = last_polygon[-1]
+                            if last_point== clamped_pos:
+                                logger.info("Ignoring point, same as last polygon point")
+                                return
+
                     self.current_annotation = Annotation(
                         file_path=self.file_path,
                         annotation_id=len(self.annotations),
@@ -811,8 +820,6 @@ class AnnotableLayer(BaseLayer):
                 self.current_annotation
             )
             self.annotationAdded.emit(self.current_annotation)
-            self.current_annotation = None
-            self.update()
         else:
             # Show custom label dialog
             label, ok = QInputDialog.getText(self, "Label", "Enter label name:")
@@ -827,8 +834,8 @@ class AnnotableLayer(BaseLayer):
                     )
                     self.annotationAdded.emit(self.current_annotation)
                     self.current_annotation.annotation_id = len(self.annotations)
-                    self.current_annotation = None
-                    self.update()
+        self.current_annotation = None
+        self.update()
 
     # in update, update cursor
 

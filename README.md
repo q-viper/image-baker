@@ -124,3 +124,5 @@ Click on the image above to play the video on YouTube.
 Contributions are welcome! 
 
 Do you find this project to be useful and are you looking for some features that are not implemented yet? Feel free to open issues or submit pull requests to improve the project.
+
+For more please visit [CONTRIBUTING](CONTRIBUTING).
