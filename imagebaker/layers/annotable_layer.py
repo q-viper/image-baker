@@ -607,8 +607,10 @@ class AnnotableLayer(BaseLayer):
                         last_polygon = self.annotations[-1].polygon
                         if last_polygon:
                             last_point = last_polygon[-1]
-                            if last_point== clamped_pos:
-                                logger.info("Ignoring point, same as last polygon point")
+                            if last_point == clamped_pos:
+                                logger.info(
+                                    "Ignoring point, same as last polygon point"
+                                )
                                 return
 
                     self.current_annotation = Annotation(

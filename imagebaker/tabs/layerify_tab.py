@@ -171,7 +171,7 @@ class LayerifyTab(QWidget):
             # logger.info(f"Layer {idx} hidden.")
         current_label = self.layer.current_label
         current_color = self.layer.current_color
-        
+
         if not image_entry.is_baked_result:  # Regular image
             image_path = image_entry.data
             self.curr_image_idx = self.image_entries.index(image_entry)
