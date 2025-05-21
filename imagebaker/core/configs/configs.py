@@ -17,10 +17,10 @@ except ImportError:
 class DrawConfig(BaseModel):
     color: QColor = Field(default_factory=lambda: QColor(255, 255, 255))
     point_size: int = 5
-    line_width: int = 5
+    line_width: int = 1
     control_point_size: int = 1.5
     ellipse_size: int = 8
-    pen_alpha: int = 150
+    pen_alpha: int = 0
     brush_alpha: int = 50
     brush_fill_pattern: Qt.BrushStyle = Qt.BrushStyle.DiagCrossPattern
     thumbnail_size: Tuple[int, int] = Field(default_factory=lambda: (50, 50))
