@@ -2,3 +2,4 @@
 
 * Please add a good description of what it does.
 * If relevent, also add how it was before and how it is now after the change. Either by screenshot or by logs.
+* If updated the codebase, please run tests.
