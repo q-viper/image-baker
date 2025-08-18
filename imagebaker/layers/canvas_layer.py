@@ -27,7 +27,6 @@ from PySide6.QtGui import (
     QMouseEvent,
     QKeyEvent,
     QTransform,
-    QImage,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -127,7 +126,6 @@ class CanvasLayer(BaseLayer):
 
     ## Helper functions ##
     def handle_key_press(self, event: QKeyEvent):
-
         # Handle Delete key
         if event.key() == Qt.Key_Delete:
             self._delete_layer()
@@ -149,6 +147,15 @@ class CanvasLayer(BaseLayer):
         if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_V:
             self._paste_layer()
             return  # Important: return after handling
+        # if event.key() == Qt.Key_H:
+        #     if self.selected_layer:
+        #         # Toggle visibility of the selected layer
+        #         logger.info(
+        #             f"Toggling visibility of layer: {self.selected_layer.layer_name}"
+        #         )
+        #         self.selected_layer.visible = not self.selected_layer.visible
+        #         self.selected_layer.update()
+        #     return  # Important: return after handling
 
     def paint_layer(self, painter: QPainter):
         """

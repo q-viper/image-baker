@@ -193,3 +193,6 @@ class MainWindow(QMainWindow):
         if event.key() == Qt.Key_Escape:
             logger.info("Escape key pressed, closing the application.")
             self.close()
+
+        # pass event to other widgets
+        return super().keyPressEvent(event)

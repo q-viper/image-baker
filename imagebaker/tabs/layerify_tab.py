@@ -1023,6 +1023,9 @@ class LayerifyTab(QWidget):
         elif key == Qt.Key_E:
             self.layer.set_mode(MouseMode.RECTANGLE)
             logger.info("Mouse mode set to RECTANGLE.")
+            # if pressed h key, then toggle visibility of annotations
+        if event.key() == Qt.Key_H:
+            self.layer.toggle_annotation_visibility()
 
         # Pass the event to the annotation list if it needs to handle it
         if self.annotation_list.hasFocus():

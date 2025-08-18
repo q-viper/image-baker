@@ -201,5 +201,6 @@ class AnnotationList(QDockWidget):
             self.layer.paste_annotation()
         elif event.key() == Qt.Key_Delete:
             self.delete_annotation(self.layer.selected_annotation_index)
-        else:
-            self.parentWidget().keyPressEvent(event)
+        elif event.key() == Qt.Key_H:
+            self.layer.toggle_annotation_visibility()
+        # self.parentWidget().keyPressEvent(event)

@@ -84,8 +84,11 @@ After cloning and going to the project directory, the following code should work
 * **Ctrl + E**: Erase Mode on Baker Tab.
 * **Wheel**: Change the size of the drawing pointer.
 * **Q**: Point mode on annotation.
-* **W**: Polygon mode on annotation.
+* **W**: Polygon mode on annotation. Moves selected layer one step up in layer lists in baker.
+* **S**: Moves selected layer one step down in layer list in baker.
 * **E**: Rectangle mode on annotation.
+* **H**: Hides/un-hides selected annotation/layer.
+* **Numerics**: Selecting number 1, 2, till 9 selects label. If not available, asks for a new label.
 * **Escape**: Closes the application.
 
 ## Demo

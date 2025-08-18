@@ -68,6 +68,14 @@ class AnnotableLayer(BaseLayer):
         self.annotationCleared.emit()
         self.update()
 
+    def toggle_annotation_visibility(self):
+        """Toggle visibility of all annotations."""
+        selected_annotation = self._get_selected_annotation()
+        if selected_annotation is not None:
+            selected_annotation.visible = not selected_annotation.visible
+            self.annotationUpdated.emit(selected_annotation)
+            self.update()
+
     def handle_key_press(self, event: QKeyEvent):
         # Handle Ctrl key for panning
         if event.key() == Qt.Key_Control:
