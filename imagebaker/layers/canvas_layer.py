@@ -362,7 +362,16 @@ class CanvasLayer(BaseLayer):
         """
         """Add a new drawing state."""
         self.selected_layer = self._get_selected_layer()
-        layer = self.selected_layer if self.selected_layer else self
+        layer = self.selected_layer
+        if not layer:
+            logger.debug("No layer selected for drawing.")
+            # show popup message window that closes in 2 seconds
+            QMessageBox.information(
+                self.parent(),
+                "No Layer Selected",
+                "Please select a layer to draw on.",
+            )
+            return
 
         # Convert the position to be relative to the layer
         relative_pos = pos - layer.position
@@ -384,8 +393,14 @@ class CanvasLayer(BaseLayer):
             )
             layer.layer_state.drawing_states.append(drawing_state)
             self._last_draw_point = relative_pos  # Update the last draw point
-            # logger.debug(f"Added drawing state at position: {relative_pos}")
-
+            logger.debug(
+                f"Added drawing state at position: {relative_pos} to layer {layer.layer_name}"
+            )
+        else:
+            logger.debug(
+                f"Mouse mode {self.mouse_mode} does not support drawing states."
+            )
+            return
         self.update()  # Refresh the canvas to show the new drawing
 
     def handle_wheel(self, event: QWheelEvent):
@@ -822,6 +837,7 @@ class CanvasLayer(BaseLayer):
         filename = self.config.export_folder / f"{filename}.png"
         logger.info(f"Exporting baked image to {filename}")
         self.states = {0: [layer.layer_state for layer in self.layers]}
+        logger.debug(f"Exporting states: {self.states}")
 
         self.loading_dialog = QProgressDialog(
             "Baking Please wait...", "Cancel", 0, 0, self.parentWidget()

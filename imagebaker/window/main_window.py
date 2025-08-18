@@ -187,3 +187,9 @@ class MainWindow(QMainWindow):
                 logger.info(
                     f"Deleted cache directory: {self.layerify_config.cache_dir}"
                 )
+
+    def keyPressEvent(self, event):
+        # if pressed escape key, close the application
+        if event.key() == Qt.Key_Escape:
+            logger.info("Escape key pressed, closing the application.")
+            self.close()

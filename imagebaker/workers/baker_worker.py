@@ -39,6 +39,8 @@ class BakerWorker(QObject):
         self.layers = layers
         self.filename = filename
 
+        logger.info(f"Received States: {self.states}")
+
     def process(self):
         results = []
         try:
@@ -128,6 +130,9 @@ class BakerWorker(QObject):
                                 painter.restore()
 
                             # Draw the drawing states
+                            logger.debug(
+                                f"Drawing states for layer {layer.layer_name}: {state.drawing_states}"
+                            )
                             if state.drawing_states:
                                 painter.save()
                                 try:
@@ -147,6 +152,10 @@ class BakerWorker(QObject):
                                         painter.drawPoint(
                                             drawing_state.position - top_left
                                         )
+                                except Exception as e:
+                                    logger.error(
+                                        f"Error drawing state for layer {layer.layer_name}: {e}"
+                                    )
                                 finally:
                                     painter.restore()
 

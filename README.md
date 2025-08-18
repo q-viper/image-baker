@@ -67,6 +67,7 @@ After cloning and going to the project directory, the following code should work
 - **Baking States**: Arrange layers to create image variations by dragging, rotating, adjusting opacity, and more. Save the state using the Save State button or Ctrl + S.
 - **Playing States**: Replay saved states, export them locally, or use them for further predictions.
 - **Exporting States**: Export the final annotated JSON and the baked multilayer image.
+- **Drawing On Layers**: First select a layer then draw upon it. Only selected layer will be drawn. And if no layers are selected, then the drawing will not be exported.
 
 ### Shortcuts
 * **Ctrl + C**: Copy selected annotation/layer.
@@ -75,7 +76,7 @@ After cloning and going to the project directory, the following code should work
 * **Left Click**: Select an annotation/layer on mouse position.
 * **Left Click + Drag**: Drag a selected annotation/layer.
 * **Double Left Click**: When using polygon annotation, completes the polygon.
-* **Right Click**: Deselect an annotation/layer. While annotating the polygon, undo the last point.
+* **Right Click**: Unselect an annotation/layer. While annotating the polygon, undo the last point.
 * **Ctrl + Mouse Wheel**: Zoom In/Out on the mouse position, i.e., resize the viewport.
 * **Ctrl + Drag**: If done on the background, the viewport is panned.
 * **Ctrl + S**: Save State on Baker Tab.
@@ -85,6 +86,7 @@ After cloning and going to the project directory, the following code should work
 * **Q**: Point mode on annotation.
 * **W**: Polygon mode on annotation.
 * **E**: Rectangle mode on annotation.
+* **Escape**: Closes the application.
 
 ## Demo
 ### Annotation Page
