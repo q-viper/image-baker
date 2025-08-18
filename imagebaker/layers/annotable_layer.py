@@ -71,11 +71,12 @@ class AnnotableLayer(BaseLayer):
     def handle_key_press(self, event: QKeyEvent):
         # Handle Ctrl key for panning
         if event.key() == Qt.Key_Control:
-            if (
-                self.mouse_mode != MouseMode.POLYGON
-            ):  # Only activate pan mode when not drawing polygons
+            # disable this for now to allow pannings
+            # if (
+            #     self.mouse_mode != MouseMode.POLYGON
+            # ):  # Only activate pan mode when not drawing polygons
 
-                self.mouse_mode = MouseMode.PAN
+            self.mouse_mode = MouseMode.PAN
 
         # Handle Ctrl+C for copy
         if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_C:
@@ -398,7 +399,14 @@ class AnnotableLayer(BaseLayer):
                 MouseMode.ZOOM_IN,
                 MouseMode.ZOOM_OUT,
             ]:
-                self.mouse_mode = MouseMode.IDLE
+                if self.current_annotation:
+                    if (
+                        self.current_annotation.polygon
+                        and not self.current_annotation.is_complete
+                    ):
+                        self.mouse_mode = MouseMode.POLYGON
+                else:
+                    self.mouse_mode = MouseMode.IDLE
 
         # Clean up transformation state
         if hasattr(self, "selected_annotation"):
