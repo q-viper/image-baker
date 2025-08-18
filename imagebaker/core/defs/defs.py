@@ -22,7 +22,7 @@ class MouseMode(Enum):
     RESIZE_HEIGHT = 8
     RESIZE_WIDTH = 9
     GRAB = 11
-    DRAW = 12
+    DRAW = 12  # Brush annotation mode
     ERASE = 13
 
 
@@ -127,6 +127,7 @@ class Annotation:
     # [x, y, width, height]
     rectangle: QRectF = None
     polygon: QPolygonF = None
+    mask: np.ndarray = None  # For brush/mask-based annotations
     is_complete: bool = False
     selected: bool = False
     score: float = None
