@@ -1027,6 +1027,24 @@ class LayerifyTab(QWidget):
         if event.key() == Qt.Key_H:
             self.layer.toggle_annotation_visibility()
 
+        # if selected l, then run layerify the selected annotations
+        elif event.key() == Qt.Key_L:
+            if self.layer and self.layer.annotations:
+                selected_annotations = [
+                    ann for ann in self.layer.annotations if ann.selected
+                ]
+                if selected_annotations:
+                    logger.info(
+                        f"Layerifying {len(selected_annotations)} selected annotations."
+                    )
+                    self.layer.layerify_annotation(selected_annotations)
+                else:
+                    # layerify all annotations in the current layer
+                    self.layer.layerify_annotation(self.layer.annotations)
+                logger.info("Layerified all annotations in the current layer.")
+            else:
+                logger.warning("No annotations to layerify.")
+
         # Pass the event to the annotation list if it needs to handle it
         if self.annotation_list.hasFocus():
             self.annotation_list.keyPressEvent(event)
