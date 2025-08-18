@@ -194,5 +194,61 @@ class MainWindow(QMainWindow):
             logger.info("Escape key pressed, closing the application.")
             self.close()
 
+        # if ctrl+h, show help dialog
+        elif event.key() == Qt.Key_H and event.modifiers() == Qt.ControlModifier:
+            logger.info("Ctrl+H pressed, showing help dialog.")
+            current_tab = self.tab_widget.currentIndex()
+            if current_tab == 0:
+                info = (
+                    "<b>Layerify Tab Shortcuts:</b><br>"
+                    "<ul>"
+                    "<li><b>Ctrl + C</b>: Copy selected annotation.</li>"
+                    "<li><b>Ctrl + V</b>: Paste copied annotation in its parent image if it is currently open.</li>"
+                    "<li><b>Delete</b>: Delete selected annotation.</li>"
+                    "<li><b>Left Click</b>: Select an annotation on mouse position.</li>"
+                    "<li><b>Left Click + Drag</b>: Drag a selected annotation.</li>"
+                    "<li><b>Double Left Click</b>: When using polygon annotation, completes the polygon.</li>"
+                    "<li><b>Right Click</b>: Unselect an annotation. While annotating the polygon, undo the last point.</li>"
+                    "<li><b>Ctrl + Mouse Wheel</b>: Zoom In/Out on the mouse position, i.e., resize the viewport.</li>"
+                    "<li><b>Ctrl + Drag</b>: If done on the background, the viewport is panned.</li>"
+                    "<li><b>Q</b>: Point mode on annotation.</li>"
+                    "<li><b>W</b>: Polygon mode on annotation.</li>"
+                    "<li><b>E</b>: Rectangle mode on annotation.</li>"
+                    "<li><b>H</b>: Hides/un-hides selected annotation.</li>"
+                    "<li><b>L</b>: Creates layer from an annotation. If any annotation selected, creates only its, else creates layers from all visible annotations.</li>"
+                    "<li><b>C</b>: If any annotation is selected, a input box for Caption is created.</li>"
+                    "<li><b>Numerics</b>: Selecting number 1, 2, till 9 selects label. If not available, asks for a new label.</li>"
+                    "<li><b>Escape</b>: Closes the application.</li>"
+                    "</ul>"
+                )
+            elif current_tab == 1:
+                info = (
+                    "<b>Baker Tab Shortcuts:</b><br>"
+                    "<ul>"
+                    "<li><b>Ctrl + C</b>: Copy selected layer.</li>"
+                    "<li><b>Ctrl + V</b>: Paste copied layer in its parent if it is currently open.</li>"
+                    "<li><b>Delete</b>: Delete selected layer.</li>"
+                    "<li><b>Left Click</b>: Select a layer on mouse position.</li>"
+                    "<li><b>Left Click + Drag</b>: Drag a selected layer.</li>"
+                    "<li><b>Ctrl + S</b>: Save State on Baker Tab.</li>"
+                    "<li><b>Ctrl + D</b>: Draw Mode on Baker Tab. Drawing can happen on a selected or main layer.</li>"
+                    "<li><b>Ctrl + E</b>: Erase Mode on Baker Tab.</li>"
+                    "<li><b>Wheel</b>: Change the size of the drawing pointer.</li>"
+                    "<li><b>W</b>: Moves selected layer one step up in layer list in baker.</li>"
+                    "<li><b>S</b>: Moves selected layer one step down in layer list in baker.</li>"
+                    "<li><b>H</b>: Hides/un-hides selected layer.</li>"
+                    "<li><b>C</b>: Edit Caption for selected layer.</li>"
+                    "<li><b>Escape</b>: Closes the application.</li>"
+                    "</ul>"
+                )
+            else:
+                info = "No shortcuts available for this tab."
+
+            QMessageBox.information(
+                self,
+                "Help",
+                info,
+            )
+
         # pass event to other widgets
         return super().keyPressEvent(event)

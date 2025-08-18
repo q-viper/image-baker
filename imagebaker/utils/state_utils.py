@@ -66,6 +66,7 @@ def calculate_intermediate_states(
             + (current_state.edge_opacity - previous_state.edge_opacity) * (i / steps),
             edge_width=previous_state.edge_width
             + (current_state.edge_width - previous_state.edge_width) * (i / steps),
+            caption=previous_state.caption,  # Assuming caption is the same in both states
         )
 
         # Deep copy the drawing_states from the previous_state

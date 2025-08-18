@@ -240,7 +240,7 @@ class BaseLayer(QWidget):
             for step, state in enumerate(intermediate_states):
                 step += self.current_step
 
-                logger.info(f"Saving state {step} for layer {layer.layer_id}")
+                logger.info(f"Saving state {step} for layer {layer.layer_id}: {state}")
                 state.selected = False
                 if step not in curr_states:
                     curr_states[step] = []
@@ -853,3 +853,11 @@ class BaseLayer(QWidget):
     @edge_width.setter
     def edge_width(self, value: int):
         self.layer_state.edge_width = value
+
+    @property
+    def caption(self) -> str:
+        return self.layer_state.caption
+
+    @caption.setter
+    def caption(self, value: str):
+        self.layer_state.caption = value

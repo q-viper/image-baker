@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QDockWidget,
     QSlider,
+    QLineEdit,
 )
 
 from imagebaker.core.defs import LayerState
@@ -81,6 +82,32 @@ class LayerSettings(QDockWidget):
             "Edge Width:", 0, self.max_edge_width, 5, 1
         )
         self.main_layout.addWidget(self.edge_width_slider["widget"])
+
+        # Caption input
+        caption_layout = QHBoxLayout()
+        caption_label = QLabel("Caption:")
+        caption_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.caption_input = QLineEdit()
+        self.caption_input.setPlaceholderText("Enter caption...")
+        self.caption_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        caption_layout.addWidget(caption_label)
+        caption_layout.addWidget(self.caption_input)
+        self.main_layout.addLayout(caption_layout)
+
+        # Set initial value if layer is selected
+        if self.selected_layer:
+            self.caption_input.setText(self.selected_layer.caption)
+
+        # Update layer caption on editing finished
+        def update_caption():
+            if self.selected_layer:
+                logger.info(
+                    f"Updating caption for layer {self.selected_layer.layer_name} to {self.caption_input.text()}"
+                )
+                self.selected_layer.caption = self.caption_input.text()
+                self.selected_layer.update()
+
+        self.caption_input.editingFinished.connect(update_caption)
 
         # Add stretch to push content to the top
         self.main_layout.addStretch()
@@ -177,6 +204,7 @@ class LayerSettings(QDockWidget):
             edge_opacity=self.selected_layer.edge_opacity,
             edge_width=self.selected_layer.edge_width,
             visible=self.selected_layer.visible,
+            caption=self.selected_layer.caption,
         )
         logger.info(f"Storing state {bake_settings}")
         self.messageSignal.emit(f"Stored state for {bake_settings.layer_name}")
@@ -240,6 +268,7 @@ class LayerSettings(QDockWidget):
                 self.edge_width_slider["slider"].setValue(
                     int(self.selected_layer.edge_width)
                 )
+                self.caption_input.setText(self.selected_layer.caption)
             else:
                 self.widget.setEnabled(False)
                 self.layer_name_label.setText("No BaseLayer")

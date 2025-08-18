@@ -24,6 +24,7 @@ from PySide6.QtGui import (
     QWheelEvent,
     QMouseEvent,
     QKeyEvent,
+    QFont,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -267,7 +268,7 @@ class AnnotableLayer(BaseLayer):
 
         # Draw labels
         if annotation.is_complete and annotation.label:
-            painter.save()
+            # painter.save()
             label_pos = self.get_label_position(annotation)
             text = annotation.label
 
@@ -307,8 +308,58 @@ class AnnotableLayer(BaseLayer):
             # Draw text
             painter.setPen(Qt.white)
             painter.drawText(bg_rect, Qt.AlignCenter, text)
-            painter.restore()
-            self.label_rects.append((bg_rect, annotation))
+
+            # now if the annotations has caption,
+            # draw the caption below the label in itallic
+            # just below the label, in a font lighter than a label
+
+            if annotation.caption:
+                caption_font = painter.font()
+                # Draw a background rectangle for the caption to ensure visibility
+                caption_text = annotation.caption
+                caption_font.setItalic(True)
+                caption_font.setPixelSize(
+                    self.config.selected_draw_config.label_font_size * self.scale + 2
+                )
+                caption_font.setWeight(QFont.Light)
+                painter.setFont(caption_font)
+                metrics = painter.fontMetrics()
+                text_width = metrics.horizontalAdvance(caption_text)
+                text_height = metrics.height()
+                # Draw background rectangle for caption
+                caption_rect = QRectF(
+                    widget_pos.x() - text_width / 2 - 2,
+                    widget_pos.y() + text_height / 2 - 2,
+                    text_width + 4,
+                    text_height + 4,
+                )
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(
+                    self.config.normal_draw_config.label_font_background_color
+                )
+                painter.drawRect(caption_rect)
+                # Draw caption text
+                painter.setPen(Qt.white)
+                painter.drawText(caption_rect, Qt.AlignCenter, caption_text)
+                caption_font.setItalic(True)
+                caption_font.setPixelSize(
+                    self.config.selected_draw_config.label_font_size * self.scale + 2
+                )
+                caption_font.setWeight(QFont.Light)
+                painter.setFont(caption_font)
+                metrics = painter.fontMetrics()
+                text_width = metrics.horizontalAdvance(annotation.caption)
+                text_height = metrics.height()
+                painter.setPen(Qt.white)
+                painter.setBrush(Qt.gray)
+
+                caption_rect = QRectF(
+                    widget_pos.x() - text_width / 2 - 2,
+                    widget_pos.y() + text_height / 2 - 2,
+                    text_width + 4,
+                    text_height + 4,
+                )
+                painter.drawText(caption_rect, Qt.AlignCenter, annotation.caption)
 
         painter.restore()
 
@@ -940,6 +991,7 @@ class AnnotableLayer(BaseLayer):
         new_layer.layer_name = (
             f"{annotation.label} {annotation.annotation_id} {annotation.annotator}"
         )
+        new_layer.caption = annotation.caption
 
         new_layer._apply_edge_opacity()
         new_layer.update()

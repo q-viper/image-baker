@@ -1024,7 +1024,7 @@ class LayerifyTab(QWidget):
             self.layer.set_mode(MouseMode.RECTANGLE)
             logger.info("Mouse mode set to RECTANGLE.")
             # if pressed h key, then toggle visibility of annotations
-        if event.key() == Qt.Key_H:
+        elif event.key() == Qt.Key_H:
             self.layer.toggle_annotation_visibility()
 
         # if selected l, then run layerify the selected annotations
@@ -1044,6 +1044,18 @@ class LayerifyTab(QWidget):
                 logger.info("Layerified all annotations in the current layer.")
             else:
                 logger.warning("No annotations to layerify.")
+        elif event.key() == Qt.Key_C:
+            # if an annotation is selected, open a dialog box
+            # in that dialog box, ask for a caption
+            self.layer.selected_annotation = self.layer._get_selected_annotation()
+            if self.layer.selected_annotation:
+                current_caption = getattr(self.layer.selected_annotation, "caption", "")
+                text, ok = QInputDialog.getMultiLineText(
+                    self, "Edit Caption", "Enter caption:", current_caption
+                )
+                if ok:
+                    self.layer.selected_annotation.caption = text
+                    self.layer.update()
 
         # Pass the event to the annotation list if it needs to handle it
         if self.annotation_list.hasFocus():

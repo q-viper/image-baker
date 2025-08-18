@@ -39,7 +39,7 @@ class BakerWorker(QObject):
         self.layers = layers
         self.filename = filename
 
-        logger.info(f"Received States: {self.states}")
+        # logger.info(f"Received States: {self.states}")
 
     def process(self):
         results = []
@@ -210,6 +210,7 @@ class BakerWorker(QObject):
                                 new_annotation = self._generate_annotation(
                                     ann, alpha_channel
                                 )
+                                new_annotation.caption = layer.caption
                                 new_annotations.append(new_annotation)
                 finally:
                     painter.end()
@@ -253,6 +254,8 @@ class BakerWorker(QObject):
             annotation_id=ann.annotation_id,
             is_complete=True,
             visible=True,
+            caption=ann.caption,
+            is_model_generated=ann.is_model_generated,
         )
 
         if ann.points:

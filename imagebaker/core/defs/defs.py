@@ -78,6 +78,7 @@ class LayerState:
     drawing_states: list[DrawingState] = field(default_factory=list)
     edge_opacity: int = 100
     edge_width: int = 10
+    caption: str = ""
 
     def copy(self):
         return LayerState(
@@ -109,6 +110,7 @@ class LayerState:
             ],
             edge_opacity=self.edge_opacity,
             edge_width=self.edge_width,
+            caption=self.caption,
         )
 
 
@@ -138,6 +140,7 @@ class Annotation:
     file_path: Path = field(default_factory=lambda: Path("Runtime"))
     is_model_generated: bool = False
     model_name: str = None
+    caption: str = ""
 
     def copy(self):
         ann = Annotation(
@@ -156,6 +159,7 @@ class Annotation:
             file_path=self.file_path,
             is_model_generated=self.is_model_generated,
             model_name=self.model_name,
+            caption=self.caption,
         )
         ann.is_selected = False
         return ann
@@ -200,6 +204,7 @@ class Annotation:
                 "file_path": str(annotation.file_path),
                 "is_model_generated": annotation.is_model_generated,
                 "model_name": annotation.model_name,
+                "caption": annotation.caption,
             }
             annotations_dict.append(data)
 
@@ -234,6 +239,7 @@ class Annotation:
                 file_path=Path(d.get("file_path", "Runtime")),
                 is_model_generated=d.get("is_model_generated", False),
                 model_name=d.get("model_name", None),
+                caption=d.get("caption", ""),
             )
 
             # Handle points safely
