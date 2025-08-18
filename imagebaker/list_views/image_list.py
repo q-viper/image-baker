@@ -144,6 +144,11 @@ class ImageListPanel(QDockWidget):
             active_image_entries.append(image_entry)
 
         self.activeImageEntries.emit(active_image_entries)
+        # also set first item as selected if there are any items
+        if self.list_widget.count() > 0:
+            self.list_widget.setCurrentRow(0)
+            self.list_widget.setFocus()
+
         self.update()
 
     def handle_item_clicked(self, item: QListWidgetItem):

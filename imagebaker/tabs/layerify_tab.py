@@ -227,6 +227,10 @@ class LayerifyTab(QWidget):
                     )  # Only the first layer is visible by default
                     if i == 0:
                         self.layer = layer  # Set the first layer as the current layer
+                        # Select the first item in the image list panel's list widget
+                        if self.image_list_panel.list_widget.count() > 0:
+                            self.image_list_panel.list_widget.setCurrentRow(0)
+
                 else:
                     layer.setVisible(False)
 
@@ -240,21 +244,30 @@ class LayerifyTab(QWidget):
         self.image_list_panel.update_image_list(self.image_entries)
         self.update()
 
-    def save_layer_annotations(self, layer: AnnotableLayer):
+    def save_layer_annotations(
+        self, layer: AnnotableLayer, save_dir: Path | None = None
+    ):
         """Save annotations for a specific layer"""
         if len(layer.annotations) > 0:
             file_path = layer.file_path
             file_name = file_path.name
-            save_dir = self.config.cache_dir / f"{file_name}.json"
+            if save_dir is None:
+                # Save to the cache directory
+                save_dir = self.config.cache_dir
+            save_dir = save_dir / f"{file_name}.json"
             Annotation.save_as_json(layer.annotations, save_dir)
             logger.info(f"Saved annotations for {layer.layer_name} to {save_dir}")
 
-    def load_layer_annotations(self, layer: AnnotableLayer):
+    def load_layer_annotations(
+        self, layer: AnnotableLayer, load_dir: Path | None = None
+    ):
         """Load annotations for a specific layer"""
         if layer.file_path:
             file_path = layer.file_path
             file_name = file_path.name
-            load_dir = self.config.cache_dir / f"{file_name}.json"
+            if load_dir is None:
+                load_dir = self.config.cache_dir
+            load_dir = load_dir / f"{file_name}.json"
             if load_dir.exists():
                 layer.annotations = Annotation.load_from_json(load_dir)
                 logger.info(
@@ -285,6 +298,9 @@ class LayerifyTab(QWidget):
                 layer.setVisible(i == 0)
                 if i == 0:
                     self.layer = layer
+                    # update annotation list to the first layer
+                    self.annotation_list.layer = self.layer
+                    self.annotation_list.update_list()
             else:
                 layer.setVisible(False)
         logger.info("Updated active entries in image list panel.")
@@ -324,7 +340,6 @@ class LayerifyTab(QWidget):
         logger.info(f"Added annotation: {annotation.label}")
         self.messageSignal.emit(f"Added annotation: {annotation.label}")
         self.save_layer_annotations(self.layer)
-
         # Refresh the annotation list
         self.annotation_list.update_list()
 
@@ -569,6 +584,34 @@ class LayerifyTab(QWidget):
             QMessageBox.warning(self, "Warning", "No annotations to save!")
             return
 
+        # an option to save all annotations (i.e. from all layers) or just the current layer
+        options = QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        # Change the "No" button text to "Just This Layer"
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Save Annotations")
+        msg_box.setText("Do you want to save annotations from all layers?")
+        yes_button = msg_box.addButton("All Layers", QMessageBox.YesRole)
+        just_this_button = msg_box.addButton("Just This Layer", QMessageBox.NoRole)
+        msg_box.setDefaultButton(yes_button)
+        msg_box.exec()
+        save_all = msg_box.clickedButton() == yes_button
+
+        if save_all:
+            # folder select dialog
+            save_dir = QFileDialog.getExistingDirectory(
+                self, "Select Save Directory", str(self.config.cache_dir)
+            )
+            if not save_dir:
+                QMessageBox.warning(self, "Warning", "No directory selected!")
+                return
+            for layer in self.annotable_layers:
+                if layer.annotations:
+                    self.save_layer_annotations(layer, Path(save_dir))
+            QMessageBox.information(
+                self, "Success", "All annotations saved successfully!"
+            )
+            return
+
         options = QFileDialog.Options()
         file_name, _ = QFileDialog.getSaveFileName(
             self, "Save Annotations", "", "JSON Files (*.json)", options=options
@@ -591,6 +634,34 @@ class LayerifyTab(QWidget):
         """
         Load annotations from a JSON file.
         """
+        # dialog box to load all annotations or just the current layer
+        options = QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        # Change the "No" button text to "Just This Layer"
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Load Annotations")
+        msg_box.setText("Do you want to load annotations from all layers?")
+        yes_button = msg_box.addButton("All Layers", QMessageBox.YesRole)
+        just_this_button = msg_box.addButton("Just This Layer", QMessageBox.NoRole)
+        msg_box.setDefaultButton(yes_button)
+        msg_box.exec()
+        load_all = msg_box.clickedButton() == yes_button
+        if load_all:
+            # folder select dialog
+            load_dir = QFileDialog.getExistingDirectory(
+                self, "Select Load Directory", str(self.config.cache_dir)
+            )
+            if not load_dir:
+                QMessageBox.warning(self, "Warning", "No directory selected!")
+                return
+            for layer in self.annotable_layers:
+                layer.annotations = []
+                layer.update()
+                self.load_layer_annotations(layer, Path(load_dir))
+            self.update_annotation_list()
+            QMessageBox.information(
+                self, "Success", "All annotations loaded successfully!"
+            )
+            return
         options = QFileDialog.Options()
         file_name, _ = QFileDialog.getOpenFileName(
             self, "Load Annotations", "", "JSON Files (*.json)", options=options
