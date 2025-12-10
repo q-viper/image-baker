@@ -5,7 +5,6 @@ import cv2
 from transformers import SamModel, SamProcessor
 from loguru import logger
 import time
-from skimage import measure
 from typing import Union, Optional, List
 
 

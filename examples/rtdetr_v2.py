@@ -17,7 +17,6 @@ from imagebaker.models.base_model import (
     ModelType,
     PredictionResult,
 )
-from imagebaker.utils import generate_color_map
 
 
 class RTDetrModelConfig(DefaultModelConfig):

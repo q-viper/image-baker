@@ -179,7 +179,7 @@ class AnnotableLayer(BaseLayer):
 
         # Draw mask if present
         if annotation.mask is not None:
-            from PySide6.QtGui import QImage, QPixmap
+            from PySide6.QtGui import QImage
             import numpy as np
 
             mask = annotation.mask

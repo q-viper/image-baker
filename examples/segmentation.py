@@ -1,6 +1,6 @@
 # based on https://docs.ultralytics.com/tasks/segment/#how-do-i-load-and-validate-a-pretrained-yolo-segmentation-model
 
-from typing import List, Tuple
+from typing import List
 import numpy as np
 import cv2
 from loguru import logger

@@ -1,15 +1,9 @@
-from imagebaker.core.configs import LayerConfig, CanvasConfig
-from imagebaker import logger
-from imagebaker.tabs import LayerifyTab, BakerTab
-from imagebaker import __version__
-
-
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import (
-    QMainWindow,
-    QMessageBox,
-    QTabWidget,
-)
+from PySide6.QtWidgets import QMainWindow, QMessageBox, QTabWidget
+
+from imagebaker import __version__, logger
+from imagebaker.core.configs import CanvasConfig, LayerConfig
+from imagebaker.tabs import BakerTab, LayerifyTab
 
 
 class MainWindow(QMainWindow):
