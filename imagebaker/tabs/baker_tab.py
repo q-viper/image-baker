@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
 )
 from collections import deque
+from pathlib import Path
 
 
 class BakerTab(QWidget):
@@ -535,3 +536,7 @@ class BakerTab(QWidget):
                 )
         self.update()
         return super().keyPressEvent(event)
+
+    def save_canvas_to_cache(self, canvas: CanvasLayer, path: Path | None = None):
+        """Save the current canvas state to a file."""
+        logger.warning("save_canvas_to_cache is not implemented yet.")

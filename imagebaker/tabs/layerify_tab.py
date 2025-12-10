@@ -248,15 +248,21 @@ class LayerifyTab(QWidget):
         self, layer: AnnotableLayer, save_dir: Path | None = None
     ):
         """Save annotations for a specific layer"""
+        file_path = layer.file_path
+        file_name = file_path.name
+        if save_dir is None:
+            # Save to the cache directory
+            save_dir = self.config.cache_dir
+        save_dir = save_dir / f"{file_name}.json"
+
+        # if there are annotations
         if len(layer.annotations) > 0:
-            file_path = layer.file_path
-            file_name = file_path.name
-            if save_dir is None:
-                # Save to the cache directory
-                save_dir = self.config.cache_dir
-            save_dir = save_dir / f"{file_name}.json"
             Annotation.save_as_json(layer.annotations, save_dir)
             logger.info(f"Saved annotations for {layer.layer_name} to {save_dir}")
+        elif save_dir.exists():
+            # Remove the existing annotation file if no annotations
+            os.remove(save_dir)
+            logger.info(f"Removed empty annotation file: {save_dir}")
 
     def load_layer_annotations(
         self, layer: AnnotableLayer, load_dir: Path | None = None
@@ -523,7 +529,6 @@ class LayerifyTab(QWidget):
                     )
                 )
             elif prediction.polygon is not None:
-
                 self.layer.annotations.append(
                     Annotation(
                         annotation_id=len(self.layer.annotations),
@@ -985,81 +990,83 @@ class LayerifyTab(QWidget):
 
         # Debugging: Log the key press
         logger.info(f"Key pressed in LayerifyTab: {key}")
-
-        # Handle keys 0-9 for setting labels
-        if Qt.Key_0 <= key <= Qt.Key_9:
-            label_index = key - Qt.Key_0  # Convert key to index (0-9)
-            if label_index < len(self.config.predefined_labels):
-                # Set the current label to the corresponding predefined label
-                self.current_label = self.config.predefined_labels[label_index].name
-                self.label_combo.setCurrentIndex(label_index)
-                self.layer.current_label = self.current_label
-                self.layer.update()
-                logger.info(f"Label set to: {self.current_label}")
-            else:
-                # Show dialog to add a new label if the index is out of range
-                self.add_new_label()
-
-        # Handle Delete key for removing the selected annotation
-        elif key == Qt.Key_Delete:
-            self.layer.selected_annotation = self.layer._get_selected_annotation()
-            if self.layer and self.layer.selected_annotation:
-
-                self.layer.annotations.remove(self.layer.selected_annotation)
-                self.layer.selected_annotation = None  # Clear the selection
-                self.layer.update()
-                self.annotation_list.update_list()
-                logger.info("Selected annotation deleted.")
-
-        # if clicked q, set the mode to point
-        elif key == Qt.Key_Q:
-            self.layer.set_mode(MouseMode.POINT)
-            logger.info("Mouse mode set to POINT.")
-        # if clicked w, set the mode to polygon
-        elif key == Qt.Key_W:
-            self.layer.set_mode(MouseMode.POLYGON)
-            logger.info("Mouse mode set to POLYGON.")
-        # if clicked e, set the mode to rectangle
-        elif key == Qt.Key_E:
-            self.layer.set_mode(MouseMode.RECTANGLE)
-            logger.info("Mouse mode set to RECTANGLE.")
-            # if pressed h key, then toggle visibility of annotations
-        elif event.key() == Qt.Key_H:
-            self.layer.toggle_annotation_visibility()
-
-        # if selected l, then run layerify the selected annotations
-        elif event.key() == Qt.Key_L:
-            if self.layer and self.layer.annotations:
-                selected_annotations = [
-                    ann for ann in self.layer.annotations if ann.selected
-                ]
-                if selected_annotations:
-                    logger.info(
-                        f"Layerifying {len(selected_annotations)} selected annotations."
-                    )
-                    self.layer.layerify_annotation(selected_annotations)
-                else:
-                    # layerify all annotations in the current layer
-                    self.layer.layerify_annotation(self.layer.annotations)
-                logger.info("Layerified all annotations in the current layer.")
-            else:
-                logger.warning("No annotations to layerify.")
-        elif event.key() == Qt.Key_C:
-            # if an annotation is selected, open a dialog box
-            # in that dialog box, ask for a caption
-            self.layer.selected_annotation = self.layer._get_selected_annotation()
-            if self.layer.selected_annotation:
-                current_caption = getattr(self.layer.selected_annotation, "caption", "")
-                text, ok = QInputDialog.getMultiLineText(
-                    self, "Edit Caption", "Enter caption:", current_caption
-                )
-                if ok:
-                    self.layer.selected_annotation.caption = text
+        # only if no modifier keys are pressed
+        if event.modifiers() == Qt.NoModifier:
+            # Handle keys 0-9 for setting labels
+            if Qt.Key_0 <= key <= Qt.Key_9:
+                label_index = key - Qt.Key_0  # Convert key to index (0-9)
+                if label_index < len(self.config.predefined_labels):
+                    # Set the current label to the corresponding predefined label
+                    self.current_label = self.config.predefined_labels[label_index].name
+                    self.label_combo.setCurrentIndex(label_index)
+                    self.layer.current_label = self.current_label
                     self.layer.update()
+                    logger.info(f"Label set to: {self.current_label}")
+                else:
+                    # Show dialog to add a new label if the index is out of range
+                    self.add_new_label()
 
-        # Pass the event to the annotation list if it needs to handle it
-        if self.annotation_list.hasFocus():
-            self.annotation_list.keyPressEvent(event)
+            # Handle Delete key for removing the selected annotation
+            elif key == Qt.Key_Delete:
+                self.layer.selected_annotation = self.layer._get_selected_annotation()
+                if self.layer and self.layer.selected_annotation:
+                    self.layer.annotations.remove(self.layer.selected_annotation)
+                    self.layer.selected_annotation = None  # Clear the selection
+                    self.layer.update()
+                    self.annotation_list.update_list()
+                    logger.info("Selected annotation deleted.")
+
+            # if clicked q, set the mode to point
+            elif key == Qt.Key_Q:
+                self.layer.set_mode(MouseMode.POINT)
+                logger.info("Mouse mode set to POINT.")
+            # if clicked w, set the mode to polygon
+            elif key == Qt.Key_W:
+                self.layer.set_mode(MouseMode.POLYGON)
+                logger.info("Mouse mode set to POLYGON.")
+            # if clicked e, set the mode to rectangle
+            elif key == Qt.Key_E:
+                self.layer.set_mode(MouseMode.RECTANGLE)
+                logger.info("Mouse mode set to RECTANGLE.")
+                # if pressed h key, then toggle visibility of annotations
+            elif event.key() == Qt.Key_H:
+                self.layer.toggle_annotation_visibility()
+
+            # if selected l, then run layerify the selected annotations
+            elif event.key() == Qt.Key_L:
+                if self.layer and self.layer.annotations:
+                    selected_annotations = [
+                        ann for ann in self.layer.annotations if ann.selected
+                    ]
+                    if selected_annotations:
+                        logger.info(
+                            f"Layerifying {len(selected_annotations)} selected annotations."
+                        )
+                        self.layer.layerify_annotation(selected_annotations)
+                    else:
+                        # layerify all annotations in the current layer
+                        self.layer.layerify_annotation(self.layer.annotations)
+                    logger.info("Layerified all annotations in the current layer.")
+                else:
+                    logger.warning("No annotations to layerify.")
+            elif event.key() == Qt.Key_C:
+                # if an annotation is selected, open a dialog box
+                # in that dialog box, ask for a caption
+                self.layer.selected_annotation = self.layer._get_selected_annotation()
+                if self.layer.selected_annotation:
+                    current_caption = getattr(
+                        self.layer.selected_annotation, "caption", ""
+                    )
+                    text, ok = QInputDialog.getMultiLineText(
+                        self, "Edit Caption", "Enter caption:", current_caption
+                    )
+                    if ok:
+                        self.layer.selected_annotation.caption = text
+                        self.layer.update()
+
+            # Pass the event to the annotation list if it needs to handle it
+            if self.annotation_list.hasFocus():
+                self.annotation_list.keyPressEvent(event)
 
         # Pass unhandled events to the base class
         super().keyPressEvent(event)

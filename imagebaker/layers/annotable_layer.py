@@ -181,6 +181,7 @@ class AnnotableLayer(BaseLayer):
         if annotation.mask is not None:
             from PySide6.QtGui import QImage, QPixmap
             import numpy as np
+
             mask = annotation.mask
             if mask.dtype != np.uint8:
                 mask = (mask * 255).astype(np.uint8)
@@ -191,7 +192,9 @@ class AnnotableLayer(BaseLayer):
             rgba[..., 0] = color.red()
             rgba[..., 1] = color.green()
             rgba[..., 2] = color.blue()
-            rgba[..., 3] = (mask * (self.config.normal_draw_config.brush_alpha)).astype(np.uint8)
+            rgba[..., 3] = (mask * (self.config.normal_draw_config.brush_alpha)).astype(
+                np.uint8
+            )
             qimg = QImage(rgba.data, w, h, QImage.Format_RGBA8888)
             painter.drawImage(0, 0, qimg)
 
@@ -644,7 +647,10 @@ class AnnotableLayer(BaseLayer):
         if event.button() == Qt.LeftButton:
             if self.mouse_mode == MouseMode.DRAW:
                 import numpy as np
-                self._brush_mask = np.zeros((self.image.height(), self.image.width()), dtype=np.uint8)
+
+                self._brush_mask = np.zeros(
+                    (self.image.height(), self.image.width()), dtype=np.uint8
+                )
                 self._brush_last_pos = (int(clamped_pos.x()), int(clamped_pos.y()))
                 self.current_label = self.current_label or "Brush"
                 self.current_color = self.current_color or QColor(255, 0, 0)
@@ -653,17 +659,18 @@ class AnnotableLayer(BaseLayer):
         if event.buttons() & Qt.LeftButton and self.mouse_mode == MouseMode.DRAW:
             if self._brush_mask is not None and self._brush_last_pos is not None:
                 import cv2
+
                 x0, y0 = self._brush_last_pos
                 x1, y1 = int(clamped_pos.x()), int(clamped_pos.y())
-                brush_size = getattr(self, 'brush_size', 5)
-                cv2.line(self._brush_mask, (x0, y0), (x1, y1), color=1, thickness=brush_size)
+                brush_size = getattr(self, "brush_size", 5)
+                cv2.line(
+                    self._brush_mask, (x0, y0), (x1, y1), color=1, thickness=brush_size
+                )
                 self._brush_last_pos = (x1, y1)
                 self.update()
             return
         if event.button() == Qt.LeftButton:
             if self.mouse_mode == MouseMode.DRAW and self._brush_mask is not None:
-                from imagebaker.core.defs import Annotation
-                import numpy as np
                 mask = self._brush_mask.copy()
                 if np.any(mask):
                     ann = Annotation(

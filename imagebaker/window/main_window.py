@@ -189,6 +189,13 @@ class MainWindow(QMainWindow):
                 logger.info(
                     f"Deleted cache directory: {self.layerify_config.cache_dir}"
                 )
+        else:
+            # save the annotations to disk
+            for layer in self.layerify_tab.annotable_layers:
+                self.layerify_tab.save_layer_annotations(layer)
+
+            for canvas in self.baker_tab.canvases:
+                self.baker_tab.save_canvas_to_cache(canvas)
 
     def keyPressEvent(self, event):
         # if pressed escape key, close the application

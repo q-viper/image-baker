@@ -1,22 +1,21 @@
 Highest Priority First
 ----------------------
 - [ ] Define a plugin method. Try to implement smokesim here.
-- [x] Instead of defining everything on app.py, use different file for each tab. Try to abstract more generic things in Base classes and inherit them.
 - [ ] Merging two layers
-- [ ] A small dropdown on the layers list that toggles what annotation to export for this layer. Should be options: Default, Rectangle, Polygon.
 - [ ] Occlusion handling.
 - [ ] Instead of separate prompt model class, use a flag in the config. If a prompt is allowed, the prompt will be sent to the model else the propmt will be applied on the image i.e. if passed rectangle for non prompt segmentation model, model will receive cropped image.
 - [ ] Add test scripts (to reproduce results if that is even possible).
 - [ ] How to work with OCR? i.e. generating the image data with text on it.
-- [ ] Add color picker from the active QWidget.
-- [ ] Drawing with color.
 - [ ] Layerifying the drawing.
 - [ ] Option to show gridlines. Only if it does not affect the performance much.
 - [ ] Add Circle mode. Now, we only have point, rectangle and polygon.
 - [ ] Loading of video?
 - [ ] Add pose annotation.
 
-
+- [x] A small dropdown on the layers list that toggles what annotation to export for this layer. Should be options: Default, Rectangle, Polygon.
+- [x] Instead of defining everything on app.py, use different file for each tab. Try to abstract more generic things in Base classes and inherit them.
+- [x] Add color picker from the active QWidget.
+- [x] Drawing with color.
 - [x] Copy pasting selected layer/annotation with ctrl+c ctrl+v.
 - [x] Updating of annotation i.e. scaling for rectangle, moving point for polygon with cursors.
 - [x] Mouse events should be same for both layers i.e. hot keys to pan, zoom select layer/annotation.
