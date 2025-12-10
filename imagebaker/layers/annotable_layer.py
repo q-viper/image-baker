@@ -58,6 +58,10 @@ class AnnotableLayer(BaseLayer):
         self.is_annotable = True
         self.handle_zoom: float = 1
 
+        # Brush annotation state
+        self._brush_mask = None  # Numpy array for brush mask
+        self._brush_last_pos = None
+
     def init_ui(self):
         logger.info(f"Initializing Layer UI of {self.layer_name}")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -152,6 +156,7 @@ class AnnotableLayer(BaseLayer):
         """
         Draw annotation on the image.
         """
+
         if not annotation.visible:
             return
         painter.save()
@@ -171,6 +176,24 @@ class AnnotableLayer(BaseLayer):
 
         pen = QPen(pen_color, self.config.normal_draw_config.line_width / self.scale)
         brush = QBrush(brush_color, Qt.DiagCrossPattern)
+
+        # Draw mask if present
+        if annotation.mask is not None:
+            from PySide6.QtGui import QImage, QPixmap
+            import numpy as np
+            mask = annotation.mask
+            if mask.dtype != np.uint8:
+                mask = (mask * 255).astype(np.uint8)
+            h, w = mask.shape
+            # Create an RGBA image with the annotation color and alpha from mask
+            color = annotation.color
+            rgba = np.zeros((h, w, 4), dtype=np.uint8)
+            rgba[..., 0] = color.red()
+            rgba[..., 1] = color.green()
+            rgba[..., 2] = color.blue()
+            rgba[..., 3] = (mask * (self.config.normal_draw_config.brush_alpha)).astype(np.uint8)
+            qimg = QImage(rgba.data, w, h, QImage.Format_RGBA8888)
+            painter.drawImage(0, 0, qimg)
 
         if annotation.selected:
             painter.setPen(
@@ -207,22 +230,23 @@ class AnnotableLayer(BaseLayer):
         painter.setPen(pen)
         painter.setBrush(brush)
 
-        # Draw main shape
-        if annotation.points:
-            for point in annotation.points:
-                painter.drawEllipse(
-                    point,
-                    self.config.normal_draw_config.point_size / self.scale,
-                    self.config.normal_draw_config.point_size / self.scale,
-                )
-        elif annotation.rectangle:
-            painter.drawRect(annotation.rectangle)
-        elif annotation.polygon:
-            if len(annotation.polygon) > 1:
-                if annotation.is_complete:
-                    painter.drawPolygon(annotation.polygon)
-                else:
-                    painter.drawPolyline(annotation.polygon)
+        # Draw main shape if no mask
+        if annotation.mask is None:
+            if annotation.points:
+                for point in annotation.points:
+                    painter.drawEllipse(
+                        point,
+                        self.config.normal_draw_config.point_size / self.scale,
+                        self.config.normal_draw_config.point_size / self.scale,
+                    )
+            elif annotation.rectangle:
+                painter.drawRect(annotation.rectangle)
+            elif annotation.polygon:
+                if len(annotation.polygon) > 1:
+                    if annotation.is_complete:
+                        painter.drawPolygon(annotation.polygon)
+                    else:
+                        painter.drawPolyline(annotation.polygon)
 
         # Draw control points
         if annotation.rectangle:
@@ -618,6 +642,43 @@ class AnnotableLayer(BaseLayer):
 
         # If left-clicked
         if event.button() == Qt.LeftButton:
+            if self.mouse_mode == MouseMode.DRAW:
+                import numpy as np
+                self._brush_mask = np.zeros((self.image.height(), self.image.width()), dtype=np.uint8)
+                self._brush_last_pos = (int(clamped_pos.x()), int(clamped_pos.y()))
+                self.current_label = self.current_label or "Brush"
+                self.current_color = self.current_color or QColor(255, 0, 0)
+                return
+        # Brush drawing
+        if event.buttons() & Qt.LeftButton and self.mouse_mode == MouseMode.DRAW:
+            if self._brush_mask is not None and self._brush_last_pos is not None:
+                import cv2
+                x0, y0 = self._brush_last_pos
+                x1, y1 = int(clamped_pos.x()), int(clamped_pos.y())
+                brush_size = getattr(self, 'brush_size', 5)
+                cv2.line(self._brush_mask, (x0, y0), (x1, y1), color=1, thickness=brush_size)
+                self._brush_last_pos = (x1, y1)
+                self.update()
+            return
+        if event.button() == Qt.LeftButton:
+            if self.mouse_mode == MouseMode.DRAW and self._brush_mask is not None:
+                from imagebaker.core.defs import Annotation
+                import numpy as np
+                mask = self._brush_mask.copy()
+                if np.any(mask):
+                    ann = Annotation(
+                        annotation_id=len(self.annotations),
+                        label=self.current_label or "Brush",
+                        color=self.current_color or QColor(255, 0, 0),
+                        mask=mask,
+                        is_complete=True,
+                    )
+                    self.annotations.append(ann)
+                    self.annotationAdded.emit(ann)
+                self._brush_mask = None
+                self._brush_last_pos = None
+                self.update()
+                return
             self.selected_annotation, self.active_handle = (
                 self.find_annotation_and_handle_at(img_pos)
             )
