@@ -13,12 +13,11 @@ from PySide6.QtWidgets import (
 
 
 class MainWindow(QMainWindow):
-
     def __init__(
         self,
         layerify_config: LayerConfig = LayerConfig(),
         canvas_config: CanvasConfig = CanvasConfig(),
-        loaded_models=None,
+        loaded_models: None | dict[str, str] = None,
     ):
         """
         Main window for Image Baker application.
@@ -32,6 +31,9 @@ class MainWindow(QMainWindow):
         self.layerify_config = layerify_config
         self.canvas_config = canvas_config
         self.loaded_models = loaded_models
+
+        if self.loaded_models is None:
+            self.loaded_models = {}
 
         # Use QTimer to defer UI initialization
         QTimer.singleShot(0, self.init_ui)
