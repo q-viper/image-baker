@@ -34,7 +34,8 @@ setuptools.setup(
     ],
     entry_points={
         "console_scripts": [
-            "imagebaker=imagebaker.window.app:app_cli",
+            "imagebaker=imagebaker.cli:main",
+            "imagebaker-gui=imagebaker.window.app:app_cli",
         ],
     },
     extras_require={
