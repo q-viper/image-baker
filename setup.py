@@ -14,7 +14,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/q-viper/Image-Baker",
     license="MIT",
-    packages=setuptools.find_packages(),
+    packages=setuptools.find_packages(exclude=["docs", "docs.*", "site", "site.*", "assets", "assets.*", "examples", "examples.*", "tests", "tests.*", "experiments", "experiments.*"]),
     python_requires=">=3.10",
     classifiers=[
         "Programming Language :: Python :: 3",

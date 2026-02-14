@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["imagebaker"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["imagebaker*"]
+exclude = ["docs*", "site*", "assets*", "examples*", "tests*", "experiments*", "build*", "dist*", "*.egg-info*"]
+
+[tool.setuptools_scm]
+write_to = "imagebaker/_version.py"
+
+[tool.setuptools.package-data]
+imagebaker = ["*.json"]

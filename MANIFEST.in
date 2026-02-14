@@ -1,0 +1,32 @@
+# Include important files
+include README.md
+include LICENSE
+include CONTRIBUTING
+include requirements.txt
+include mkdocs.yml
+
+# Include package data
+recursive-include imagebaker *.py
+recursive-include imagebaker *.json
+
+# Exclude documentation and assets
+prune docs
+prune site
+prune assets
+prune examples/output
+prune build
+prune dist
+prune *.egg-info
+
+# Exclude large files
+global-exclude *.png
+global-exclude *.jpg
+global-exclude *.jpeg
+global-exclude *.gif
+global-exclude *.webp
+global-exclude *.pt
+global-exclude *.pth
+global-exclude __pycache__
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude .DS_Store
