@@ -1,4 +1,4 @@
-black==24.4.2
+ruff>=0.1.0
 numpy
 opencv-python==4.10.0.84
 pillow==10.4.0

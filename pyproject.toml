@@ -2,6 +2,62 @@
 requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
+[project]
+name = "imagebaker"
+dynamic = ["version"]
+description = "A powerful image annotation and segmentation tool with GUI, CLI, and Python API"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Q-Viper", email = "your.email@example.com"}
+]
+keywords = ["image", "annotation", "segmentation", "computer-vision", "yolo", "sam"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
+dependencies = [
+    "PySide6==6.8.3",
+    "ultralytics>=8.0.0",
+    "numpy>=1.24.0",
+    "opencv-python>=4.8.0",
+    "pillow>=10.0.0",
+    "pydantic>=2.11.1",
+    "typer>=0.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.1.0",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+docs = [
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.0.0",
+    "mkdocstrings[python]>=0.24.0",
+    "pymdown-extensions>=10.0",
+    "mkdocs-awesome-pages-plugin>=2.9.0",
+]
+
+[project.scripts]
+imagebaker = "imagebaker.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/q-viper/image-baker"
+Documentation = "https://q-viper.github.io/image-baker/"
+Repository = "https://github.com/q-viper/image-baker"
+Issues = "https://github.com/q-viper/image-baker/issues"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["imagebaker*"]
@@ -12,3 +68,30 @@ write_to = "imagebaker/_version.py"
 
 [tool.setuptools.package-data]
 imagebaker = ["*.json"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
