@@ -4,10 +4,9 @@ Model Loading API
 Provides utilities for loading and managing models.
 """
 
-import importlib.util
 import runpy
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 from imagebaker import logger
 from imagebaker.models.base_model import BaseModel

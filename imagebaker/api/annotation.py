@@ -6,7 +6,6 @@ Provides simplified annotation creation and manipulation.
 
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
 from typing import List, Optional, Tuple
 
 from PySide6.QtCore import QPointF, QRectF

@@ -22,8 +22,7 @@ def ensure_qapp():
     return _app
 
 from imagebaker import logger
-from imagebaker.api import AnnotationType, ImageBaker, create_annotation
-from imagebaker.core.configs import CanvasConfig, LayerConfig
+from imagebaker.api import ImageBaker
 
 # Create main app
 app = typer.Typer(
