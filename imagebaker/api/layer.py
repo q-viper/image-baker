@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Optional, Tuple, Union
 
 import numpy as np
-from PySide6.QtCore import QPointF
 from PySide6.QtGui import QImage, QPixmap
 
 from imagebaker import logger

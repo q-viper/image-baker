@@ -8,18 +8,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-import cv2
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import (QColor, QImage, QPainter, QPixmap, QPolygonF,
-                           QTransform)
+from PySide6.QtGui import (QImage, QPainter, QPixmap, QTransform)
 
 from imagebaker import logger
 from imagebaker.core.configs import CanvasConfig
 from imagebaker.core.defs import Annotation, BakingResult, LayerState
 from imagebaker.utils.image import qpixmap_to_numpy
-from imagebaker.utils.transform_mask import (mask_to_polygons,
-                                             mask_to_rectangles)
 
 
 class ImageBaker:
