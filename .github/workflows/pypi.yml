@@ -1,4 +1,4 @@
-name: Build Docs and Publish to PyPI
+name: Publish to PyPI
 
 on:
   push:
@@ -6,49 +6,15 @@ on:
       - "*"  # Match all tags
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      # Step 1: Check out the code
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      # Step 2: Set up Python
-      - name: Set up Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: '3.10'
-
-      # Step 3: Install dependencies
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install mkdocs mkdocs-material mkdocstrings
-          pip install -e .[docs]
-
-      # Step 4: Build documentation
-      - name: Build documentation
-        run: mkdocs build
-
-      # Step 5: Deploy to GitHub Pages
-      - name: Deploy to GitHub Pages
-        run: |
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "github-actions[bot]"
-          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
-          mkdocs gh-deploy --force
-
   build-and-publish:
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')  # Only run on tag pushes
 
     steps:
       # Step 1: Check out the code
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Fetch all history for setuptools-scm to work
 
       # Step 2: Set up Python
       - name: Set up Python
@@ -60,16 +26,20 @@ jobs:
       - name: Install build tools
         run: |
           python -m pip install --upgrade pip
-          pip install build twine setuptools wheel setuptools-scm # Added wheel package
+          pip install build twine setuptools wheel setuptools-scm
 
       # Step 4: Build the distribution
       - name: Build the package
-        run: python setup.py sdist bdist_wheel  # Use setup.py
+        run: python -m build
 
-      # Step 5: Publish to PyPI
+      # Step 5: Check the distribution
+      - name: Check distribution
+        run: python -m twine check dist/*
+
+      # Step 6: Publish to PyPI
       - name: Publish to PyPI
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: |
-          python -m twine upload dist/*
+          python -m twine upload dist/* --skip-existing --verbose
