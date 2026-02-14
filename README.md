@@ -24,6 +24,13 @@ When training computer vision models (especially for detection and segmentation)
 The concept involves extracting portions of an image (e.g., objects of interest) using tools like polygons or models such as Segment Anything. These extractions are treated as layers, which can then be copied, pasted, and manipulated to create multiple instances of the desired object. By combining these layers step by step, a new labeled image with annotations in JSON format is created. The term "baking" refers to the process of merging these layers into a single cohesive image.
 
 ## Getting Started
+
+ImageBaker can be used in three ways:
+
+1. **GUI Application** - Visual interface for interactive image composition
+2. **CLI Tool** - Command-line interface for automation and scripting
+3. **Python Library** - Programmatic API for integration into your projects
+
 ### Installation
 #### Using PIP
 This project is also available on the PyPI server.
@@ -41,24 +48,63 @@ cd image-baker
 pip install -e .
 ```
 
-### First Run
-Run the following command to launch the GUI:
+### Usage
 
-`imagebaker`
+#### 🖥️ GUI Mode
+Launch the visual interface for interactive work:
+```bash
+# Simple launch (default)
+imagebaker
 
-By default, the above command will not run any models on the backend. So please take a look into the example of model definition at [examples/loaded_models.py](https://github.com/q-viper/image-baker/blob/main/examples/loaded_models.py). Then we need to pass it as:
+# Or with explicit gui command
+imagebaker gui
 
-`imagebaker --models-file examples/loaded_models.py`
+# With models
+imagebaker gui --models-file examples/loaded_models.py
+```
 
-For more options, please do: `imagebaker --help` It should give the following options.
+#### ⌨️ CLI Mode
+Automate image composition from the command line:
+```bash
+# Simple composition
+imagebaker cli bake simple bg.png fg.png -o output.png \
+    --positions "0,0;100,100" --opacities "1.0,0.5"
 
-![](https://github.com/q-viper/image-baker/blob/main/assets/demo/options.png?raw=true)
+# Config-based baking
+imagebaker cli bake from-config config.py
 
+# Get image info
+imagebaker cli info image.png
 
-* **`--configs-file`** allows us to define custom configs. The custom configs have to inherit LayerConfig and CanvasConfig defined at [imagebaker/core/configs/configs.py](https://github.com/q-viper/image-baker/blob/main/imagebaker/core/configs/configs.py). An example is available at [examples](https://github.com/q-viper/image-baker/blob/main/examples/). 
+# Check version
+imagebaker cli version
+```
 
-After cloning and going to the project directory, the following code should work.
-`imagebaker --models-file examples/loaded_models.py --configs-file examples/example_config.py`
+#### 🐍 Python API
+Integrate into your projects programmatically:
+```python
+from imagebaker import ImageBaker
+
+baker = ImageBaker()
+layer1 = baker.add_layer_from_file("background.png")
+layer2 = baker.add_layer_from_file("foreground.png")
+baker.set_layer_position(layer2, 100, 100)
+baker.set_layer_opacity(layer2, 0.7)
+
+result = baker.bake()
+baker.save(result, "output.png")
+```
+
+**📚 Documentation:**
+- [Quick Start Guide](docs/QUICKSTART.md) - Get started in 5 minutes
+- [Full API Reference](docs/api-usage.md) - Comprehensive documentation
+- [Implementation Details](docs/API_IMPLEMENTATION.md) - Technical details
+
+**🎨 Examples:**
+- GUI: Traditional visual interface (unchanged)
+- CLI: `examples/bake_config.py` - Configuration file example
+- API: `examples/api_example.py` - Full Python example
+- Samples: `assets/demo/api_samples/` - Generated outputs
 
 ## Features
 - **Annotating Images**: Load a folder of images and annotate them using bounding boxes or polygons.
