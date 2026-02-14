@@ -42,6 +42,15 @@ pip install imagebaker
 #### Developing
 Please, clone this repository and install it locally:
 
+**For Windows users:**
+```powershell
+git clone https://github.com/q-viper/image-baker.git
+cd image-baker
+python -m venv .venv       # create a virtual environment
+.venv\Scripts\activate     # activate the virtual environment
+pip install -e .
+```
+**For Linux/macOS users:**
 ```bash
 git clone https://github.com/q-viper/image-baker.git 
 cd image-baker
