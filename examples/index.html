@@ -1,0 +1,971 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Documentation for the Image Baker project.">
+      
+      
+        <meta name="author" content="Ramkrishna Acharya">
+      
+      
+        <link rel="canonical" href="https://q-viper.github.io/Image-Baker/examples/">
+      
+      
+        <link rel="prev" href="../QUICKSTART/">
+      
+      
+        <link rel="next" href="../api-usage/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/favicon_io/favicon-32x32.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>Examples - Image Baker Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="pink">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#examples" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Image Baker Documentation" class="md-header__button md-logo" aria-label="Image Baker Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Image Baker Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Examples
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/q-viper/image-baker" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Image Baker
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../QUICKSTART/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quick Start
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Examples
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../api-usage/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  API Usage
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../api-reference/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  API Reference
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Image Baker Documentation" class="md-nav__button md-logo" aria-label="Image Baker Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Image Baker Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/q-viper/image-baker" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Image Baker
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../QUICKSTART/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#example-1-simple-api-usage-two-layer-composition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 1: Simple API Usage - Two Layer Composition
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-2-animation-frames-multiple-states" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 2: Animation Frames - Multiple States
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-3-cli-simple-bake-command" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 3: CLI - Simple Bake Command
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-4-cli-config-based-baking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 4: CLI - Config-Based Baking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-5-working-with-numpy-arrays" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 5: Working with NumPy Arrays
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-6-integration-with-opencv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 6: Integration with OpenCV
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-7-batch-processing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 7: Batch Processing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-the-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running the Examples
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Next Steps
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api-usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h1>
+<p>This page demonstrates various ways to use ImageBaker with real code examples and their outputs.</p>
+<h2 id="example-1-simple-api-usage-two-layer-composition">Example 1: Simple API Usage - Two Layer Composition<a class="headerlink" href="#example-1-simple-api-usage-two-layer-composition" title="Permanent link">&para;</a></h2>
+<p>Create a simple composition by loading two images and positioning one on top of the other.</p>
+<p><strong>Script: <code>examples/api_example.py</code> (excerpt)</strong></p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">imagebaker</span><span class="w"> </span><span class="kn">import</span> <span class="n">ImageBaker</span><span class="p">,</span> <span class="n">create_annotation</span><span class="p">,</span> <span class="n">AnnotationType</span>
+
+<span class="c1"># Initialize ImageBaker</span>
+<span class="n">baker</span> <span class="o">=</span> <span class="n">ImageBaker</span><span class="p">(</span><span class="n">output_dir</span><span class="o">=</span><span class="s2">&quot;./output&quot;</span><span class="p">)</span>
+
+<span class="c1"># Add background layer</span>
+<span class="n">layer1</span> <span class="o">=</span> <span class="n">baker</span><span class="o">.</span><span class="n">add_layer_from_file</span><span class="p">(</span>
+    <span class="s2">&quot;assets/desk.png&quot;</span><span class="p">,</span>
+    <span class="n">layer_name</span><span class="o">=</span><span class="s2">&quot;Background&quot;</span><span class="p">,</span>
+    <span class="n">opacity</span><span class="o">=</span><span class="mf">1.0</span>
+<span class="p">)</span>
+
+<span class="c1"># Add foreground layer</span>
+<span class="n">layer2</span> <span class="o">=</span> <span class="n">baker</span><span class="o">.</span><span class="n">add_layer_from_file</span><span class="p">(</span>
+    <span class="s2">&quot;assets/pen.png&quot;</span><span class="p">,</span>
+    <span class="n">layer_name</span><span class="o">=</span><span class="s2">&quot;Foreground&quot;</span><span class="p">,</span>
+    <span class="n">opacity</span><span class="o">=</span><span class="mf">0.7</span>
+<span class="p">)</span>
+
+<span class="c1"># Position and scale the foreground</span>
+<span class="n">baker</span><span class="o">.</span><span class="n">set_layer_position</span><span class="p">(</span><span class="n">layer2</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
+<span class="n">baker</span><span class="o">.</span><span class="n">set_layer_scale</span><span class="p">(</span><span class="n">layer2</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)</span>  <span class="c1"># Scale down to 50%</span>
+
+<span class="c1"># Add an annotation</span>
+<span class="n">ann</span> <span class="o">=</span> <span class="n">create_annotation</span><span class="p">(</span>
+    <span class="n">label</span><span class="o">=</span><span class="s2">&quot;object&quot;</span><span class="p">,</span>
+    <span class="n">annotation_type</span><span class="o">=</span><span class="n">AnnotationType</span><span class="o">.</span><span class="n">RECTANGLE</span><span class="p">,</span>
+    <span class="n">coordinates</span><span class="o">=</span><span class="p">[(</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">),</span> <span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="mi">200</span><span class="p">)],</span>
+    <span class="n">color</span><span class="o">=</span><span class="p">(</span><span class="mi">255</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="n">baker</span><span class="o">.</span><span class="n">add_annotation</span><span class="p">(</span><span class="n">layer2</span><span class="p">,</span> <span class="n">ann</span><span class="p">)</span>
+
+<span class="c1"># Bake and save</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">baker</span><span class="o">.</span><span class="n">bake</span><span class="p">()</span>
+<span class="n">output_path</span> <span class="o">=</span> <span class="n">baker</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">save_annotations</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Saved to: </span><span class="si">{</span><span class="n">output_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p><strong>Output:</strong></p>
+<p><img alt="Two layer composition" src="../assets/demo/api_samples/ImageBaker_20260214_234822.png" /></p>
+<p><em>Result: Desk background with pen overlay at position (50, 50) scaled to 50%</em></p>
+<hr />
+<h2 id="example-2-animation-frames-multiple-states">Example 2: Animation Frames - Multiple States<a class="headerlink" href="#example-2-animation-frames-multiple-states" title="Permanent link">&para;</a></h2>
+<p>Create an animation by saving multiple states with different positions and rotations.</p>
+<p><strong>Script: <code>examples/api_example.py</code> (excerpt)</strong></p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">imagebaker</span><span class="w"> </span><span class="kn">import</span> <span class="n">ImageBaker</span>
+
+<span class="n">baker</span> <span class="o">=</span> <span class="n">ImageBaker</span><span class="p">()</span>
+
+<span class="c1"># Add layers</span>
+<span class="n">bg</span> <span class="o">=</span> <span class="n">baker</span><span class="o">.</span><span class="n">add_layer_from_file</span><span class="p">(</span><span class="s2">&quot;assets/desk.png&quot;</span><span class="p">)</span>
+<span class="n">sprite</span> <span class="o">=</span> <span class="n">baker</span><span class="o">.</span><span class="n">add_layer_from_file</span><span class="p">(</span><span class="s2">&quot;assets/pen.png&quot;</span><span class="p">)</span>
+
+<span class="c1"># State 0: Initial position</span>
+<span class="n">baker</span><span class="o">.</span><span class="n">set_layer_position</span><span class="p">(</span><span class="n">sprite</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
+<span class="n">baker</span><span class="o">.</span><span class="n">set_layer_rotation</span><span class="p">(</span><span class="n">sprite</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<span class="n">baker</span><span class="o">.</span><span class="n">save_state</span><span class="p">(</span><span class="n">step</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+
+<span class="c1"># State 1: Moved and rotated</span>
+<span class="n">baker</span><span class="o">.</span><span class="n">set_layer_position</span><span class="p">(</span><span class="n">sprite</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
+<span class="n">baker</span><span class="o">.</span><span class="n">set_layer_rotation</span><span class="p">(</span><span class="n">sprite</span><span class="p">,</span> <span class="mi">15</span><span class="p">)</span>
+<span class="n">baker</span><span class="o">.</span><span class="n">save_state</span><span class="p">(</span><span class="n">step</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+<span class="c1"># State 2: Moved and rotated more</span>
+<span class="n">baker</span><span class="o">.</span><span class="n">set_layer_position</span><span class="p">(</span><span class="n">sprite</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="mi">150</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="mi">150</span><span class="p">)</span>
+<span class="n">baker</span><span class="o">.</span><span class="n">set_layer_rotation</span><span class="p">(</span><span class="n">sprite</span><span class="p">,</span> <span class="mi">30</span><span class="p">)</span>
+<span class="n">baker</span><span class="o">.</span><span class="n">save_state</span><span class="p">(</span><span class="n">step</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+
+<span class="c1"># Bake all states</span>
+<span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">):</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">baker</span><span class="o">.</span><span class="n">bake</span><span class="p">(</span><span class="n">step</span><span class="o">=</span><span class="n">step</span><span class="p">)</span>
+    <span class="n">baker</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">output_path</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;frame_</span><span class="si">{</span><span class="n">step</span><span class="si">}</span><span class="s2">.png&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p><strong>Output Frames:</strong></p>
+<table>
+<tr>
+<td align="center">
+<img src="../assets/demo/api_samples/frame_0.png" width="300"/>
+<br/><strong>Frame 0</strong>
+<br/><em>Initial position</em>
+</td>
+<td align="center">
+<img src="../assets/demo/api_samples/frame_1.png" width="300"/>
+<br/><strong>Frame 1</strong>
+<br/><em>Moved & rotated 15°</em>
+</td>
+<td align="center">
+<img src="../assets/demo/api_samples/frame_2.png" width="300"/>
+<br/><strong>Frame 2</strong>
+<br/><em>Moved & rotated 30°</em>
+</td>
+</tr>
+</table>
+
+<p><em>Animation sequence showing layer position and rotation changes across three states</em></p>
+<hr />
+<h2 id="example-3-cli-simple-bake-command">Example 3: CLI - Simple Bake Command<a class="headerlink" href="#example-3-cli-simple-bake-command" title="Permanent link">&para;</a></h2>
+<p>Use the command-line interface to quickly composite images without writing code.</p>
+<p><strong>Command:</strong></p>
+<div class="highlight"><pre><span></span><code>imagebaker<span class="w"> </span>cli<span class="w"> </span>bake<span class="w"> </span>simple<span class="w"> </span>assets/desk.png<span class="w"> </span>assets/pen.png<span class="w"> </span>assets/me.jpg<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-o<span class="w"> </span>output.png<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--positions<span class="w"> </span><span class="s2">&quot;0,0;100,50;200,100&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--opacities<span class="w"> </span><span class="s2">&quot;1.0,0.8,0.6&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scales<span class="w"> </span><span class="s2">&quot;1.0,0.5,0.3&quot;</span>
+</code></pre></div>
+<p><strong>Output:</strong></p>
+<p><img alt="CLI Simple Bake" src="../assets/demo/api_samples/cli_simple_bake.png" /></p>
+<p><em>Result: Three layers composited with custom positions, opacities, and scales</em></p>
+<hr />
+<h2 id="example-4-cli-config-based-baking">Example 4: CLI - Config-Based Baking<a class="headerlink" href="#example-4-cli-config-based-baking" title="Permanent link">&para;</a></h2>
+<p>Use a Python configuration file for more complex compositions.</p>
+<p><strong>Configuration File: <code>examples/bake_config.py</code></strong></p>
+<div class="highlight"><pre><span></span><code><span class="n">bake_config</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s1">&#39;layers&#39;</span><span class="p">:</span> <span class="p">[</span>
+        <span class="p">{</span>
+            <span class="s1">&#39;file&#39;</span><span class="p">:</span> <span class="s1">&#39;assets/desk.png&#39;</span><span class="p">,</span>
+            <span class="s1">&#39;position&#39;</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+            <span class="s1">&#39;opacity&#39;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+            <span class="s1">&#39;scale&#39;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+            <span class="s1">&#39;rotation&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+            <span class="s1">&#39;visible&#39;</span><span class="p">:</span> <span class="kc">True</span>
+        <span class="p">},</span>
+        <span class="p">{</span>
+            <span class="s1">&#39;file&#39;</span><span class="p">:</span> <span class="s1">&#39;assets/pen.png&#39;</span><span class="p">,</span>
+            <span class="s1">&#39;position&#39;</span><span class="p">:</span> <span class="p">(</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">),</span>
+            <span class="s1">&#39;opacity&#39;</span><span class="p">:</span> <span class="mf">0.8</span><span class="p">,</span>
+            <span class="s1">&#39;scale&#39;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">,</span>
+            <span class="s1">&#39;rotation&#39;</span><span class="p">:</span> <span class="mi">15</span><span class="p">,</span>
+            <span class="s1">&#39;visible&#39;</span><span class="p">:</span> <span class="kc">True</span>
+        <span class="p">},</span>
+        <span class="p">{</span>
+            <span class="s1">&#39;file&#39;</span><span class="p">:</span> <span class="s1">&#39;assets/me.jpg&#39;</span><span class="p">,</span>
+            <span class="s1">&#39;position&#39;</span><span class="p">:</span> <span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="mi">50</span><span class="p">),</span>
+            <span class="s1">&#39;opacity&#39;</span><span class="p">:</span> <span class="mf">0.6</span><span class="p">,</span>
+            <span class="s1">&#39;scale&#39;</span><span class="p">:</span> <span class="mf">0.3</span><span class="p">,</span>
+            <span class="s1">&#39;rotation&#39;</span><span class="p">:</span> <span class="o">-</span><span class="mi">10</span><span class="p">,</span>
+            <span class="s1">&#39;visible&#39;</span><span class="p">:</span> <span class="kc">True</span>
+        <span class="p">},</span>
+    <span class="p">],</span>
+    <span class="s1">&#39;output&#39;</span><span class="p">:</span> <span class="s1">&#39;output/baked_from_config.png&#39;</span><span class="p">,</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><strong>Command:</strong></p>
+<div class="highlight"><pre><span></span><code>imagebaker<span class="w"> </span>cli<span class="w"> </span>bake<span class="w"> </span>from-config<span class="w"> </span>examples/bake_config.py
+</code></pre></div>
+<p><strong>Output:</strong></p>
+<p><img alt="CLI Config Bake" src="../assets/demo/api_samples/cli_config_bake.png" /></p>
+<p><em>Result: Multi-layer composition with position, rotation, and opacity from Python config file</em></p>
+<hr />
+<h2 id="example-5-working-with-numpy-arrays">Example 5: Working with NumPy Arrays<a class="headerlink" href="#example-5-working-with-numpy-arrays" title="Permanent link">&para;</a></h2>
+<p>Integrate ImageBaker with NumPy for programmatic image generation.</p>
+<p><strong>Script:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">imagebaker</span><span class="w"> </span><span class="kn">import</span> <span class="n">ImageBaker</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="n">baker</span> <span class="o">=</span> <span class="n">ImageBaker</span><span class="p">()</span>
+
+<span class="c1"># Generate gradient programmatically</span>
+<span class="n">width</span><span class="p">,</span> <span class="n">height</span> <span class="o">=</span> <span class="mi">640</span><span class="p">,</span> <span class="mi">480</span>
+<span class="n">gradient</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">height</span><span class="p">,</span> <span class="n">width</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">height</span><span class="p">):</span>
+    <span class="n">gradient</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="mi">255</span> <span class="o">*</span> <span class="n">i</span> <span class="o">/</span> <span class="n">height</span><span class="p">)</span>  <span class="c1"># Red gradient</span>
+    <span class="n">gradient</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:,</span> <span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="mi">255</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">i</span> <span class="o">/</span> <span class="n">height</span><span class="p">))</span>  <span class="c1"># Blue gradient</span>
+
+<span class="c1"># Add as layer</span>
+<span class="n">layer</span> <span class="o">=</span> <span class="n">baker</span><span class="o">.</span><span class="n">add_layer_from_array</span><span class="p">(</span><span class="n">gradient</span><span class="p">,</span> <span class="s2">&quot;gradient&quot;</span><span class="p">)</span>
+
+<span class="c1"># Add another image on top</span>
+<span class="n">overlay</span> <span class="o">=</span> <span class="n">baker</span><span class="o">.</span><span class="n">add_layer_from_file</span><span class="p">(</span><span class="s2">&quot;assets/pen.png&quot;</span><span class="p">)</span>
+<span class="n">baker</span><span class="o">.</span><span class="n">set_layer_position</span><span class="p">(</span><span class="n">overlay</span><span class="p">,</span> <span class="mi">200</span><span class="p">,</span> <span class="mi">150</span><span class="p">)</span>
+<span class="n">baker</span><span class="o">.</span><span class="n">set_layer_opacity</span><span class="p">(</span><span class="n">overlay</span><span class="p">,</span> <span class="mf">0.7</span><span class="p">)</span>
+
+<span class="c1"># Bake and convert back to numpy</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">baker</span><span class="o">.</span><span class="n">bake</span><span class="p">()</span>
+<span class="n">numpy_image</span> <span class="o">=</span> <span class="n">baker</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Result shape: </span><span class="si">{</span><span class="n">numpy_image</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Result dtype: </span><span class="si">{</span><span class="n">numpy_image</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+<hr />
+<h2 id="example-6-integration-with-opencv">Example 6: Integration with OpenCV<a class="headerlink" href="#example-6-integration-with-opencv" title="Permanent link">&para;</a></h2>
+<p>Use ImageBaker with OpenCV for advanced image processing.</p>
+<p><strong>Script:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">imagebaker</span><span class="w"> </span><span class="kn">import</span> <span class="n">ImageBaker</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">cv2</span>
+
+<span class="c1"># Read with OpenCV</span>
+<span class="n">image</span> <span class="o">=</span> <span class="n">cv2</span><span class="o">.</span><span class="n">imread</span><span class="p">(</span><span class="s2">&quot;assets/desk.png&quot;</span><span class="p">)</span>
+<span class="n">image_rgb</span> <span class="o">=</span> <span class="n">cv2</span><span class="o">.</span><span class="n">cvtColor</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">cv2</span><span class="o">.</span><span class="n">COLOR_BGR2RGB</span><span class="p">)</span>
+
+<span class="c1"># Use in ImageBaker</span>
+<span class="n">baker</span> <span class="o">=</span> <span class="n">ImageBaker</span><span class="p">()</span>
+<span class="n">layer</span> <span class="o">=</span> <span class="n">baker</span><span class="o">.</span><span class="n">add_layer_from_array</span><span class="p">(</span><span class="n">image_rgb</span><span class="p">,</span> <span class="s2">&quot;opencv_image&quot;</span><span class="p">)</span>
+
+<span class="c1"># Add another layer</span>
+<span class="n">overlay</span> <span class="o">=</span> <span class="n">baker</span><span class="o">.</span><span class="n">add_layer_from_file</span><span class="p">(</span><span class="s2">&quot;assets/pen.png&quot;</span><span class="p">)</span>
+<span class="n">baker</span><span class="o">.</span><span class="n">set_layer_position</span><span class="p">(</span><span class="n">overlay</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">)</span>
+
+<span class="c1"># Bake and convert back</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">baker</span><span class="o">.</span><span class="n">bake</span><span class="p">()</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">baker</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+
+<span class="c1"># Save with OpenCV</span>
+<span class="n">output_bgr</span> <span class="o">=</span> <span class="n">cv2</span><span class="o">.</span><span class="n">cvtColor</span><span class="p">(</span><span class="n">output</span><span class="p">[:,</span> <span class="p">:,</span> <span class="p">:</span><span class="mi">3</span><span class="p">],</span> <span class="n">cv2</span><span class="o">.</span><span class="n">COLOR_RGB2BGR</span><span class="p">)</span>
+<span class="n">cv2</span><span class="o">.</span><span class="n">imwrite</span><span class="p">(</span><span class="s2">&quot;output_opencv.jpg&quot;</span><span class="p">,</span> <span class="n">output_bgr</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Saved with OpenCV&quot;</span><span class="p">)</span>
+</code></pre></div>
+<hr />
+<h2 id="example-7-batch-processing">Example 7: Batch Processing<a class="headerlink" href="#example-7-batch-processing" title="Permanent link">&para;</a></h2>
+<p>Process multiple images in a directory.</p>
+<p><strong>Script:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">imagebaker</span><span class="w"> </span><span class="kn">import</span> <span class="n">ImageBaker</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">process_batch</span><span class="p">(</span><span class="n">input_dir</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Process all images in a directory.&quot;&quot;&quot;</span>
+    <span class="n">input_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">input_dir</span><span class="p">)</span>
+    <span class="n">output_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span>
+    <span class="n">output_path</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">img_file</span> <span class="ow">in</span> <span class="n">input_path</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="s2">&quot;*.png&quot;</span><span class="p">):</span>
+        <span class="n">baker</span> <span class="o">=</span> <span class="n">ImageBaker</span><span class="p">()</span>
+        <span class="n">layer</span> <span class="o">=</span> <span class="n">baker</span><span class="o">.</span><span class="n">add_layer_from_file</span><span class="p">(</span><span class="n">img_file</span><span class="p">)</span>
+
+        <span class="c1"># Apply transformation</span>
+        <span class="n">baker</span><span class="o">.</span><span class="n">set_layer_opacity</span><span class="p">(</span><span class="n">layer</span><span class="p">,</span> <span class="mf">0.8</span><span class="p">)</span>
+        <span class="n">baker</span><span class="o">.</span><span class="n">set_layer_scale</span><span class="p">(</span><span class="n">layer</span><span class="p">,</span> <span class="mf">0.9</span><span class="p">)</span>
+
+        <span class="c1"># Bake and save</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">baker</span><span class="o">.</span><span class="n">bake</span><span class="p">()</span>
+        <span class="n">output_file</span> <span class="o">=</span> <span class="n">output_path</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;processed_</span><span class="si">{</span><span class="n">img_file</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">baker</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">output_file</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Processed: </span><span class="si">{</span><span class="n">img_file</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="c1"># Process all images in assets folder</span>
+<span class="n">process_batch</span><span class="p">(</span><span class="s2">&quot;assets&quot;</span><span class="p">,</span> <span class="s2">&quot;output/processed&quot;</span><span class="p">)</span>
+</code></pre></div>
+<hr />
+<h2 id="running-the-examples">Running the Examples<a class="headerlink" href="#running-the-examples" title="Permanent link">&para;</a></h2>
+<p>To run any of these examples:</p>
+<ol>
+<li>
+<p><strong>Make sure ImageBaker is installed:</strong>
+   <div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>imagebaker
+</code></pre></div></p>
+</li>
+<li>
+<p><strong>Clone the repository to get example files:</strong>
+   <div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/q-viper/image-baker.git
+<span class="nb">cd</span><span class="w"> </span>image-baker
+</code></pre></div></p>
+</li>
+<li>
+<p><strong>Run an example:</strong>
+   <div class="highlight"><pre><span></span><code><span class="c1"># Python API examples</span>
+python<span class="w"> </span>examples/api_example.py
+python<span class="w"> </span>examples/test_api.py
+
+<span class="c1"># CLI examples</span>
+imagebaker<span class="w"> </span>cli<span class="w"> </span>bake<span class="w"> </span>simple<span class="w"> </span>assets/desk.png<span class="w"> </span>assets/pen.png<span class="w"> </span>-o<span class="w"> </span>output.png
+imagebaker<span class="w"> </span>cli<span class="w"> </span>bake<span class="w"> </span>from-config<span class="w"> </span>examples/bake_config.py
+</code></pre></div></p>
+</li>
+</ol>
+<h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>API Reference</strong>: See <a href="../api-usage/">API Usage</a> for complete API documentation</li>
+<li><strong>Quick Start</strong>: Check <a href="../QUICKSTART/">Quick Start</a> for getting started guide</li>
+<li><strong>GUI Mode</strong>: Run <code>imagebaker</code> to launch the visual interface</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["tabs", "search", "navigation.tabs", "navigation.sections", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
