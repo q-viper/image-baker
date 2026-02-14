@@ -22,20 +22,17 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     install_requires=[
-        "numpy>=1.21",
-        "matplotlib>=3.4",
-        "opencv-python>=4.5",
-        "black>=23.1",
+        "numpy>=1.24.0",
+        "opencv-python>=4.8.0",
+        "pillow>=10.0.0",
         "pydantic>=2.11.1",
-        "flake8>=6.0",
-        "typer>=0.9",
+        "typer>=0.9.0",
         "PySide6==6.8.3",
         "loguru",
     ],
     entry_points={
         "console_scripts": [
-            "imagebaker=imagebaker.cli:main",
-            "imagebaker-gui=imagebaker.window.app:app_cli",
+            "imagebaker=imagebaker.cli:app",
         ],
     },
     extras_require={
