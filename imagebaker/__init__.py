@@ -10,8 +10,7 @@ except PackageNotFoundError:
     __version__ = "0.0.0"
 
 # Export API for programmatic use
-from imagebaker.api import (AnnotationType, ImageBaker, Layer,
-                            create_annotation, load_model)
+from imagebaker.api import AnnotationType, ImageBaker, Layer, create_annotation, load_model
 
 __all__ = [
     "logger",

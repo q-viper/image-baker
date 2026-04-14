@@ -1,4 +1,4 @@
-from imagebaker.core.configs import LayerConfig, CanvasConfig
+from imagebaker.core.configs import CanvasConfig, LayerConfig
 
 
 class CustomLayerConfig(LayerConfig):

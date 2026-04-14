@@ -6,7 +6,6 @@ Provides simplified annotation creation and manipulation.
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Tuple
 
 from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import QColor, QPolygonF
@@ -26,10 +25,10 @@ class AnnotationType(Enum):
 def create_annotation(
     label: str,
     annotation_type: AnnotationType,
-    coordinates: List[Tuple[float, float]],
-    color: Optional[Tuple[int, int, int]] = None,
-    annotation_id: Optional[int] = None,
-    score: Optional[float] = None,
+    coordinates: list[tuple[float, float]],
+    color: tuple[int, int, int] | None = None,
+    annotation_id: int | None = None,
+    score: float | None = None,
     caption: str = ""
 ) -> CoreAnnotation:
     """
@@ -68,12 +67,12 @@ def create_annotation(
     """
     if color is None:
         color = (255, 255, 255)
-    
+
     if annotation_id is None:
         annotation_id = hash(datetime.now())
-    
+
     q_color = QColor(*color)
-    
+
     # Create base annotation
     annotation = CoreAnnotation(
         annotation_id=annotation_id,
@@ -84,12 +83,12 @@ def create_annotation(
         is_complete=True,
         annotation_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     )
-    
+
     # Set coordinates based on type
     if annotation_type == AnnotationType.POINT:
         annotation.points = [QPointF(x, y) for x, y in coordinates]
         logger.debug(f"Created POINT annotation with {len(coordinates)} points")
-        
+
     elif annotation_type == AnnotationType.RECTANGLE:
         if len(coordinates) != 2:
             raise ValueError("RECTANGLE requires exactly 2 coordinates (top-left, bottom-right)")
@@ -100,21 +99,21 @@ def create_annotation(
             abs(x2 - x1), abs(y2 - y1)
         )
         logger.debug(f"Created RECTANGLE annotation at ({x1}, {y1}) to ({x2}, {y2})")
-        
+
     elif annotation_type == AnnotationType.POLYGON:
         if len(coordinates) < 3:
             raise ValueError("POLYGON requires at least 3 coordinates")
         annotation.polygon = QPolygonF([QPointF(x, y) for x, y in coordinates])
         logger.debug(f"Created POLYGON annotation with {len(coordinates)} vertices")
-        
+
     elif annotation_type == AnnotationType.MASK:
         # For mask, coordinates should be polygon points
         annotation.polygon = QPolygonF([QPointF(x, y) for x, y in coordinates])
         logger.debug(f"Created MASK annotation with {len(coordinates)} points")
-    
+
     else:
         raise ValueError(f"Unsupported annotation type: {annotation_type}")
-    
+
     return annotation
 
 
@@ -122,8 +121,8 @@ def rectangle_annotation(
     label: str,
     x1: float, y1: float,
     x2: float, y2: float,
-    color: Optional[Tuple[int, int, int]] = None,
-    score: Optional[float] = None
+    color: tuple[int, int, int] | None = None,
+    score: float | None = None
 ) -> CoreAnnotation:
     """
     Convenience function to create a rectangle annotation.
@@ -149,9 +148,9 @@ def rectangle_annotation(
 
 def polygon_annotation(
     label: str,
-    points: List[Tuple[float, float]],
-    color: Optional[Tuple[int, int, int]] = None,
-    score: Optional[float] = None
+    points: list[tuple[float, float]],
+    color: tuple[int, int, int] | None = None,
+    score: float | None = None
 ) -> CoreAnnotation:
     """
     Convenience function to create a polygon annotation.
@@ -176,9 +175,9 @@ def polygon_annotation(
 
 def point_annotation(
     label: str,
-    points: List[Tuple[float, float]],
-    color: Optional[Tuple[int, int, int]] = None,
-    score: Optional[float] = None
+    points: list[tuple[float, float]],
+    color: tuple[int, int, int] | None = None,
+    score: float | None = None
 ) -> CoreAnnotation:
     """
     Convenience function to create a point annotation.

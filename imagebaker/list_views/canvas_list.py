@@ -1,19 +1,21 @@
+from functools import partial
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QPushButton,
-    QLabel,
-    QSizePolicy,
     QDockWidget,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
     QListWidget,
     QListWidgetItem,
-    QInputDialog,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
 )
-from functools import partial
-from imagebaker.layers.canvas_layer import CanvasLayer
+
 from imagebaker import logger
+from imagebaker.layers.canvas_layer import CanvasLayer
 
 
 class CanvasList(QDockWidget):

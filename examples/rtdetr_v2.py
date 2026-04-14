@@ -1,14 +1,11 @@
-import torch
-from PIL import Image
-import numpy as np
-from typing import List
-import cv2
-from transformers import RTDetrV2ForObjectDetection, RTDetrImageProcessor
-
-from loguru import logger
 import time
-from imagebaker.utils.vis import annotate_detection
-from imagebaker.utils import generate_color_map
+
+import cv2
+import numpy as np
+import torch
+from loguru import logger
+from PIL import Image
+from transformers import RTDetrImageProcessor, RTDetrV2ForObjectDetection
 
 # Import your base classes
 from imagebaker.models.base_model import (
@@ -17,6 +14,8 @@ from imagebaker.models.base_model import (
     ModelType,
     PredictionResult,
 )
+from imagebaker.utils import generate_color_map
+from imagebaker.utils.vis import annotate_detection
 
 
 class RTDetrModelConfig(DefaultModelConfig):
@@ -114,7 +113,7 @@ class RTDetrDetectionModel(BaseDetectionModel):
 
         return results[0]  # Return the first (and only) result
 
-    def postprocess(self, output) -> List[PredictionResult]:
+    def postprocess(self, output) -> list[PredictionResult]:
         """Convert model output to PredictionResult objects"""
         results = []
 

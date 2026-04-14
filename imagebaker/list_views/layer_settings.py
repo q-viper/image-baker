@@ -1,19 +1,18 @@
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
+    QDockWidget,
     QHBoxLayout,
     QLabel,
-    QSizePolicy,
-    QDockWidget,
-    QSlider,
     QLineEdit,
+    QSizePolicy,
+    QSlider,
+    QVBoxLayout,
+    QWidget,
 )
 
-from imagebaker.core.defs import LayerState
-
-from imagebaker.layers.base_layer import BaseLayer
 from imagebaker import logger
+from imagebaker.core.defs import LayerState
+from imagebaker.layers.base_layer import BaseLayer
 
 
 class LayerSettings(QDockWidget):

@@ -6,11 +6,10 @@ Provides the main ImageBaker class for programmatic image composition and annota
 
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Union
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import (QImage, QPainter, QPixmap, QTransform)
+from PySide6.QtGui import QImage, QPainter, QPixmap, QTransform
 
 from imagebaker import logger
 from imagebaker.core.configs import CanvasConfig
@@ -34,8 +33,8 @@ class ImageBaker:
         >>> result = baker.bake()
         >>> baker.save(result, "output.png")
     """
-    
-    def __init__(self, config: Optional[CanvasConfig] = None, output_dir: Optional[Path] = None):
+
+    def __init__(self, config: CanvasConfig | None = None, output_dir: Path | None = None):
         """
         Initialize ImageBaker.
         
@@ -46,15 +45,15 @@ class ImageBaker:
         self.config = config or CanvasConfig()
         self.output_dir = Path(output_dir) if output_dir else self.config.export_folder
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        
-        self.layers: List[Dict] = []
-        self.states: Dict[int, List[LayerState]] = {}
+
+        self.layers: list[dict] = []
+        self.states: dict[int, list[LayerState]] = {}
         self.current_step = 0
-        
+
         logger.info(f"ImageBaker initialized with output directory: {self.output_dir}")
-    
-    def add_layer_from_file(self, image_path: Union[str, Path], 
-                           layer_name: Optional[str] = None,
+
+    def add_layer_from_file(self, image_path: str | Path,
+                           layer_name: str | None = None,
                            visible: bool = True,
                            opacity: float = 1.0) -> int:
         """
@@ -72,14 +71,14 @@ class ImageBaker:
         image_path = Path(image_path)
         if not image_path.exists():
             raise FileNotFoundError(f"Image not found: {image_path}")
-        
+
         pixmap = QPixmap(str(image_path))
         if pixmap.isNull():
             raise ValueError(f"Failed to load image: {image_path}")
-        
+
         layer_id = len(self.layers)
         layer_name = layer_name or f"Layer_{layer_id}"
-        
+
         layer = {
             "id": layer_id,
             "name": layer_name,
@@ -93,13 +92,13 @@ class ImageBaker:
             "scale_y": 1.0,
             "annotations": []
         }
-        
+
         self.layers.append(layer)
         logger.info(f"Added layer '{layer_name}' from {image_path}")
         return layer_id
-    
-    def add_layer_from_array(self, image: np.ndarray, 
-                            layer_name: Optional[str] = None,
+
+    def add_layer_from_array(self, image: np.ndarray,
+                            layer_name: str | None = None,
                             visible: bool = True,
                             opacity: float = 1.0) -> int:
         """
@@ -120,16 +119,16 @@ class ImageBaker:
             format = QImage.Format_RGB888
         else:
             raise ValueError("Image must have 3 or 4 channels")
-        
+
         height, width = image.shape[:2]
         bytes_per_line = image.strides[0]
-        
+
         qimage = QImage(image.data, width, height, bytes_per_line, format)
         pixmap = QPixmap.fromImage(qimage.copy())
-        
+
         layer_id = len(self.layers)
         layer_name = layer_name or f"Layer_{layer_id}"
-        
+
         layer = {
             "id": layer_id,
             "name": layer_name,
@@ -143,26 +142,26 @@ class ImageBaker:
             "scale_y": 1.0,
             "annotations": []
         }
-        
+
         self.layers.append(layer)
         logger.info(f"Added layer '{layer_name}' from numpy array")
         return layer_id
-    
+
     def set_layer_position(self, layer_id: int, x: float, y: float):
         """Set the position of a layer."""
         if layer_id >= len(self.layers):
             raise IndexError(f"Layer {layer_id} does not exist")
         self.layers[layer_id]["position"] = QPointF(x, y)
         logger.debug(f"Set layer {layer_id} position to ({x}, {y})")
-    
+
     def set_layer_rotation(self, layer_id: int, rotation: float):
         """Set the rotation of a layer in degrees."""
         if layer_id >= len(self.layers):
             raise IndexError(f"Layer {layer_id} does not exist")
         self.layers[layer_id]["rotation"] = rotation
         logger.debug(f"Set layer {layer_id} rotation to {rotation}°")
-    
-    def set_layer_scale(self, layer_id: int, scale_x: float, scale_y: Optional[float] = None):
+
+    def set_layer_scale(self, layer_id: int, scale_x: float, scale_y: float | None = None):
         """Set the scale of a layer."""
         if layer_id >= len(self.layers):
             raise IndexError(f"Layer {layer_id} does not exist")
@@ -171,29 +170,29 @@ class ImageBaker:
         self.layers[layer_id]["scale_x"] = scale_x
         self.layers[layer_id]["scale_y"] = scale_y
         logger.debug(f"Set layer {layer_id} scale to ({scale_x}, {scale_y})")
-    
+
     def set_layer_opacity(self, layer_id: int, opacity: float):
         """Set the opacity of a layer (0.0 to 1.0)."""
         if layer_id >= len(self.layers):
             raise IndexError(f"Layer {layer_id} does not exist")
         self.layers[layer_id]["opacity"] = int(max(0, min(255, opacity * 255)))
         logger.debug(f"Set layer {layer_id} opacity to {opacity}")
-    
+
     def set_layer_visibility(self, layer_id: int, visible: bool):
         """Set the visibility of a layer."""
         if layer_id >= len(self.layers):
             raise IndexError(f"Layer {layer_id} does not exist")
         self.layers[layer_id]["visible"] = visible
         logger.debug(f"Set layer {layer_id} visibility to {visible}")
-    
+
     def add_annotation(self, layer_id: int, annotation: Annotation):
         """Add an annotation to a layer."""
         if layer_id >= len(self.layers):
             raise IndexError(f"Layer {layer_id} does not exist")
         self.layers[layer_id]["annotations"].append(annotation)
         logger.debug(f"Added annotation to layer {layer_id}")
-    
-    def save_state(self, step: Optional[int] = None):
+
+    def save_state(self, step: int | None = None):
         """
         Save the current state of all layers.
         
@@ -203,7 +202,7 @@ class ImageBaker:
         if step is None:
             step = self.current_step
             self.current_step += 1
-        
+
         states = []
         for layer in self.layers:
             state = LayerState(
@@ -218,11 +217,11 @@ class ImageBaker:
                 order=layer["id"]
             )
             states.append(state)
-        
+
         self.states[step] = states
         logger.info(f"Saved state at step {step} with {len(states)} layers")
-    
-    def bake(self, step: Optional[int] = None, 
+
+    def bake(self, step: int | None = None,
              include_annotations: bool = True) -> BakingResult:
         """
         Bake (composite) the layers into a single image.
@@ -239,17 +238,17 @@ class ImageBaker:
             if not self.states:
                 self.save_state()
             step = max(self.states.keys())
-        
+
         if step not in self.states:
             raise ValueError(f"Step {step} not found in saved states")
-        
+
         states = self.states[step]
-        
+
         # Calculate bounding box
         import sys
         top_left = QPointF(sys.maxsize, sys.maxsize)
         bottom_right = QPointF(-sys.maxsize, -sys.maxsize)
-        
+
         for state in states:
             layer = self.layers[state.layer_id]
             if layer["visible"] and not layer["image"].isNull():
@@ -257,42 +256,42 @@ class ImageBaker:
                 transform.translate(state.position.x(), state.position.y())
                 transform.rotate(state.rotation)
                 transform.scale(state.scale_x, state.scale_y)
-                
+
                 original_rect = QRectF(QPointF(0, 0), layer["image"].size())
                 transformed_rect = transform.mapRect(original_rect)
-                
+
                 top_left.setX(min(top_left.x(), transformed_rect.left()))
                 top_left.setY(min(top_left.y(), transformed_rect.top()))
                 bottom_right.setX(max(bottom_right.x(), transformed_rect.right()))
                 bottom_right.setY(max(bottom_right.y(), transformed_rect.bottom()))
-        
+
         # Create output image
         width = int(bottom_right.x() - top_left.x())
         height = int(bottom_right.y() - top_left.y())
-        
+
         if width <= 0 or height <= 0:
             raise ValueError("Invalid bounding box for baking")
-        
+
         image = QImage(width, height, QImage.Format_ARGB32)
         image.fill(Qt.transparent)
-        
+
         painter = QPainter(image)
         painter.setRenderHints(
             QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform
         )
-        
+
         masks = []
         mask_names = []
         annotations = []
-        
+
         # Paint layers
         for state in sorted(states, key=lambda s: s.order):
             layer = self.layers[state.layer_id]
             if not layer["visible"] or layer["image"].isNull():
                 continue
-            
+
             painter.save()
-            
+
             # Apply transformations relative to bounding box
             painter.translate(
                 state.position.x() - top_left.x(),
@@ -300,13 +299,13 @@ class ImageBaker:
             )
             painter.rotate(state.rotation)
             painter.scale(state.scale_x, state.scale_y)
-            
+
             # Apply opacity
             painter.setOpacity(state.opacity / 255.0)
             painter.drawPixmap(0, 0, layer["image"])
-            
+
             painter.restore()
-            
+
             # Collect masks and annotations
             if include_annotations and layer["annotations"]:
                 for ann in layer["annotations"]:
@@ -319,7 +318,7 @@ class ImageBaker:
                         )
                         transform.rotate(state.rotation)
                         transform.scale(state.scale_x, state.scale_y)
-                        
+
                         transformed_ann = ann.copy()
                         if ann.polygon:
                             transformed_ann.polygon = transform.map(ann.polygon)
@@ -327,18 +326,18 @@ class ImageBaker:
                             transformed_ann.rectangle = transform.mapRect(ann.rectangle)
                         if ann.points:
                             transformed_ann.points = [transform.map(p) for p in ann.points]
-                        
+
                         annotations.append(transformed_ann)
-        
+
         painter.end()
-        
+
         # Generate filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = Path(self.config.filename_format.format(
             project_name=self.config.project_name,
             timestamp=timestamp
         ))
-        
+
         result = BakingResult(
             filename=filename,
             step=step,
@@ -347,11 +346,11 @@ class ImageBaker:
             mask_names=mask_names,
             annotations=annotations
         )
-        
+
         logger.info(f"Baked image at step {step}: {width}x{height}")
         return result
-    
-    def save(self, result: BakingResult, output_path: Optional[Union[str, Path]] = None,
+
+    def save(self, result: BakingResult, output_path: str | Path | None = None,
              save_annotations: bool = True) -> Path:
         """
         Save a baking result to disk.
@@ -368,23 +367,23 @@ class ImageBaker:
             output_path = self.output_dir / f"{result.filename}.{self.config.export_format}"
         else:
             output_path = Path(output_path)
-        
+
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Save image
         result.image.save(str(output_path))
         logger.info(f"Saved baked image to {output_path}")
-        
+
         # Save annotations
         if save_annotations and result.annotations:
             json_path = output_path.with_suffix(".json")
             Annotation.save_as_json(result.annotations, str(json_path))
             logger.info(f"Saved annotations to {json_path}")
-        
+
         return output_path
-    
-    def bake_and_save(self, output_path: Optional[Union[str, Path]] = None,
-                     step: Optional[int] = None) -> Path:
+
+    def bake_and_save(self, output_path: str | Path | None = None,
+                     step: int | None = None) -> Path:
         """
         Convenience method to bake and save in one call.
         
@@ -397,7 +396,7 @@ class ImageBaker:
         """
         result = self.bake(step=step)
         return self.save(result, output_path)
-    
+
     def to_numpy(self, result: BakingResult) -> np.ndarray:
         """
         Convert a baking result to a numpy array.
@@ -409,16 +408,16 @@ class ImageBaker:
             Numpy array with shape (H, W, C)
         """
         return qpixmap_to_numpy(QPixmap.fromImage(result.image))
-    
+
     def get_layer_count(self) -> int:
         """Get the number of layers."""
         return len(self.layers)
-    
-    def get_layer_info(self, layer_id: int) -> Dict:
+
+    def get_layer_info(self, layer_id: int) -> dict:
         """Get information about a layer."""
         if layer_id >= len(self.layers):
             raise IndexError(f"Layer {layer_id} does not exist")
-        
+
         layer = self.layers[layer_id]
         return {
             "id": layer["id"],

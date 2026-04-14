@@ -1,46 +1,45 @@
-from imagebaker.layers.annotable_layer import AnnotableLayer
-from imagebaker.list_views import AnnotationList
-from imagebaker.list_views.image_list import ImageListPanel
-from imagebaker import logger
-from imagebaker.workers import ModelPredictionWorker
-from imagebaker.utils.image import qpixmap_to_numpy
+import os
+from collections import deque
+from dataclasses import dataclass
+from pathlib import Path
 
-from PySide6.QtCore import QPointF, Qt, QRectF, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, QThread, Signal
 from PySide6.QtGui import (
     QColor,
+    QIcon,
     QPixmap,
     QPolygonF,
-    QIcon,
 )
 from PySide6.QtWidgets import (
     QApplication,
-    QWidget,
-    QVBoxLayout,
+    QColorDialog,
+    QComboBox,
+    QDockWidget,
+    QFileDialog,
     QHBoxLayout,
     QInputDialog,
-    QPushButton,
-    QColorDialog,
-    QSizePolicy,
-    QFileDialog,
-    QComboBox,
     QMessageBox,
-    QDockWidget,
+    QProgressDialog,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
 )
-from PySide6.QtCore import QThread
-from PySide6.QtWidgets import QProgressDialog
-from pathlib import Path
-from imagebaker.core.configs import LayerConfig, CanvasConfig
+
+from imagebaker import logger
+from imagebaker.core.configs import CanvasConfig, LayerConfig
 from imagebaker.core.defs import (
+    Annotation,
+    BakingResult,
     Label,
     MouseMode,
-    Annotation,
     PredictionResult,
-    BakingResult,
 )
-from collections import deque
-from typing import Deque
-from dataclasses import dataclass
-import os
+from imagebaker.layers.annotable_layer import AnnotableLayer
+from imagebaker.list_views import AnnotationList
+from imagebaker.list_views.image_list import ImageListPanel
+from imagebaker.utils.image import qpixmap_to_numpy
+from imagebaker.workers import ModelPredictionWorker
 
 
 @dataclass
@@ -90,10 +89,10 @@ class LayerifyTab(QWidget):
         self.image_entries = []
         self.curr_image_idx = 0
         self.processed_images = set()
-        self.annotable_layers: Deque[AnnotableLayer] = deque(
+        self.annotable_layers: deque[AnnotableLayer] = deque(
             maxlen=self.config.deque_maxlen
         )
-        self.baked_results: Deque[AnnotableLayer] = deque(
+        self.baked_results: deque[AnnotableLayer] = deque(
             maxlen=self.config.deque_maxlen
         )
         self.layer = None

@@ -1,13 +1,13 @@
-from imagebaker.core.defs import PredictionResult
 
 import cv2
 import numpy as np
-from typing import List
+
+from imagebaker.core.defs import PredictionResult
 
 
 def annotate_detection(
     image: np.ndarray,
-    results: List[PredictionResult],
+    results: list[PredictionResult],
     color_map: dict[str, tuple[int, int, int]],
     box_thickness: int = 2,
     font_face: int = cv2.FONT_HERSHEY_SIMPLEX,
@@ -85,7 +85,7 @@ def annotate_detection(
 
 def annotate_segmentation(
     image: np.ndarray,
-    results: List[PredictionResult],
+    results: list[PredictionResult],
     color_map: dict[int, tuple[int, int, int]],
     contour_thickness: int = 2,
     mask_opacity: float = 0.5,

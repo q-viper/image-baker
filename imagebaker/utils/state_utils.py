@@ -1,5 +1,6 @@
-from imagebaker.core.defs import LayerState, DrawingState
 from PySide6.QtCore import QPointF
+
+from imagebaker.core.defs import DrawingState, LayerState
 
 
 def calculate_intermediate_states(

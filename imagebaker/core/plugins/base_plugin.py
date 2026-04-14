@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
-from imagebaker.core.defs import LayerState
+
 from imagebaker import logger
+from imagebaker.core.defs import LayerState
 
 
 class BasePlugin(ABC):

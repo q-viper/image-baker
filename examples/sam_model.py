@@ -1,12 +1,11 @@
-import torch
-from PIL import Image
-import numpy as np
-import cv2
-from transformers import SamModel, SamProcessor
-from loguru import logger
 import time
-from typing import Union, Optional, List
 
+import cv2
+import numpy as np
+import torch
+from loguru import logger
+from PIL import Image
+from transformers import SamModel, SamProcessor
 
 # Import your base classes
 from imagebaker.models.base_model import (
@@ -15,7 +14,7 @@ from imagebaker.models.base_model import (
     ModelType,
     PredictionResult,
 )
-from imagebaker.utils import generate_color_map, mask_to_polygons, annotate_segmentation
+from imagebaker.utils import annotate_segmentation, generate_color_map, mask_to_polygons
 
 
 class SAMModelConfig(DefaultModelConfig):
@@ -42,7 +41,7 @@ class SAMModelConfig(DefaultModelConfig):
     crop_nms_thresh: float = 0.7  # Crop NMS threshold
     crop_overlap_ratio: float = 512 / 1500  # Crop overlap ratio
     crop_n_points_downscale_factor: int = 1  # Downscale factor for crop points
-    point_grids: List = None  # Custom point grids
+    point_grids: list = None  # Custom point grids
     min_mask_region_area: int = 0  # Minimum number of pixels for a mask
     output_mode: str = (
         "binary_mask"  # Can be 'binary_mask', 'uncompressed_rle', 'coco_rle'
@@ -96,10 +95,10 @@ class SegmentAnythingModel(BasePromptModel):
 
     def predict_prompt(
         self,
-        image: Union[np.ndarray, Image.Image],
-        input_points: Optional[List[List[float]]] = None,
-        input_boxes: Optional[List[List[float]]] = None,
-        label_hints: Optional[list[int]] = None,
+        image: np.ndarray | Image.Image,
+        input_points: list[list[float]] | None = None,
+        input_boxes: list[list[float]] | None = None,
+        label_hints: list[int] | None = None,
         multimask_output: bool = False,
     ):
         """Run segmentation with optional prompts
@@ -145,7 +144,7 @@ class SegmentAnythingModel(BasePromptModel):
             "scores": scores,
         }
 
-    def postprocess(self, outputs) -> List[PredictionResult]:
+    def postprocess(self, outputs) -> list[PredictionResult]:
         """Convert model outputs to PredictionResult objects"""
         results = []
         masks = outputs["masks"][0]  # Get first batch item

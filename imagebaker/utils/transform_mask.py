@@ -1,6 +1,6 @@
+
 import cv2
 import numpy as np
-from typing import List, Tuple
 
 
 def mask_to_polygons(
@@ -8,7 +8,7 @@ def mask_to_polygons(
     min_polygon_area: float = 10,
     merge_polygons: bool = False,
     merge_distance: int = 5,  # Max distance between polygons to merge
-) -> List[List[Tuple[int, int]]]:
+) -> list[list[tuple[int, int]]]:
     """
     Convert a binary mask to a list of polygons.
     Each polygon is a list of (x, y) coordinates.
@@ -72,7 +72,7 @@ def mask_to_rectangles(
     merge_rectangles: bool = False,
     merge_threshold: int = 1,
     merge_epsilon: float = 0.5,
-) -> List[Tuple[int, int, int, int]]:
+) -> list[tuple[int, int, int, int]]:
     """
     Convert a binary mask to a list of rectangles.
     Each rectangle is a tuple of (x, y, w, h).

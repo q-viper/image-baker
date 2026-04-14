@@ -1,6 +1,6 @@
-import numpy as np
-from PySide6.QtGui import QPixmap, QImage
 import cv2
+import numpy as np
+from PySide6.QtGui import QImage, QPixmap
 
 from imagebaker.core.defs.defs import Annotation
 

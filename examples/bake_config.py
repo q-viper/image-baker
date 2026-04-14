@@ -33,7 +33,7 @@ bake_config = {
             'visible': True
         },
     ],
-    
+
     # Output file
     'output': 'assets/exports/baked_from_config.png',
 }

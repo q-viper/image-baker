@@ -1,43 +1,41 @@
-from imagebaker.core.configs import CanvasConfig
-from imagebaker.core.defs import Annotation, MouseMode, BakingResult, DrawingState
-from imagebaker.layers import BaseLayer
-from imagebaker.core.configs import CursorDef
-from imagebaker import logger
-from imagebaker.workers import BakerWorker
-from imagebaker.utils.image import qpixmap_to_numpy, draw_annotations
+import math
+from datetime import datetime
 
-
+import cv2
 from PySide6.QtCore import (
-    QPointF,
-    QPoint,
-    Qt,
-    Signal,
-    QRectF,
     QLineF,
-    QThread,
+    QPoint,
+    QPointF,
+    QRectF,
     QSizeF,
+    Qt,
+    QThread,
+    Signal,
 )
 from PySide6.QtGui import (
-    QColor,
-    QPixmap,
-    QPainter,
     QBrush,
-    QPen,
-    QWheelEvent,
-    QMouseEvent,
+    QColor,
     QKeyEvent,
+    QMouseEvent,
+    QPainter,
+    QPen,
+    QPixmap,
     QTransform,
+    QWheelEvent,
 )
 from PySide6.QtWidgets import (
     QApplication,
-    QSizePolicy,
     QMessageBox,
     QProgressDialog,
+    QSizePolicy,
 )
 
-import math
-import cv2
-from datetime import datetime
+from imagebaker import logger
+from imagebaker.core.configs import CanvasConfig, CursorDef
+from imagebaker.core.defs import Annotation, BakingResult, DrawingState, MouseMode
+from imagebaker.layers import BaseLayer
+from imagebaker.utils.image import draw_annotations, qpixmap_to_numpy
+from imagebaker.workers import BakerWorker
 
 
 class CanvasLayer(BaseLayer):

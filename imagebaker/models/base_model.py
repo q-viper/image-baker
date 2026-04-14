@@ -1,11 +1,12 @@
-from abc import ABC, abstractmethod
-from loguru import logger
-import numpy as np
 import time
-import cv2
+from abc import ABC, abstractmethod
 
-from imagebaker.core.defs.defs import ModelType, PredictionResult
+import cv2
+import numpy as np
+from loguru import logger
+
 from imagebaker.core.configs import DefaultModelConfig
+from imagebaker.core.defs.defs import ModelType, PredictionResult
 
 
 class BaseModel(ABC):

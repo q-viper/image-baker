@@ -1,13 +1,12 @@
-from PySide6.QtCore import QPointF, QRectF
-from PySide6.QtGui import QColor, QPolygonF
-from PySide6.QtGui import QImage
-
-from enum import Enum
 from dataclasses import dataclass, field
-import numpy as np
 from datetime import datetime
-from pydantic import BaseModel
+from enum import Enum
 from pathlib import Path
+
+import numpy as np
+from pydantic import BaseModel
+from PySide6.QtCore import QPointF, QRectF
+from PySide6.QtGui import QColor, QImage, QPolygonF
 
 
 class MouseMode(Enum):
@@ -220,7 +219,7 @@ class Annotation:
         if not Path(path).exists():
             return []
 
-        with open(path, "r") as f:
+        with open(path) as f:
             data = json.load(f)
 
         annotations = []

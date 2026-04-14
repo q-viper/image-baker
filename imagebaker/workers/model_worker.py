@@ -1,8 +1,10 @@
+import traceback
+
+import numpy as np
+from PySide6.QtCore import QObject, Signal
+
 from imagebaker import logger
 from imagebaker.models.base_model import BaseModel
-from PySide6.QtCore import QObject, Signal
-import numpy as np
-import traceback
 
 
 class ModelPredictionWorker(QObject):

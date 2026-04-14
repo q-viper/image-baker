@@ -1,18 +1,17 @@
 from PySide6.QtCore import (
+    QObject,
     Qt,
     Signal,
-    QObject,
 )
 from PySide6.QtGui import (
     QColor,
-    QPixmap,
-    QPainter,
     QImage,
+    QPainter,
+    QPixmap,
 )
 
-
-from imagebaker.core.defs import Annotation
 from imagebaker import logger
+from imagebaker.core.defs import Annotation
 
 
 class LayerifyWorker(QObject):

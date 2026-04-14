@@ -1,39 +1,40 @@
-from imagebaker.core.configs import LayerConfig, CursorDef, CanvasConfig
-from imagebaker.core.defs import Annotation, MouseMode
-from imagebaker.layers import BaseLayer
-from imagebaker.layers.canvas_layer import CanvasLayer
-from imagebaker import logger
-from imagebaker.workers import LayerifyWorker
+from pathlib import Path
 
 from PySide6.QtCore import (
-    QPointF,
-    QPoint,
-    Qt,
-    Signal,
-    QRectF,
     QLineF,
+    QPoint,
+    QPointF,
+    QRectF,
+    Qt,
     QThread,
+    Signal,
 )
 from PySide6.QtGui import (
-    QColor,
-    QPixmap,
-    QPainter,
     QBrush,
+    QColor,
+    QFont,
+    QKeyEvent,
+    QMouseEvent,
+    QPainter,
     QPen,
+    QPixmap,
     QPolygonF,
     QWheelEvent,
-    QMouseEvent,
-    QKeyEvent,
-    QFont,
 )
 from PySide6.QtWidgets import (
     QApplication,
     QInputDialog,
-    QSizePolicy,
     QMessageBox,
     QProgressDialog,
+    QSizePolicy,
 )
-from pathlib import Path
+
+from imagebaker import logger
+from imagebaker.core.configs import CanvasConfig, CursorDef, LayerConfig
+from imagebaker.core.defs import Annotation, MouseMode
+from imagebaker.layers import BaseLayer
+from imagebaker.layers.canvas_layer import CanvasLayer
+from imagebaker.workers import LayerifyWorker
 
 
 class AnnotableLayer(BaseLayer):
@@ -179,8 +180,8 @@ class AnnotableLayer(BaseLayer):
 
         # Draw mask if present
         if annotation.mask is not None:
-            from PySide6.QtGui import QImage
             import numpy as np
+            from PySide6.QtGui import QImage
 
             mask = annotation.mask
             if mask.dtype != np.uint8:

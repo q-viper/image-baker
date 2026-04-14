@@ -1,25 +1,24 @@
-from imagebaker.core.configs import LayerConfig, CanvasConfig, CursorDef
-from imagebaker.core.defs import Annotation, MouseMode, LayerState, DrawingState
-from imagebaker.utils.state_utils import calculate_intermediate_states
-from imagebaker import logger
+from pathlib import Path
 
-from PySide6.QtCore import QPointF, QPoint, Qt, Signal, QSizeF, QSize
+import cv2
+import numpy as np
+from PySide6.QtCore import QPoint, QPointF, QSize, QSizeF, Qt, Signal
 from PySide6.QtGui import (
     QColor,
-    QPixmap,
-    QPainter,
-    QMouseEvent,
-    QKeyEvent,
-    QImage,
-    QPen,
     QCursor,
+    QImage,
+    QKeyEvent,
+    QMouseEvent,
+    QPainter,
+    QPen,
+    QPixmap,
 )
 from PySide6.QtWidgets import QWidget
 
-from typing import Optional
-from pathlib import Path
-import cv2
-import numpy as np
+from imagebaker import logger
+from imagebaker.core.configs import CanvasConfig, CursorDef, LayerConfig
+from imagebaker.core.defs import Annotation, DrawingState, LayerState, MouseMode
+from imagebaker.utils.state_utils import calculate_intermediate_states
 
 
 class BaseLayer(QWidget):
@@ -162,9 +161,9 @@ class BaseLayer(QWidget):
         self._image = QPixmap()
         self._original_image = QPixmap()
         self.annotations: list[Annotation] = []
-        self.current_annotation: Optional[Annotation] = None
-        self.copied_annotation: Optional[Annotation] = None
-        self.selected_annotation: Optional[Annotation] = None
+        self.current_annotation: Annotation | None = None
+        self.copied_annotation: Annotation | None = None
+        self.selected_annotation: Annotation | None = None
 
         self.layers: list[BaseLayer] = []
         self.layer_masks = []

@@ -1,26 +1,28 @@
 # TODO: Use Signal and Slot for communication instead of passing objects around
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QApplication,
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QPushButton,
-    QLabel,
-    QMessageBox,
-    QDockWidget,
-    QListWidget,
-    QListWidgetItem,
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QDialog,
+    QDockWidget,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
+
+from imagebaker import logger
+from imagebaker.layers.base_layer import BaseLayer
 
 # from imagebaker.tab_views import BaseLayer
 from imagebaker.layers.canvas_layer import CanvasLayer as Canvas
+
 from .layer_settings import LayerSettings
-from imagebaker import logger
-from imagebaker.layers.base_layer import BaseLayer
 
 
 class LayerList(QDockWidget):

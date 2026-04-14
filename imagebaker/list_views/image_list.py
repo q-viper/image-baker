@@ -1,20 +1,20 @@
-from imagebaker import logger
-
+from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QPushButton,
-    QLabel,
-    QSizePolicy,
     QDockWidget,
+    QHBoxLayout,
+    QLabel,
     QListWidget,
     QListWidgetItem,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
 )
-from pathlib import Path
+
+from imagebaker import logger
 
 
 class ImageListPanel(QDockWidget):
@@ -34,7 +34,7 @@ class ImageListPanel(QDockWidget):
         :param processed_images: Set of image paths that have already been processed.
         """
         super().__init__("Image List", parent)
-        self.image_entries: list["ImageEntry"] = image_entries
+        self.image_entries: list[ImageEntry] = image_entries
         self.processed_images = processed_images
         self.current_page = 0
         self.images_per_page = images_per_page

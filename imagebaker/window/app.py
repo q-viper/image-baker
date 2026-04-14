@@ -1,13 +1,14 @@
-from imagebaker.window.main_window import MainWindow
-from imagebaker.core.configs import LayerConfig, CanvasConfig
-from imagebaker import logger
-
+import ast
 import importlib.util
 import runpy
-import ast
-import typer
 from pathlib import Path
+
+import typer
 from PySide6.QtWidgets import QApplication
+
+from imagebaker import logger
+from imagebaker.core.configs import CanvasConfig, LayerConfig
+from imagebaker.window.main_window import MainWindow
 
 app_cli = typer.Typer()
 
@@ -23,7 +24,7 @@ def find_and_import_subclass(file_path: str, base_class_name: str):
     Returns:
         type: The first subclass found, or None if no subclass is found.
     """
-    with open(file_path, "r") as file:
+    with open(file_path) as file:
         tree = ast.parse(file.read(), filename=file_path)
 
     for node in ast.walk(tree):

@@ -1,19 +1,20 @@
-from PySide6.QtGui import QImage, QPainter, QTransform, QPolygonF, QPen, QPixmap
-from PySide6.QtCore import (
-    Qt,
-    QPoint,
-    QPointF,
-    Signal,
-    QRectF,
-    QObject,
-)
 import sys
 from pathlib import Path
 
-from imagebaker.core.defs.defs import BakingResult, Annotation, LayerState
-from imagebaker.utils.transform_mask import mask_to_polygons, mask_to_rectangles
+from PySide6.QtCore import (
+    QObject,
+    QPoint,
+    QPointF,
+    QRectF,
+    Qt,
+    Signal,
+)
+from PySide6.QtGui import QImage, QPainter, QPen, QPixmap, QPolygonF, QTransform
+
 from imagebaker import logger
+from imagebaker.core.defs.defs import Annotation, BakingResult, LayerState
 from imagebaker.utils.image import qpixmap_to_numpy
+from imagebaker.utils.transform_mask import mask_to_polygons, mask_to_rectangles
 
 
 class BakerWorker(QObject):

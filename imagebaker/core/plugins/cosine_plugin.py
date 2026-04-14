@@ -1,8 +1,8 @@
-from imagebaker.core.plugins.base_plugin import BasePlugin
-from imagebaker.core.defs import LayerState
-
 import numpy as np
 from PySide6.QtCore import QPointF
+
+from imagebaker.core.defs import LayerState
+from imagebaker.core.plugins.base_plugin import BasePlugin
 
 
 class CosinePlugin(BasePlugin):

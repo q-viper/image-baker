@@ -1,26 +1,27 @@
-from imagebaker.list_views import LayerList, LayerSettings
-from imagebaker.list_views.canvas_list import CanvasList
-from imagebaker.layers.canvas_layer import CanvasLayer
-from imagebaker.core.defs import BakingResult, MouseMode, Annotation
-from imagebaker.core.configs import CanvasConfig
-from imagebaker import logger
+from collections import deque
+from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QColorDialog,
-    QWidget,
-    QVBoxLayout,
+    QDockWidget,
     QHBoxLayout,
+    QLabel,
     QPushButton,
     QSizePolicy,
-    QDockWidget,
     QSlider,
-    QLabel,
     QSpinBox,
+    QVBoxLayout,
+    QWidget,
 )
-from collections import deque
-from pathlib import Path
+
+from imagebaker import logger
+from imagebaker.core.configs import CanvasConfig
+from imagebaker.core.defs import Annotation, BakingResult, MouseMode
+from imagebaker.layers.canvas_layer import CanvasLayer
+from imagebaker.list_views import LayerList, LayerSettings
+from imagebaker.list_views.canvas_list import CanvasList
 
 
 class BakerTab(QWidget):
@@ -384,9 +385,7 @@ class BakerTab(QWidget):
 
         self.current_canvas.save_current_state(steps=self.steps_spinbox.value())
         self.messageSignal.emit(
-            "Current state saved. Total states: {}".format(
-                len(self.current_canvas.states)
-            )
+            f"Current state saved. Total states: {len(self.current_canvas.states)}"
         )
 
         self.steps_spinbox.setValue(1)  # Reset the spinbox value

@@ -1,13 +1,12 @@
 # based on https://docs.ultralytics.com/tasks/segment/#how-do-i-load-and-validate-a-pretrained-yolo-segmentation-model
 
-from typing import List
-import numpy as np
-import cv2
-from loguru import logger
 import time
-from ultralytics import YOLO
-import torch
 
+import cv2
+import numpy as np
+import torch
+from loguru import logger
+from ultralytics import YOLO
 
 from imagebaker.models.base_model import (
     BaseSegmentationModel,
@@ -15,7 +14,7 @@ from imagebaker.models.base_model import (
     ModelType,
     PredictionResult,
 )
-from imagebaker.utils import mask_to_polygons, annotate_segmentation, generate_color_map
+from imagebaker.utils import annotate_segmentation, generate_color_map, mask_to_polygons
 
 
 class YoloSegmentationModelConfig(DefaultModelConfig):
@@ -97,7 +96,7 @@ class YoloSegmentationModel(BaseSegmentationModel):
             "class_ids": class_ids,
         }
 
-    def postprocess(self, outputs) -> List[PredictionResult]:
+    def postprocess(self, outputs) -> list[PredictionResult]:
         """Convert model outputs to PredictionResult objects with polygons"""
         results: list[PredictionResult] = []
         masks = outputs["masks"]

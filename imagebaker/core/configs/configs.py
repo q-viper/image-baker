@@ -1,12 +1,11 @@
 from pathlib import Path
-from typing import List, Tuple
 
+from pydantic import BaseModel, Field
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
-from pydantic import BaseModel, Field
 
-from imagebaker.core.defs import Label, ModelType
 from imagebaker import logger
+from imagebaker.core.defs import Label, ModelType
 
 try:
     from imagebaker import __version__
@@ -23,7 +22,7 @@ class DrawConfig(BaseModel):
     pen_alpha: int = 150
     brush_alpha: int = 50
     brush_fill_pattern: Qt.BrushStyle = Qt.BrushStyle.DiagCrossPattern
-    thumbnail_size: Tuple[int, int] = Field(default_factory=lambda: (50, 50))
+    thumbnail_size: tuple[int, int] = Field(default_factory=lambda: (50, 50))
     background_color: QColor = Field(default_factory=lambda: QColor(0, 0, 0, 255))
     label_font_size: int = 12
     label_font_background_color: QColor = Field(
@@ -101,7 +100,7 @@ class LayerConfig(BaseConfig):
     default_label: Label = Field(
         default_factory=lambda: Label("Unlabeled", QColor(255, 255, 255))
     )
-    predefined_labels: List[Label] = Field(
+    predefined_labels: list[Label] = Field(
         default_factory=lambda: [
             Label("Unlabeled", QColor(255, 255, 255)),
             Label("Label 1", QColor(255, 0, 0)),
@@ -169,9 +168,9 @@ class DefaultModelConfig(BaseModel):
     model_version: str = "1.0"
     model_author: str = "Anonymous"
     model_license: str = "MIT"
-    input_size: Tuple[int, int] = (224, 224)
+    input_size: tuple[int, int] = (224, 224)
     input_channels: int = 3
-    class_names: List[str] = ["class1", "class2", "class3"]
+    class_names: list[str] = ["class1", "class2", "class3"]
     device: str = "cpu"
     return_annotated_image: bool = False
 

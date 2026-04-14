@@ -1,23 +1,23 @@
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import (
     QColor,
-    QPixmap,
     QIcon,
+    QPixmap,
 )
 from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QPushButton,
-    QLabel,
-    QSizePolicy,
     QDockWidget,
+    QHBoxLayout,
+    QLabel,
     QListWidget,
     QListWidgetItem,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
 )
 
-from imagebaker.layers.annotable_layer import AnnotableLayer
 from imagebaker import logger
+from imagebaker.layers.annotable_layer import AnnotableLayer
 
 
 class AnnotationList(QDockWidget):
