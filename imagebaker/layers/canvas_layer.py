@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
 from imagebaker import logger
 from imagebaker.core.configs import CanvasConfig, CursorDef
 from imagebaker.core.defs import Annotation, BakingResult, DrawingState, MouseMode
-from imagebaker.layers import BaseLayer
+from imagebaker.layers.base_layer import BaseLayer
 from imagebaker.utils.image import draw_annotations, qpixmap_to_numpy
 from imagebaker.workers import BakerWorker
 
