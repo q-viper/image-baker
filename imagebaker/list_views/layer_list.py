@@ -107,8 +107,13 @@ class LayerList(QDockWidget):
 
     def update_list(self):
         """Update the list widget with current layers"""
-        # Remember current selection
-        selected_row = self.list_widget.currentRow()
+        selected_layers = {layer for layer in self.layers if layer.selected}
+        current_item = self.list_widget.currentItem()
+        current_layer = None
+        if current_item is not None:
+            current_row = self.list_widget.row(current_item)
+            if 0 <= current_row < len(self.layers):
+                current_layer = self.layers[current_row]
 
         # Clear the list
         self.list_widget.clear()
@@ -225,9 +230,13 @@ class LayerList(QDockWidget):
             self.list_widget.addItem(item)
             self.list_widget.setItemWidget(item, widget)
 
-        # Restore selection if possible
-        if selected_row >= 0 and selected_row < self.list_widget.count():
-            self.list_widget.setCurrentRow(selected_row)
+            if layer in selected_layers:
+                item.setSelected(True)
+            if layer is current_layer:
+                self.list_widget.setCurrentItem(item)
+
+        if self.list_widget.currentItem() is None and self.list_widget.count() > 0:
+            self.list_widget.setCurrentRow(0)
 
         # Update layer settings panel
         if selected_layer:

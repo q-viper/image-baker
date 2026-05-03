@@ -439,35 +439,21 @@ class BakerTab(QWidget):
 
     def keyPressEvent(self, event):
         """Handle key press events."""
-        # Ctrl + S: Save the current state
-        curr_mode = self.current_canvas.mouse_mode
-        if event.key() == Qt.Key_S and event.modifiers() == Qt.ControlModifier:
-            self.save_current_state()
-            self.current_canvas.mouse_mode = curr_mode
-            self.current_canvas.update()
-        # if ctrl + D: Toggle drawing mode
-        if event.key() == Qt.Key_D and event.modifiers() == Qt.ControlModifier:
-            self.toggle_drawing_mode()
-            self.current_canvas.update()
-        # if ctrl + E: Toggle erase mode
-        if event.key() == Qt.Key_E and event.modifiers() == Qt.ControlModifier:
-            self.toggle_erase_mode()
-            self.current_canvas.update()
-
-        # Delete: Delete the selected layer
-        if event.key() == Qt.Key_Delete:
-            if (
-                self.current_canvas.selected_layer
-                and self.current_canvas.selected_layer in self.current_canvas.layers
-            ):
-                self.current_canvas.layers.remove(self.current_canvas.selected_layer)
-                self.current_canvas.selected_layer = None
-                self.layer_settings.selected_layer = None
-
+        handled_by_canvas = (
+            event.key() in {Qt.Key_Delete, Qt.Key_H, Qt.Key_W, Qt.Key_S}
+            or (
+                event.modifiers() == Qt.ControlModifier
+                and event.key() in {Qt.Key_C, Qt.Key_V, Qt.Key_D, Qt.Key_E, Qt.Key_S}
+            )
+        )
+        if handled_by_canvas and self.current_canvas is not None:
+            self.current_canvas.handle_key_press(event)
             self.current_canvas.update()
             self.layer_list.update_list()
             self.layer_settings.update_sliders()
-            self.messageSignal.emit("Deleted selected layer")
+            if event.isAccepted():
+                self.update()
+                return
 
         # Ctrl + N: Add a new layer to the current canvas
         if event.key() == Qt.Key_N and event.modifiers() == Qt.ControlModifier:
@@ -483,56 +469,6 @@ class BakerTab(QWidget):
             self.current_canvas.update()
             self.layer_list.update_list()
             self.messageSignal.emit(f"Added new layer: {new_layer.layer_name}")
-
-        if event.key() == Qt.Key_H:
-            # if pressed h key, then toggle visibility of layer
-            selected_layer = self.current_canvas._get_selected_layer()
-            if selected_layer:
-                selected_layer.visible = not selected_layer.visible
-                selected_layer.update()
-                self.current_canvas.update()
-                self.layer_settings.update_sliders()
-                self.messageSignal.emit(
-                    f"Toggled visibility of annotations in layer: {selected_layer.layer_name}"
-                )
-        # if pressed W key, move the order of the selected layer up
-        # make it circular, if the first layer is selected, then move it to the last
-        if event.key() == Qt.Key_W:
-            selected_layer = self.current_canvas._get_selected_layer()
-            if selected_layer:
-                index = self.current_canvas.layers.index(selected_layer)
-                if index > 0:
-                    # Move the layer up
-                    self.current_canvas.layers.insert(index - 1, selected_layer)
-                    del self.current_canvas.layers[index + 1]
-                else:
-                    # Move the first layer to the end
-                    self.current_canvas.layers.append(selected_layer)
-                    del self.current_canvas.layers[0]
-                self.current_canvas.update()
-                self.layer_list.update_list()
-                self.messageSignal.emit(
-                    f"Moved layer {selected_layer.layer_name} up in order."
-                )
-        # if pressed S key, move the order of the selected layer down
-        # make it circular, if the last layer is selected, then move it to the first
-        if event.key() == Qt.Key_S:
-            selected_layer = self.current_canvas._get_selected_layer()
-            if selected_layer:
-                index = self.current_canvas.layers.index(selected_layer)
-                if index < len(self.current_canvas.layers) - 1:
-                    # Move the layer down
-                    self.current_canvas.layers.insert(index + 2, selected_layer)
-                    del self.current_canvas.layers[index]
-                else:
-                    # Move the last layer to the beginning
-                    self.current_canvas.layers.insert(0, selected_layer)
-                    del self.current_canvas.layers[-1]
-                self.current_canvas.update()
-                self.layer_list.update_list()
-                self.messageSignal.emit(
-                    f"Moved layer {selected_layer.layer_name} down in order."
-                )
         self.update()
         return super().keyPressEvent(event)
 

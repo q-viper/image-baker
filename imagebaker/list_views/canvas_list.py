@@ -113,6 +113,11 @@ class CanvasList(QDockWidget):
 
     def update_canvas_list(self):
         """Update the canvas list with pagination."""
+        previous_item = self.list_widget.currentItem()
+        previous_canvas = (
+            previous_item.data(Qt.UserRole) if previous_item is not None else None
+        )
+
         self.list_widget.clear()
 
         canvases_list = list(self.canvases)
@@ -158,11 +163,22 @@ class CanvasList(QDockWidget):
             # Store metadata for the canvas
             list_item.setData(Qt.UserRole, canvas)
 
-        # Select the first item by default if it exists
-        if self.list_widget.count() > 0:
+        restored = False
+        if previous_canvas is not None:
+            for row in range(self.list_widget.count()):
+                item = self.list_widget.item(row)
+                if item.data(Qt.UserRole) is previous_canvas:
+                    self.list_widget.setCurrentItem(item)
+                    restored = True
+                    break
+
+        if not restored and self.list_widget.count() > 0:
             self.list_widget.setCurrentRow(0)
-            first_item = self.list_widget.item(0)
-            self.handle_item_clicked(first_item)
+            restored = True
+
+        current_item = self.list_widget.currentItem()
+        if current_item is not None:
+            self.handle_item_clicked(current_item)
 
         self.pagination_label.setText(
             f"Showing {start_idx + 1} to {end_idx} of {len(canvases_list)}"

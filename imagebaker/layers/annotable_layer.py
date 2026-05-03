@@ -91,19 +91,140 @@ class AnnotableLayer(BaseLayer):
             # ):  # Only activate pan mode when not drawing polygons
 
             self.mouse_mode = MouseMode.PAN
+            event.accept()
+            return
 
         # Handle Ctrl+C for copy
         if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_C:
             self._copy_annotation()
+            event.accept()
+            return
 
         # Handle Ctrl+V for paste
         if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_V:
             self._paste_annotation()
+            event.accept()
+            return
+
+        # Handle Ctrl+A for select all
+        if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_A:
+            self.select_all_annotations()
+            event.accept()
+            return
+
+        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_Delete:
+            self.delete_selected_annotations()
+            event.accept()
+            return
+
+        if event.modifiers() == Qt.NoModifier and Qt.Key_0 <= event.key() <= Qt.Key_9:
+            label_index = event.key() - Qt.Key_0
+            if label_index < len(self.config.predefined_labels):
+                label_info = self.config.predefined_labels[label_index]
+                self.current_label = label_info.name
+                self.current_color = label_info.color
+
+                selected_annotations = [ann for ann in self.annotations if ann.selected]
+                if not selected_annotations and self.selected_annotation is not None:
+                    selected_annotations = [self.selected_annotation]
+
+                for annotation in selected_annotations:
+                    annotation.label = label_info.name
+                    annotation.color = label_info.color
+                    self.annotationUpdated.emit(annotation)
+
+                self.messageSignal.emit(f"Label changed to: {label_info.name}")
+                self.update()
+                event.accept()
+                return
+
+        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_Q:
+            self.set_mode(MouseMode.POINT)
+            self.messageSignal.emit("Mouse mode set to POINT.")
+            event.accept()
+            return
+
+        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_W:
+            self.set_mode(MouseMode.POLYGON)
+            self.messageSignal.emit("Mouse mode set to POLYGON.")
+            event.accept()
+            return
+
+        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_E:
+            self.set_mode(MouseMode.RECTANGLE)
+            self.messageSignal.emit("Mouse mode set to RECTANGLE.")
+            event.accept()
+            return
+
+        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_H:
+            self.toggle_annotation_visibility()
+            event.accept()
+            return
+
+        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_L:
+            selected_annotations = [ann for ann in self.annotations if ann.selected]
+            if selected_annotations:
+                self.layerify_annotation(selected_annotations)
+            else:
+                self.layerify_annotation(self.annotations)
+            event.accept()
+            return
+
+        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_C:
+            self.edit_selected_annotation_caption()
+            event.accept()
+            return
 
     def handle_key_release(self, event):
         if event.key() == Qt.Key_Control:
             if self.mouse_mode == MouseMode.PAN:
                 self.mouse_mode = MouseMode.IDLE
+
+    def copy_annotation(self):
+        self._copy_annotation()
+
+    def paste_annotation(self):
+        self._paste_annotation()
+
+    def delete_selected_annotations(self):
+        selected_annotations = [ann for ann in self.annotations if ann.selected]
+        if not selected_annotations and self.selected_annotation is not None:
+            selected_annotations = [self.selected_annotation]
+
+        if not selected_annotations:
+            self.messageSignal.emit("No annotation selected to delete.")
+            return
+
+        selected_ids = {id(ann) for ann in selected_annotations}
+        removed_count = len(selected_annotations)
+        self.annotations = [
+            ann for ann in self.annotations if id(ann) not in selected_ids
+        ]
+
+        for index, annotation in enumerate(self.annotations):
+            annotation.annotation_id = index
+
+        self.selected_annotation = None
+        self.current_annotation = None
+        self.annotationRemoved.emit()
+        self.messageSignal.emit(f"Deleted {removed_count} annotation(s)")
+        self.update()
+
+    def edit_selected_annotation_caption(self):
+        selected_annotation = self._get_selected_annotation()
+        self.selected_annotation = selected_annotation
+        if selected_annotation is None:
+            self.messageSignal.emit("No annotation selected for caption editing.")
+            return
+
+        current_caption = getattr(selected_annotation, "caption", "")
+        text, ok = QInputDialog.getMultiLineText(
+            self, "Edit Caption", "Enter caption:", current_caption
+        )
+        if ok:
+            selected_annotation.caption = text
+            self.annotationUpdated.emit(selected_annotation)
+            self.update()
 
     def apply_opacity(self):
         """Apply opacity to the QPixmap image."""
@@ -294,8 +415,17 @@ class AnnotableLayer(BaseLayer):
                 )
             painter.restore()
 
-        # Draw labels
-        if annotation.is_complete and annotation.label:
+        is_active_annotation = (
+            annotation is self.current_annotation
+            or (
+                annotation is self.selected_annotation
+                and hasattr(self, "active_handle")
+                and self.active_handle is not None
+            )
+        )
+
+        # Draw labels only for completed, non-active annotations.
+        if annotation.is_complete and annotation.label and not is_temp and not is_active_annotation:
             # painter.save()
             label_pos = self.get_label_position(annotation)
             text = annotation.label
@@ -712,6 +842,9 @@ class AnnotableLayer(BaseLayer):
                 elif self.selected_annotation.points:
                     self.active_point_index = 0
 
+                self.update()
+                return
+
             # If pan mode
             if self.mouse_mode == MouseMode.PAN:
                 self.pan_start = event.position()
@@ -977,27 +1110,58 @@ class AnnotableLayer(BaseLayer):
 
     # in update, update cursor
 
+    def select_all_annotations(self):
+        if not self.annotations:
+            self.messageSignal.emit("No annotations to select.")
+            return
+
+        for ann in self.annotations:
+            ann.selected = True
+            self.annotationUpdated.emit(ann)
+        self.selected_annotation = self.annotations[-1]
+        self.messageSignal.emit(f"Selected {len(self.annotations)} annotations")
+        self.update()
+
     def _copy_annotation(self):
-        self.selected_annotation = self._get_selected_annotation()
-        if self.selected_annotation:
-            self.copied_annotation = self.selected_annotation
+        selected_annotations = [ann for ann in self.annotations if ann.selected]
+        if not selected_annotations:
+            self.selected_annotation = self._get_selected_annotation()
+            if self.selected_annotation:
+                selected_annotations = [self.selected_annotation]
+
+        if selected_annotations:
+            copied_annotations = [ann.copy() for ann in selected_annotations]
+            for ann in copied_annotations:
+                ann.selected = False
+            BaseLayer.annotation_clipboard = copied_annotations
+            self.copied_annotation = copied_annotations[0]
             self.messageSignal.emit(
-                f"Copied annotation: {self.selected_annotation.label}"
+                f"Copied {len(copied_annotations)} annotation(s)"
             )
             self.mouse_mode = MouseMode.IDLE
         else:
             self.messageSignal.emit("No annotation selected to copy.")
 
     def _paste_annotation(self):
-        if self.copied_annotation:
-            new_annotation = self.copied_annotation.copy()
-            new_annotation.annotation_id = len(self.annotations)
-            self.annotations.append(new_annotation)
-            self.annotationAdded.emit(new_annotation)
-            self.thumbnails[new_annotation.annotation_id] = self.get_thumbnail(
-                new_annotation
+        clipboard = BaseLayer.annotation_clipboard
+        if clipboard:
+            pasted_annotations = []
+            for copied_annotation in clipboard:
+                new_annotation = copied_annotation.copy()
+                new_annotation.annotation_id = len(self.annotations)
+                new_annotation.selected = False
+                new_annotation.file_path = self.file_path
+                setattr(new_annotation, "_skip_label_registry", True)
+                self.annotations.append(new_annotation)
+                self.annotationAdded.emit(new_annotation)
+                self.thumbnails[new_annotation.annotation_id] = self.get_thumbnail(
+                    new_annotation
+                )
+                pasted_annotations.append(new_annotation)
+
+            self.messageSignal.emit(
+                f"Pasted {len(pasted_annotations)} annotation(s)"
             )
-            self.messageSignal.emit(f"Annotation {new_annotation.label} pasted")
             self.update()
         else:
             self.messageSignal.emit("No annotation copied to paste.")

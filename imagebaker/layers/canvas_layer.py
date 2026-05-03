@@ -127,6 +127,7 @@ class CanvasLayer(BaseLayer):
         # Handle Delete key
         if event.key() == Qt.Key_Delete:
             self._delete_layer()
+            event.accept()
             return  # Important: return after handling
 
         # Handle Ctrl key
@@ -134,26 +135,65 @@ class CanvasLayer(BaseLayer):
             if self.mouse_mode not in [MouseMode.DRAW, MouseMode.ERASE]:
                 self.mouse_mode = MouseMode.PAN
 
+            event.accept()
             return  # Important: return after handling
 
         # Handle Ctrl+C
         if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_C:
             self._copy_layer()
+            event.accept()
             return  # Important: return after handling
 
         # Handle Ctrl+V
         if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_V:
             self._paste_layer()
+            event.accept()
             return  # Important: return after handling
-        # if event.key() == Qt.Key_H:
-        #     if self.selected_layer:
-        #         # Toggle visibility of the selected layer
-        #         logger.info(
-        #             f"Toggling visibility of layer: {self.selected_layer.layer_name}"
-        #         )
-        #         self.selected_layer.visible = not self.selected_layer.visible
-        #         self.selected_layer.update()
-        #     return  # Important: return after handling
+
+        if event.modifiers() == Qt.ControlModifier and event.key() == Qt.Key_S:
+            self.save_current_state(steps=1)
+            self.messageSignal.emit("Current state saved.")
+            event.accept()
+            return
+
+        if event.modifiers() == Qt.ControlModifier and event.key() == Qt.Key_D:
+            self.mouse_mode = (
+                MouseMode.DRAW if self.mouse_mode != MouseMode.DRAW else MouseMode.IDLE
+            )
+            self.messageSignal.emit(f"Drawing mode {self.mouse_mode.name.lower()}.")
+            event.accept()
+            return
+
+        if event.modifiers() == Qt.ControlModifier and event.key() == Qt.Key_E:
+            self.mouse_mode = (
+                MouseMode.ERASE if self.mouse_mode != MouseMode.ERASE else MouseMode.IDLE
+            )
+            self.messageSignal.emit(f"Erasing mode {self.mouse_mode.name.lower()}.")
+            event.accept()
+            return
+
+        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_H:
+            selected_layer = self._get_selected_layer()
+            if selected_layer:
+                selected_layer.visible = not selected_layer.visible
+                selected_layer.update()
+                self.layersChanged.emit()
+                self.messageSignal.emit(
+                    f"Toggled visibility of layer: {selected_layer.layer_name}"
+                )
+                self.update()
+            event.accept()
+            return
+
+        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_W:
+            self._move_selected_layer_up()
+            event.accept()
+            return
+
+        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_S:
+            self._move_selected_layer_down()
+            event.accept()
+            return
 
     def paint_layer(self, painter: QPainter):
         """
@@ -800,22 +840,51 @@ class CanvasLayer(BaseLayer):
 
     def _delete_layer(self):
         self.selected_layer = self._get_selected_layer()
-        # now handled from bakertab
-        # if self.selected_layer:
-        #     remaining_layers = []
-        #     removed = False
-        #     for layer in self.layers:
-        #         if layer.selected:
-        #             removed = True
-        #             self.messageSignal.emit(f"Deleted {layer.layer_name} layer.")
-        #         else:
-        #             remaining_layers.append(layer)
+        if self.selected_layer:
+            self.layers = [
+                layer for layer in self.layers if layer is not self.selected_layer
+            ]
+            self.messageSignal.emit(f"Deleted {self.selected_layer.layer_name} layer.")
+            self.selected_layer = None
+            self._update_back_buffer()
+            self.layersChanged.emit()
+            self.update()
 
-        #     if removed:
-        #         self.layers = remaining_layers
-        #         self._update_back_buffer()
-        #         self.layerRemoved.emit(self.selected_layer)
-        #         self.update()
+    def _move_selected_layer_up(self):
+        selected_layer = self._get_selected_layer()
+        if not selected_layer:
+            return
+
+        index = self.layers.index(selected_layer)
+        if index > 0:
+            self.layers.insert(index - 1, selected_layer)
+            del self.layers[index + 1]
+        else:
+            self.layers.append(selected_layer)
+            del self.layers[0]
+
+        self.layersChanged.emit()
+        self.update()
+        self.messageSignal.emit(f"Moved layer {selected_layer.layer_name} up in order.")
+
+    def _move_selected_layer_down(self):
+        selected_layer = self._get_selected_layer()
+        if not selected_layer:
+            return
+
+        index = self.layers.index(selected_layer)
+        if index < len(self.layers) - 1:
+            self.layers.insert(index + 2, selected_layer)
+            del self.layers[index]
+        else:
+            self.layers.insert(0, selected_layer)
+            del self.layers[-1]
+
+        self.layersChanged.emit()
+        self.update()
+        self.messageSignal.emit(
+            f"Moved layer {selected_layer.layer_name} down in order."
+        )
 
     def export_current_state(self, export_to_annotation_tab=False):
         """

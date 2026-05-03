@@ -90,6 +90,11 @@ class ImageListPanel(QDockWidget):
 
     def update_image_list(self, image_entries):
         """Update the image list with image paths and baked results."""
+        previous_item = self.list_widget.currentItem()
+        previous_entry = (
+            previous_item.data(Qt.UserRole) if previous_item is not None else None
+        )
+
         self.list_widget.clear()
 
         # Calculate the range of images to display for the current page
@@ -144,9 +149,19 @@ class ImageListPanel(QDockWidget):
             active_image_entries.append(image_entry)
 
         self.activeImageEntries.emit(active_image_entries)
-        # also set first item as selected if there are any items
-        if self.list_widget.count() > 0:
+        restored = False
+        if previous_entry is not None:
+            for row in range(self.list_widget.count()):
+                item = self.list_widget.item(row)
+                if item.data(Qt.UserRole) == previous_entry:
+                    self.list_widget.setCurrentItem(item)
+                    restored = True
+                    break
+
+        if not restored and self.list_widget.count() > 0:
             self.list_widget.setCurrentRow(0)
+
+        if self.list_widget.currentItem() is not None:
             self.list_widget.setFocus()
 
         self.update()

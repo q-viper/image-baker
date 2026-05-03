@@ -22,7 +22,9 @@ from imagebaker.utils.state_utils import calculate_intermediate_states
 
 
 class BaseLayer(QWidget):
+    annotation_clipboard: list[Annotation] = []
     messageSignal = Signal(str)
+    modeChanged = Signal(object)
     zoomChanged = Signal(float)
     mouseMoved = Signal(QPointF)
     annotationCleared = Signal()
@@ -552,6 +554,7 @@ class BaseLayer(QWidget):
             self.current_annotation = None
 
         self.mouse_mode = mode
+        self.modeChanged.emit(mode)
         logger.debug(f"Layer {self.layer_id}: Mode set to {mode}")
         self.update()
 
@@ -563,6 +566,7 @@ class BaseLayer(QWidget):
         super().mouseDoubleClickEvent(event)
 
     def mousePressEvent(self, event):
+        self.setFocus()
         self.handle_mouse_press(event)
 
         self.update()
@@ -588,6 +592,8 @@ class BaseLayer(QWidget):
     def keyPressEvent(self, event: QKeyEvent):
         self.handle_key_press(event)
         self.update()
+        if event.isAccepted():
+            return
         super().keyPressEvent(event)
 
     def keyReleaseEvent(self, event):

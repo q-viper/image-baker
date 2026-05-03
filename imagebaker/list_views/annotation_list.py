@@ -48,6 +48,12 @@ class AnnotationList(QDockWidget):
         )
 
     def update_list(self):
+        scroll_bar = self.list_widget.verticalScrollBar()
+        scroll_value = scroll_bar.value()
+        current_selected_ids = {
+            ann.annotation_id for ann in self.layer.annotations if ann.selected
+        } if self.layer is not None else set()
+
         self.list_widget.clear()
         if self.layer is None:
             return
@@ -143,6 +149,11 @@ class AnnotationList(QDockWidget):
 
             item.setSizeHint(widget.sizeHint())
             self.list_widget.setItemWidget(item, widget)
+            if ann.annotation_id in current_selected_ids:
+                item.setSelected(True)
+        scroll_bar.setValue(
+            min(scroll_value, scroll_bar.maximum())
+        )
         self.update()
 
     def create_color_icon(self, color):
@@ -154,18 +165,21 @@ class AnnotationList(QDockWidget):
         if 0 <= index < len(self.layer.annotations):
             ann = self.layer.annotations[index]
             ann.selected = not ann.selected
+            self.layer.selected_annotation = ann if ann.selected else None
             # Set other annotations to not selected
             for i, a in enumerate(self.layer.annotations):
                 if i != index:
                     a.selected = False
+            self.layer.annotationUpdated.emit(ann)
             self.layer.update()
             self.update_list()
 
     def delete_annotation(self, index):
         if 0 <= index < len(self.layer.annotations):
             logger.info(f"Deleting annotation: {self.layer.annotations[index].label}")
-            del self.layer.annotations[index]
-            self.layer.update()
+            self.layer.annotations[index].selected = True
+            self.layer.selected_annotation = self.layer.annotations[index]
+            self.layer.delete_selected_annotations()
             self.update_list()
             logger.info("Annotation deleted")
 
@@ -197,10 +211,23 @@ class AnnotationList(QDockWidget):
         logger.info(f"Key pressed in AnnotationList: {key}")
         if event.key() == Qt.Key_C and event.modifiers() == Qt.ControlModifier:
             self.layer.copy_annotation()
+            event.accept()
+            return
+        elif event.key() == Qt.Key_A and event.modifiers() == Qt.ControlModifier:
+            self.layer.select_all_annotations()
+            self.update_list()
+            event.accept()
+            return
         elif event.key() == Qt.Key_V and event.modifiers() == Qt.ControlModifier:
             self.layer.paste_annotation()
+            event.accept()
+            return
         elif event.key() == Qt.Key_Delete:
             self.delete_annotation(self.layer.selected_annotation_index)
+            event.accept()
+            return
         elif event.key() == Qt.Key_H:
             self.layer.toggle_annotation_visibility()
+            event.accept()
+            return
         # self.parentWidget().keyPressEvent(event)
