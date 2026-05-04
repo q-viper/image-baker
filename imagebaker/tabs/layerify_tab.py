@@ -215,6 +215,7 @@ class LayerifyTab(QWidget):
             selected_layer.setVisible(True)
             # logger.info(f"Layer {self.curr_image_idx} made visible for regular image.")
             selected_layer.set_image(image_path)  # Set the selected image
+            self.load_layer_annotations(selected_layer)
             if self.layer:
                 selected_layer.set_mode(self.layer.mouse_mode)
             self.layer = selected_layer  # Update the currently selected layer
@@ -225,6 +226,7 @@ class LayerifyTab(QWidget):
 
             # Make the baked result layer visible
             baked_result_layer.setVisible(True)
+            self.load_layer_annotations(baked_result_layer)
             # logger.info(f"Layer {self.curr_image_idx} made visible for baked result.")
             self.layer = baked_result_layer  # Set the baked result as the current layer
 
@@ -1347,6 +1349,8 @@ class LayerifyTab(QWidget):
         )
 
         layer.set_image(filepath)
+        layer.annotations = [annotation.copy() for annotation in baking_result.annotations]
+        self.sync_labels_from_annotations(layer.annotations)
 
         layer.annotationAdded.connect(self.on_annotation_added)
         layer.annotationUpdated.connect(self.on_annotation_updated)
@@ -1363,7 +1367,7 @@ class LayerifyTab(QWidget):
         self.annotable_layers.append(layer)
 
         # Add baked result to image_entries
-        baked_result_entry = ImageEntry(is_baked_result=False, data=filepath)
+        baked_result_entry = ImageEntry(is_baked_result=True, data=layer)
         self.image_entries.append(baked_result_entry)
         # baking_result.image.save(str(baking_result.filename))
         layer.update()
