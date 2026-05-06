@@ -113,6 +113,7 @@ class LayerifyTab(QWidget):
             layer.annotationAdded.connect(self.on_annotation_added)
             # layer.annotationUpdated.connect(self.annotation_list.update_list)
             layer.annotationUpdated.connect(self.on_annotation_updated)
+            layer.annotationRemoved.connect(self.on_annotation_removed)
             layer.modeChanged.connect(lambda _mode, self=self: self.sync_mode_buttons())
             layer.messageSignal.connect(self.messageSignal)
             layer.layerSignal.connect(self.add_layer)
@@ -331,16 +332,28 @@ class LayerifyTab(QWidget):
         for annotation in annotations:
             annotations_by_file[Path(annotation.file_path)].append(annotation)
 
-        for layer in self.annotable_layers:
-            file_path = Path(layer.file_path)
-            layer_annotations = [
-                ann.copy() for ann in annotations_by_file.get(file_path, [])
-            ]
-            for index, annotation in enumerate(layer_annotations):
+        # Persist merged annotations to cache for every image entry, not only visible layers.
+        for image_entry in self.image_entries:
+            file_path = (
+                Path(image_entry.data.file_path)
+                if image_entry.is_baked_result
+                else Path(image_entry.data)
+            )
+            cache_path = self.config.cache_dir / f"{file_path.name}.json"
+            file_annotations = [ann.copy() for ann in annotations_by_file.get(file_path, [])]
+            for index, annotation in enumerate(file_annotations):
                 annotation.annotation_id = index
                 annotation.selected = False
                 annotation.file_path = file_path
-            layer.annotations = layer_annotations
+
+            if file_annotations:
+                Annotation.save_as_json(file_annotations, cache_path)
+            elif cache_path.exists():
+                os.remove(cache_path)
+
+        # Refresh currently active canvas layers from cache.
+        for layer in self.annotable_layers:
+            self.load_layer_annotations(layer)
             layer.selected_annotation = None
             layer.current_annotation = None
             layer.update()
@@ -362,6 +375,9 @@ class LayerifyTab(QWidget):
                     f"Loaded annotations for {layer.layer_name} from {load_dir}"
                 )
             else:
+                layer.annotations = []
+                layer.selected_annotation = None
+                layer.current_annotation = None
                 logger.warning(f"No annotations found for {layer.layer_name}")
 
     def update_active_entries(self, image_entries: list[ImageEntry]):
@@ -448,6 +464,12 @@ class LayerifyTab(QWidget):
         self.annotation_list.update_list()
         self.sync_label_combo_to_selection()
         self.save_layer_annotations(self.layer)
+
+    def on_annotation_removed(self):
+        """Handle annotation removed event and persist the current layer state."""
+        self.messageSignal.emit("Annotation removed")
+        self.save_layer_annotations(self.layer)
+        self.annotation_list.update_list()
 
     def update_label_combo(self):
         """
@@ -1354,6 +1376,7 @@ class LayerifyTab(QWidget):
 
         layer.annotationAdded.connect(self.on_annotation_added)
         layer.annotationUpdated.connect(self.on_annotation_updated)
+        layer.annotationRemoved.connect(self.on_annotation_removed)
         layer.modeChanged.connect(lambda _mode, self=self: self.sync_mode_buttons())
         layer.labelUpdated.connect(self.on_label_update)
         layer.messageSignal.connect(self.messageSignal)
