@@ -127,6 +127,8 @@ class MainWindow(QMainWindow):
             self.addDockWidget(Qt.LeftDockWidgetArea, self.layerify_tab.image_list_panel)
             self.addDockWidget(Qt.RightDockWidgetArea, self.layerify_tab.annotation_list)
             self.addDockWidget(Qt.BottomDockWidgetArea, self.layerify_tab.toolbar_dock)
+            # Keep layers list accessible on Layerify tab.
+            self.addDockWidget(Qt.RightDockWidgetArea, self.baker_tab.layer_list)
 
             self.layerify_tab.toolbar_dock.setVisible(True)
             self.layerify_tab.toolbar.setVisible(True)
@@ -137,7 +139,7 @@ class MainWindow(QMainWindow):
             self.layerify_tab.image_list_panel.raise_()
 
             self.baker_tab.layer_settings.setVisible(False)
-            self.baker_tab.layer_list.setVisible(False)
+            self.baker_tab.layer_list.setVisible(True)
             self.baker_tab.toolbar.setVisible(False)
             self.baker_tab.toolbar_dock.setVisible(False)
             self.baker_tab.canvas_list.setVisible(False)

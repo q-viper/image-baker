@@ -143,6 +143,8 @@ class Annotation:
     caption: str = ""
 
     def copy(self):
+        import numpy as np
+
         ann = Annotation(
             annotation_id=self.annotation_id,
             label=self.label,
@@ -150,13 +152,14 @@ class Annotation:
             points=[QPointF(p) for p in self.points],
             rectangle=QRectF(self.rectangle) if self.rectangle else None,
             polygon=QPolygonF(self.polygon) if self.polygon else None,
+            mask=np.array(self.mask, copy=True) if self.mask is not None else None,
             is_complete=self.is_complete,
             selected=self.selected,
             score=self.score,
             annotator=self.annotator,
             annotation_time=self.annotation_time,
             visible=self.visible,
-            file_path=self.file_path,
+            file_path=Path(self.file_path),
             is_model_generated=self.is_model_generated,
             model_name=self.model_name,
             caption=self.caption,
@@ -171,6 +174,7 @@ class Annotation:
     @staticmethod
     def save_as_json(annotations: list["Annotation"], path: str):
         import json
+        import numpy as np
 
         annotations_dict = []
         for annotation in annotations:
@@ -188,6 +192,9 @@ class Annotation:
             points = None
             if annotation.points:
                 points = [[p.x(), p.y()] for p in annotation.points]
+            mask = None
+            if annotation.mask is not None:
+                mask = np.asarray(annotation.mask).tolist()
             data = {
                 "annotation_id": annotation.annotation_id,
                 "label": annotation.label,
@@ -195,6 +202,7 @@ class Annotation:
                 "points": points,
                 "rectangle": rectangle,
                 "polygon": polygon,
+                "mask": mask,
                 "is_complete": annotation.is_complete,
                 "selected": annotation.selected,
                 "score": annotation.score,
@@ -214,6 +222,7 @@ class Annotation:
     @staticmethod
     def load_from_json(path: str):
         import json
+        import numpy as np
 
         # if path does not exist, return empty list
         if not Path(path).exists():
@@ -242,20 +251,41 @@ class Annotation:
                 caption=d.get("caption", ""),
             )
 
-            # Handle points safely
-            points_data = d.get("points")
+            # Handle points/keypoints safely
+            points_data = d.get("points") or d.get("keypoints")
             if points_data:
                 annotation.points = [QPointF(*p) for p in points_data]
 
-            # Handle rectangle safely
+            # Handle rectangle safely (supports both [x,y,w,h] and [x1,y1,x2,y2]).
             rect_data = d.get("rectangle")
             if rect_data:
-                annotation.rectangle = QRectF(*rect_data)
+                if len(rect_data) == 4:
+                    x1, y1, x2_or_w, y2_or_h = rect_data
+                    if x2_or_w >= x1 and y2_or_h >= y1 and (
+                        d.get("rectangle_format") == "xyxy" or "bbox" in d
+                    ):
+                        annotation.rectangle = QRectF(
+                            x1, y1, x2_or_w - x1, y2_or_h - y1
+                        )
+                    else:
+                        annotation.rectangle = QRectF(x1, y1, x2_or_w, y2_or_h)
 
-            # Handle polygon safely
+            # Handle polygon safely (supports one polygon or list-of-polygons).
             polygon_data = d.get("polygon")
             if polygon_data:
+                if (
+                    len(polygon_data) > 0
+                    and isinstance(polygon_data[0], list)
+                    and len(polygon_data[0]) > 0
+                    and isinstance(polygon_data[0][0], (list, tuple))
+                ):
+                    polygon_data = polygon_data[0]
                 annotation.polygon = QPolygonF([QPointF(*p) for p in polygon_data])
+
+            # Handle mask safely
+            mask_data = d.get("mask")
+            if mask_data is not None:
+                annotation.mask = np.array(mask_data, dtype=np.uint8)
 
             annotations.append(annotation)
 

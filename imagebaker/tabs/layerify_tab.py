@@ -288,7 +288,10 @@ class LayerifyTab(QWidget):
         self.update()
 
     def save_layer_annotations(
-        self, layer: AnnotableLayer, save_dir: Path | None = None
+        self,
+        layer: AnnotableLayer,
+        save_dir: Path | None = None,
+        delete_if_empty: bool = True,
     ):
         """Save annotations for a specific layer"""
         file_path = layer.file_path
@@ -301,7 +304,7 @@ class LayerifyTab(QWidget):
         if len(layer.annotations) > 0:
             Annotation.save_as_json(layer.annotations, save_dir)
             logger.info(f"Saved annotations for {layer.layer_name} to {save_dir}")
-        elif save_dir.exists():
+        elif delete_if_empty and save_dir.exists():
             # Remove the existing annotation file if no annotations
             os.remove(save_dir)
             logger.info(f"Removed empty annotation file: {save_dir}")
@@ -385,10 +388,12 @@ class LayerifyTab(QWidget):
 
     def update_active_entries(self, image_entries: list[ImageEntry]):
         """Update the active entries in the image list panel."""
+        # Persist only the actively edited layer before remapping page slots.
+        if self.layer is not None:
+            self.save_layer_annotations(self.layer, delete_if_empty=False)
         self.curr_image_idx = 0
         page_start = self.image_list_panel.current_page * self.image_list_panel.images_per_page
         for i, layer in enumerate(self.annotable_layers):
-            self.save_layer_annotations(layer)
             layer.annotations = []
 
             if i < len(image_entries):

@@ -891,16 +891,20 @@ class AnnotableLayer(BaseLayer):
             )
             # Handle dragging later on
             if self.selected_annotation:
+                is_multi_select = bool(event.modifiers() & Qt.ControlModifier)
                 self.drag_offset = img_pos - self.get_annotation_position(
                     self.selected_annotation
                 )
-                self.selected_annotation.selected = True
-
-                # Make all other annotations unselected
-                for ann in self.annotations:
-                    if ann != self.selected_annotation:
-                        ann.selected = False
-                    self.annotationUpdated.emit(ann)
+                if is_multi_select:
+                    # Toggle selection state without clearing existing selections.
+                    self.selected_annotation.selected = not self.selected_annotation.selected
+                else:
+                    self.selected_annotation.selected = True
+                    # Make all other annotations unselected
+                    for ann in self.annotations:
+                        if ann != self.selected_annotation:
+                            ann.selected = False
+                        self.annotationUpdated.emit(ann)
 
                 if self.selected_annotation.rectangle:
                     self.initial_rect = QRectF(self.selected_annotation.rectangle)

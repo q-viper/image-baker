@@ -69,7 +69,7 @@ class AnnotationList(QDockWidget):
             layout.setContentsMargins(1, 1, 2, 2)
 
             # on clicking this element, select the annotation
-            widget.mousePressEvent = lambda event, i=idx: self.on_annotation_selected(i)
+            widget.mousePressEvent = lambda event, i=idx: self.on_annotation_selected(i, event)
 
             widget.setCursor(Qt.PointingHandCursor)
 
@@ -161,15 +161,22 @@ class AnnotationList(QDockWidget):
         pixmap.fill(color)
         return QIcon(pixmap)
 
-    def on_annotation_selected(self, index):
+    def on_annotation_selected(self, index, event=None):
         if 0 <= index < len(self.layer.annotations):
             ann = self.layer.annotations[index]
-            ann.selected = not ann.selected
-            self.layer.selected_annotation = ann if ann.selected else None
-            # Set other annotations to not selected
-            for i, a in enumerate(self.layer.annotations):
-                if i != index:
-                    a.selected = False
+            is_multi_select = (
+                event is not None and bool(event.modifiers() & Qt.ControlModifier)
+            )
+            if is_multi_select:
+                ann.selected = not ann.selected
+                self.layer.selected_annotation = ann if ann.selected else self.layer._get_selected_annotation()
+            else:
+                ann.selected = not ann.selected
+                self.layer.selected_annotation = ann if ann.selected else None
+                # Set other annotations to not selected
+                for i, a in enumerate(self.layer.annotations):
+                    if i != index:
+                        a.selected = False
             self.layer.annotationUpdated.emit(ann)
             self.layer.update()
             self.update_list()
