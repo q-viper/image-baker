@@ -528,8 +528,10 @@ class BaseLayer(QWidget):
         layer = self.__class__(self.parent_obj, self.config)
         layer.set_image(self.image)
         layer.annotations = [ann.copy() for ann in self.annotations]
-        layer.layers = [layer.copy() for layer in self.layers]
+        # Copy child layers from the source layer (not from the new layer itself).
+        layer.layers = [child.copy() for child in self.layers]
         layer.layer_name = self.layer_name
+        layer.file_path = Path(self.file_path)
         layer.position = self.position
         layer.rotation = self.rotation
         layer.scale = self.scale

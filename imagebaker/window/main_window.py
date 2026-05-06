@@ -57,6 +57,7 @@ class MainWindow(QMainWindow):
 
             # Connect signals
             self.baker_tab.messageSignal.connect(self.update_status)
+            self.baker_tab.requestTabSwitch.connect(self.goto_tab)
             self.layerify_tab.layerAdded.connect(self.baker_tab.add_layer)
             self.baker_tab.bakingResult.connect(self.layerify_tab.add_baked_result)
             self.layerify_tab.gotToTab.connect(self.goto_tab)
@@ -116,17 +117,44 @@ class MainWindow(QMainWindow):
         logger.info(f"Switched to {current_tab} tab.")
 
         if current_tab == "Layerify":
+            # Detach Baker docks so their splitter widths cannot affect Layerify.
+            self.removeDockWidget(self.baker_tab.layer_list)
+            self.removeDockWidget(self.baker_tab.layer_settings)
+            self.removeDockWidget(self.baker_tab.toolbar_dock)
+            self.removeDockWidget(self.baker_tab.canvas_list)
+
+            # Re-attach Layerify docks in expected areas.
+            self.addDockWidget(Qt.LeftDockWidgetArea, self.layerify_tab.image_list_panel)
+            self.addDockWidget(Qt.RightDockWidgetArea, self.layerify_tab.annotation_list)
+            self.addDockWidget(Qt.BottomDockWidgetArea, self.layerify_tab.toolbar_dock)
+
             self.layerify_tab.toolbar_dock.setVisible(True)
             self.layerify_tab.toolbar.setVisible(True)
             self.layerify_tab.annotation_list.setVisible(True)
             self.layerify_tab.image_list_panel.setVisible(True)
+            self.layerify_tab.toolbar_dock.raise_()
+            self.layerify_tab.annotation_list.raise_()
+            self.layerify_tab.image_list_panel.raise_()
 
             self.baker_tab.layer_settings.setVisible(False)
-            self.baker_tab.layer_list.setVisible(True)
+            self.baker_tab.layer_list.setVisible(False)
             self.baker_tab.toolbar.setVisible(False)
+            self.baker_tab.toolbar_dock.setVisible(False)
             self.baker_tab.canvas_list.setVisible(False)
+            QTimer.singleShot(0, self._refresh_layerify_layout)
 
         else:
+            # Detach Layerify docks so their splitter widths cannot affect Baker.
+            self.removeDockWidget(self.layerify_tab.annotation_list)
+            self.removeDockWidget(self.layerify_tab.image_list_panel)
+            self.removeDockWidget(self.layerify_tab.toolbar_dock)
+
+            # Re-attach Baker docks in expected areas.
+            self.addDockWidget(Qt.LeftDockWidgetArea, self.baker_tab.canvas_list)
+            self.addDockWidget(Qt.RightDockWidgetArea, self.baker_tab.layer_list)
+            self.addDockWidget(Qt.RightDockWidgetArea, self.baker_tab.layer_settings)
+            self.addDockWidget(Qt.BottomDockWidgetArea, self.baker_tab.toolbar_dock)
+
             self.layerify_tab.annotation_list.setVisible(False)
             self.layerify_tab.toolbar.setVisible(False)
             self.layerify_tab.toolbar_dock.setVisible(False)
@@ -139,6 +167,14 @@ class MainWindow(QMainWindow):
             self.baker_tab.canvas_list.setVisible(True)
             self.baker_tab.canvas_list.update_canvas_list()
             # self.baker_tab.
+
+    def _refresh_layerify_layout(self):
+        """Force a repaint/layout pass for Layerify docks after tab switch."""
+        self.layerify_tab.image_list_panel.update()
+        self.layerify_tab.annotation_list.update()
+        self.layerify_tab.toolbar_dock.update()
+        self.layerify_tab.updateGeometry()
+        self.layerify_tab.update()
 
     def update_status(self, msg):
         """Update status bar that's visible in all tabs"""

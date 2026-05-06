@@ -29,6 +29,7 @@ class BakerTab(QWidget):
 
     messageSignal = Signal(str)
     bakingResult = Signal(BakingResult)
+    requestTabSwitch = Signal(int)
 
     def __init__(self, main_window, config: CanvasConfig):
         """Initialize the Baker Tab."""
@@ -347,6 +348,7 @@ class BakerTab(QWidget):
     def export_for_annotation(self):
         """Export the baked states for annotation."""
         self.messageSignal.emit("Exporting states for prediction...")
+        self.requestTabSwitch.emit(0)
         self.current_canvas.export_baked_states(export_to_annotation_tab=True)
 
     def export_locally(self):

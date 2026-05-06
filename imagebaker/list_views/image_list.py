@@ -18,7 +18,7 @@ from imagebaker import logger
 
 
 class ImageListPanel(QDockWidget):
-    imageSelected = Signal(Path)
+    imageSelected = Signal(object)
     activeImageEntries = Signal(list)
 
     def __init__(
@@ -102,9 +102,12 @@ class ImageListPanel(QDockWidget):
         end_index = min(start_index + self.images_per_page, len(image_entries))
 
         # Update the pagination label
-        self.pagination_label.setText(
-            f"Showing {start_index + 1} to {end_index} of {len(image_entries)}"
-        )
+        if len(image_entries) == 0:
+            self.pagination_label.setText("Showing 0 to 0 of 0")
+        else:
+            self.pagination_label.setText(
+                f"Showing {start_index + 1} to {end_index} of {len(image_entries)}"
+            )
 
         # Display only the images for the current page
         active_image_entries = []
@@ -118,9 +121,14 @@ class ImageListPanel(QDockWidget):
             # Generate thumbnail
             thumbnail_label = QLabel()
             if image_entry.is_baked_result:
-                thumbnail_pixmap = (
-                    image_entry.data.get_thumbnail()
-                )  # Baked result thumbnail
+                if hasattr(image_entry.data, "get_thumbnail"):
+                    # Legacy baked entry as layer object
+                    thumbnail_pixmap = image_entry.data.get_thumbnail()
+                else:
+                    # Baked entry stored as image path
+                    thumbnail_pixmap = QPixmap(str(image_entry.data)).scaled(
+                        50, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                    )
                 name_label_text = f"Baked Result {idx}"
             else:
                 thumbnail_pixmap = QPixmap(str(image_entry.data)).scaled(

@@ -96,6 +96,8 @@ class BaseConfig(BaseModel):
 class LayerConfig(BaseConfig):
     show_labels: bool = True
     show_annotations: bool = True
+    # Minimum rectangle size (in image pixels) to treat a drag as a valid box.
+    drag_threshold: int = 3
 
     default_label: Label = Field(
         default_factory=lambda: Label("Unlabeled", QColor(255, 255, 255))

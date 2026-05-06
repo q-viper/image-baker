@@ -62,6 +62,46 @@ class AnnotableLayer(BaseLayer):
         # Brush annotation state
         self._brush_mask = None  # Numpy array for brush mask
         self._brush_last_pos = None
+        self._undo_stack = []
+        self._redo_stack = []
+        self._max_history = 100
+        self._drag_start_snapshot = None
+
+    def _snapshot_annotations(self):
+        return [ann.copy() for ann in self.annotations]
+
+    def _restore_annotations(self, snapshot):
+        self.annotations = [ann.copy() for ann in snapshot]
+        for idx, ann in enumerate(self.annotations):
+            ann.annotation_id = idx
+            ann.selected = False
+        self.selected_annotation = None
+        self.current_annotation = None
+        self.update()
+
+    def _push_undo_state(self):
+        self._undo_stack.append(self._snapshot_annotations())
+        if len(self._undo_stack) > self._max_history:
+            self._undo_stack.pop(0)
+        self._redo_stack.clear()
+
+    def undo(self):
+        if not self._undo_stack:
+            self.messageSignal.emit("Nothing to undo.")
+            return
+        self._redo_stack.append(self._snapshot_annotations())
+        self._restore_annotations(self._undo_stack.pop())
+        self.annotationRemoved.emit()
+        self.messageSignal.emit("Undo applied.")
+
+    def redo(self):
+        if not self._redo_stack:
+            self.messageSignal.emit("Nothing to redo.")
+            return
+        self._undo_stack.append(self._snapshot_annotations())
+        self._restore_annotations(self._redo_stack.pop())
+        self.annotationRemoved.emit()
+        self.messageSignal.emit("Redo applied.")
 
     def init_ui(self):
         logger.info(f"Initializing Layer UI of {self.layer_name}")
@@ -78,6 +118,7 @@ class AnnotableLayer(BaseLayer):
         """Toggle visibility of all annotations."""
         selected_annotation = self._get_selected_annotation()
         if selected_annotation is not None:
+            self._push_undo_state()
             selected_annotation.visible = not selected_annotation.visible
             self.annotationUpdated.emit(selected_annotation)
             self.update()
@@ -109,6 +150,14 @@ class AnnotableLayer(BaseLayer):
         # Handle Ctrl+A for select all
         if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_A:
             self.select_all_annotations()
+            event.accept()
+            return
+        if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_Z:
+            self.undo()
+            event.accept()
+            return
+        if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_Y:
+            self.redo()
             event.accept()
             return
 
@@ -187,6 +236,7 @@ class AnnotableLayer(BaseLayer):
         self._paste_annotation()
 
     def delete_selected_annotations(self):
+        self._push_undo_state()
         selected_annotations = [ann for ann in self.annotations if ann.selected]
         if not selected_annotations and self.selected_annotation is not None:
             selected_annotations = [self.selected_annotation]
@@ -222,6 +272,7 @@ class AnnotableLayer(BaseLayer):
             self, "Edit Caption", "Enter caption:", current_caption
         )
         if ok:
+            self._push_undo_state()
             selected_annotation.caption = text
             self.annotationUpdated.emit(selected_annotation)
             self.update()
@@ -608,7 +659,15 @@ class AnnotableLayer(BaseLayer):
     def handle_mouse_release(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
             if self.mouse_mode == MouseMode.RECTANGLE and self.current_annotation:
-                self.finalize_annotation()
+                rect = self.current_annotation.rectangle
+                # Ignore click-only rectangle annotations (no meaningful drag).
+                if rect and (
+                    rect.width() >= self.config.drag_threshold
+                    and rect.height() >= self.config.drag_threshold
+                ):
+                    self.finalize_annotation()
+                else:
+                    self.current_annotation = None
             elif self.mouse_mode == MouseMode.POLYGON and self.current_annotation:
                 pass
             elif self.mouse_mode in [
@@ -639,6 +698,15 @@ class AnnotableLayer(BaseLayer):
 
         self.pan_start = None
         self.drag_start = None
+        if self._drag_start_snapshot is not None:
+            before = self._drag_start_snapshot
+            after = self._snapshot_annotations()
+            if str(before) != str(after):
+                self._undo_stack.append(before)
+                if len(self._undo_stack) > self._max_history:
+                    self._undo_stack.pop(0)
+                self._redo_stack.clear()
+            self._drag_start_snapshot = None
 
     def handle_mouse_move(self, event: QMouseEvent):
         # logger.info(f"Mouse move event: {event.position()} with {self.mouse_mode}")
@@ -776,6 +844,7 @@ class AnnotableLayer(BaseLayer):
 
         # If left-clicked
         if event.button() == Qt.LeftButton:
+            self._drag_start_snapshot = self._snapshot_annotations()
             if self.mouse_mode == MouseMode.DRAW:
                 import numpy as np
 
@@ -1079,6 +1148,7 @@ class AnnotableLayer(BaseLayer):
             self.update()
 
     def finalize_annotation(self):
+        self._push_undo_state()
         if self.current_label:
             # Use predefined label
             self.current_annotation.annotation_id = len(self.annotations)
@@ -1145,6 +1215,7 @@ class AnnotableLayer(BaseLayer):
     def _paste_annotation(self):
         clipboard = BaseLayer.annotation_clipboard
         if clipboard:
+            self._push_undo_state()
             pasted_annotations = []
             for copied_annotation in clipboard:
                 new_annotation = copied_annotation.copy()

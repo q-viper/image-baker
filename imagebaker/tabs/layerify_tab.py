@@ -1,4 +1,5 @@
 import os
+import hashlib
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -194,6 +195,11 @@ class LayerifyTab(QWidget):
         if added_any:
             self.update_label_combo()
 
+    def _entry_file_path(self, image_entry: ImageEntry) -> Path:
+        if image_entry.is_baked_result and isinstance(image_entry.data, AnnotableLayer):
+            return Path(image_entry.data.file_path)
+        return Path(image_entry.data)
+
     def on_image_selected(self, image_entry: ImageEntry):
         """Handle image selection from the image list panel."""
         logger.info(f"Image selected: {image_entry}")
@@ -205,31 +211,28 @@ class LayerifyTab(QWidget):
         current_label = self.layer.current_label
         current_color = self.layer.current_color
 
-        if not image_entry.is_baked_result:  # Regular image
-            image_path = image_entry.data
-            self.curr_image_idx = self.image_entries.index(image_entry)
-            # convert curr_image_idx to correct index
-            self.curr_image_idx = self.curr_image_idx % len(self.annotable_layers)
+        # Render selected entry into a deterministic visible slot to avoid
+        # page-index/modulo remapping bugs.
+        selected_layer = self.annotable_layers[0]
+        # Resolve by object identity to avoid wrong matches when equal-value
+        # entries (same path) exist in the list.
+        self.curr_image_idx = next(
+            (idx for idx, entry in enumerate(self.image_entries) if entry is image_entry),
+            -1,
+        )
+        if self.curr_image_idx < 0:
+            logger.warning("Selected image entry not found in image_entries.")
+            return
+        selected_layer.setVisible(True)
 
-            # Make the corresponding layer visible and set the image
-            selected_layer = self.annotable_layers[self.curr_image_idx]
-            selected_layer.setVisible(True)
-            # logger.info(f"Layer {self.curr_image_idx} made visible for regular image.")
-            selected_layer.set_image(image_path)  # Set the selected image
-            self.load_layer_annotations(selected_layer)
-            if self.layer:
-                selected_layer.set_mode(self.layer.mouse_mode)
-            self.layer = selected_layer  # Update the currently selected layer
+        selected_path = self._entry_file_path(image_entry)
+        selected_layer.set_image(selected_path)
+        selected_layer.file_path = selected_path
 
-        else:  # Baked result
-            baked_result_layer = image_entry.data
-            self.curr_image_idx = self.image_entries.index(image_entry)
-
-            # Make the baked result layer visible
-            baked_result_layer.setVisible(True)
-            self.load_layer_annotations(baked_result_layer)
-            # logger.info(f"Layer {self.curr_image_idx} made visible for baked result.")
-            self.layer = baked_result_layer  # Set the baked result as the current layer
+        self.load_layer_annotations(selected_layer)
+        if self.layer:
+            selected_layer.set_mode(self.layer.mouse_mode)
+        self.layer = selected_layer  # Update the currently selected layer
 
         # Set the current label and color
         self.layer.current_label = current_label
@@ -258,7 +261,7 @@ class LayerifyTab(QWidget):
         if self.image_entries:
             for i, layer in enumerate(self.annotable_layers):
                 if i < len(self.image_entries):
-                    layer.set_image(self.image_entries[i].data)
+                    layer.set_image(self._entry_file_path(self.image_entries[i]))
                     self.load_layer_annotations(layer)
                     self.sync_labels_from_annotations(layer.annotations)
                     layer.layer_name = f"Layer_{i + 1}"
@@ -289,11 +292,10 @@ class LayerifyTab(QWidget):
     ):
         """Save annotations for a specific layer"""
         file_path = layer.file_path
-        file_name = file_path.name
         if save_dir is None:
             # Save to the cache directory
             save_dir = self.config.cache_dir
-        save_dir = save_dir / f"{file_name}.json"
+        save_dir = self._cache_path_for_file(file_path, save_dir)
 
         # if there are annotations
         if len(layer.annotations) > 0:
@@ -304,6 +306,15 @@ class LayerifyTab(QWidget):
             os.remove(save_dir)
             logger.info(f"Removed empty annotation file: {save_dir}")
 
+    def _cache_path_for_file(self, file_path: Path, base_dir: Path | None = None) -> Path:
+        """Create a stable cache path for an image path using full-path identity."""
+        if base_dir is None:
+            base_dir = self.config.cache_dir
+        normalized = str(Path(file_path))
+        digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:12]
+        safe_name = Path(file_path).name
+        return base_dir / f"{safe_name}.{digest}.json"
+
     def get_all_annotations(self) -> list[Annotation]:
         for layer in self.annotable_layers:
             self.save_layer_annotations(layer)
@@ -312,16 +323,13 @@ class LayerifyTab(QWidget):
         seen_files = set()
 
         for image_entry in self.image_entries:
-            if image_entry.is_baked_result:
-                file_path = Path(image_entry.data.file_path)
-            else:
-                file_path = Path(image_entry.data)
+            file_path = self._entry_file_path(image_entry)
 
             if file_path in seen_files:
                 continue
             seen_files.add(file_path)
 
-            cache_path = self.config.cache_dir / f"{file_path.name}.json"
+            cache_path = self._cache_path_for_file(file_path)
             if cache_path.exists():
                 merged_annotations.extend(Annotation.load_from_json(cache_path))
 
@@ -334,12 +342,8 @@ class LayerifyTab(QWidget):
 
         # Persist merged annotations to cache for every image entry, not only visible layers.
         for image_entry in self.image_entries:
-            file_path = (
-                Path(image_entry.data.file_path)
-                if image_entry.is_baked_result
-                else Path(image_entry.data)
-            )
-            cache_path = self.config.cache_dir / f"{file_path.name}.json"
+            file_path = self._entry_file_path(image_entry)
+            cache_path = self._cache_path_for_file(file_path)
             file_annotations = [ann.copy() for ann in annotations_by_file.get(file_path, [])]
             for index, annotation in enumerate(file_annotations):
                 annotation.annotation_id = index
@@ -364,10 +368,9 @@ class LayerifyTab(QWidget):
         """Load annotations for a specific layer"""
         if layer.file_path:
             file_path = layer.file_path
-            file_name = file_path.name
             if load_dir is None:
                 load_dir = self.config.cache_dir
-            load_dir = load_dir / f"{file_name}.json"
+            load_dir = self._cache_path_for_file(file_path, load_dir)
             if load_dir.exists():
                 layer.annotations = Annotation.load_from_json(load_dir)
                 self.sync_labels_from_annotations(layer.annotations)
@@ -383,19 +386,22 @@ class LayerifyTab(QWidget):
     def update_active_entries(self, image_entries: list[ImageEntry]):
         """Update the active entries in the image list panel."""
         self.curr_image_idx = 0
+        page_start = self.image_list_panel.current_page * self.image_list_panel.images_per_page
         for i, layer in enumerate(self.annotable_layers):
             self.save_layer_annotations(layer)
             layer.annotations = []
 
             if i < len(image_entries):
-                # get index on the self.image_entries
-                idx = self.image_entries.index(image_entries[i])
-                if self.image_entries[idx].is_baked_result:
-                    # if the image is a baked result, set the layer to the baked result
-                    layer = self.image_entries[idx].data
-                    layer.file_path = layer.file_path
-                else:
-                    layer.set_image(self.image_entries[idx].data)
+                # Use deterministic global index for the current page instead of
+                # value-based lookup, which can point to a wrong duplicate entry.
+                idx = page_start + i
+                if idx >= len(self.image_entries):
+                    layer.setVisible(False)
+                    continue
+                entry = self.image_entries[idx]
+                entry_path = self._entry_file_path(entry)
+                layer.set_image(entry_path)
+                layer.file_path = entry_path
                 self.load_layer_annotations(layer)
 
                 layer.layer_name = f"Layer_{idx + 1}"
@@ -417,7 +423,7 @@ class LayerifyTab(QWidget):
             self.messageSignal.emit("Annotations cleared")
             # clear cache annotation of layer
             annotation_path = (
-                self.config.cache_dir / f"{self.layer.file_path.name}.json"
+                self._cache_path_for_file(self.layer.file_path)
             )
             if annotation_path.exists():
                 os.remove(annotation_path)
@@ -503,12 +509,8 @@ class LayerifyTab(QWidget):
                 layer.update()
 
         for image_entry in self.image_entries:
-            file_path = (
-                Path(image_entry.data.file_path)
-                if image_entry.is_baked_result
-                else Path(image_entry.data)
-            )
-            cache_path = self.config.cache_dir / f"{file_path.name}.json"
+            file_path = self._entry_file_path(image_entry)
+            cache_path = self._cache_path_for_file(file_path)
             if not cache_path.exists():
                 continue
 
@@ -536,12 +538,8 @@ class LayerifyTab(QWidget):
                 layer.update()
 
         for image_entry in self.image_entries:
-            file_path = (
-                Path(image_entry.data.file_path)
-                if image_entry.is_baked_result
-                else Path(image_entry.data)
-            )
-            cache_path = self.config.cache_dir / f"{file_path.name}.json"
+            file_path = self._entry_file_path(image_entry)
+            cache_path = self._cache_path_for_file(file_path)
             if not cache_path.exists():
                 continue
 
@@ -1354,61 +1352,33 @@ class LayerifyTab(QWidget):
 
     def add_baked_result(self, baking_result: BakingResult):
         """Add a baked result to the baked results list and update the image list."""
-        # Create a new layer for the baked result
-        self.layer.setVisible(False)  # Hide the current layer
-        layer = AnnotableLayer(
-            parent=self.main_window,
-            config=self.config,
-            canvas_config=self.canvas_config,
-        )
-        # save it in cache
-        filename = baking_result.filename
-        filepath = self.config.bake_dir / filename.name
-        baking_result.image.save(str(filepath))
-        #
-        Annotation.save_as_json(
-            baking_result.annotations, self.config.cache_dir / f"{filename.name}.json"
-        )
+        try:
+            self.layer.setVisible(False)  # Hide the current layer
+            filename = Path(baking_result.filename)
+            filepath = self.config.bake_dir / filename.name
+            baking_result.image.save(str(filepath))
+            Annotation.save_as_json(
+                baking_result.annotations, self._cache_path_for_file(filepath)
+            )
+            self.sync_labels_from_annotations(
+                [annotation.copy() for annotation in baking_result.annotations]
+            )
 
-        layer.set_image(filepath)
-        layer.annotations = [annotation.copy() for annotation in baking_result.annotations]
-        self.sync_labels_from_annotations(layer.annotations)
+            baked_result_entry = ImageEntry(is_baked_result=True, data=filepath)
+            self.image_entries.append(baked_result_entry)
 
-        layer.annotationAdded.connect(self.on_annotation_added)
-        layer.annotationUpdated.connect(self.on_annotation_updated)
-        layer.annotationRemoved.connect(self.on_annotation_removed)
-        layer.modeChanged.connect(lambda _mode, self=self: self.sync_mode_buttons())
-        layer.labelUpdated.connect(self.on_label_update)
-        layer.messageSignal.connect(self.messageSignal)
-        layer.layerSignal.connect(self.add_layer)
+            logger.info("A baked result has arrived, adding it to the image list.")
+            page_index = (len(self.image_entries) - 1) // self.config.deque_maxlen
+            self.image_list_panel.image_entries = self.image_entries
+            self.image_list_panel.current_page = page_index
+            self.image_list_panel.update_image_list(self.image_entries)
+            self.image_list_panel.imageSelected.emit(baked_result_entry)
 
-        layer.set_image(baking_result.image)  # Set the baked result's image
-        layer.setVisible(True)  # Hide the layer initially
-        self.main_layout.addWidget(layer)  # Add the layer to the layout
-
-        # Add the baked result layer to annotable_layers for proper visibility management
-        self.annotable_layers.append(layer)
-
-        # Add baked result to image_entries
-        baked_result_entry = ImageEntry(is_baked_result=True, data=layer)
-        self.image_entries.append(baked_result_entry)
-        # baking_result.image.save(str(baking_result.filename))
-        layer.update()
-
-        logger.info("A baked result has arrived, adding it to the image list.")
-
-        # Update the image list panel
-        # find the page index where this layer is
-        page_index = (
-            self.image_entries.index(baked_result_entry) // self.config.deque_maxlen
-        )
-        # set the current page to the page index
-        self.image_list_panel.current_page = page_index
-        self.image_list_panel.update_image_list(self.image_entries)
-        self.image_list_panel.imageSelected.emit(baked_result_entry)
-
-        self.messageSignal.emit("Baked result added")
-        self.gotToTab.emit(0)
+            self.messageSignal.emit("Baked result added")
+            self.gotToTab.emit(0)
+        except Exception as e:
+            logger.exception(f"Failed to add baked result: {e}")
+            self.messageSignal.emit(f"Failed to add baked result: {e}")
 
     def keyPressEvent(self, event):
         """Handle key press events for setting labels and deleting annotations."""
@@ -1417,6 +1387,16 @@ class LayerifyTab(QWidget):
         # Debugging: Log the key press
         logger.info(f"Key pressed in LayerifyTab: {key}")
         if event.modifiers() == Qt.ControlModifier:
+            if key == Qt.Key_Z:
+                self.layer.undo()
+                self.annotation_list.update_list()
+                event.accept()
+                return
+            if key == Qt.Key_Y:
+                self.layer.redo()
+                self.annotation_list.update_list()
+                event.accept()
+                return
             if key == Qt.Key_A:
                 self.layer.select_all_annotations()
                 self.annotation_list.update_list()
