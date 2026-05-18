@@ -1,4 +1,5 @@
 import math
+import random
 from datetime import datetime
 
 import cv2
@@ -34,7 +35,10 @@ from imagebaker import logger
 from imagebaker.core.configs import CanvasConfig, CursorDef
 from imagebaker.core.defs import Annotation, BakingResult, DrawingState, MouseMode
 from imagebaker.layers.base_layer import BaseLayer
+from imagebaker.plugins.base_plugin import BasePlugin
+from imagebaker.plugins.runtime import apply_pixel_plugins
 from imagebaker.utils.image import draw_annotations, qpixmap_to_numpy
+from imagebaker.utils.state_utils import calculate_intermediate_states
 from imagebaker.workers import BakerWorker
 
 
@@ -57,9 +61,341 @@ class CanvasLayer(BaseLayer):
         super().__init__(parent, config)
         self.is_annotable = False
         self.last_pan_point = None
-        self.state_thumbnail = dict()
+        self.state_thumbnail = {}
 
         self._last_draw_point = None  # Track the last point for smooth drawing
+        self._undo_stack = []
+        self._redo_stack = []
+        self._max_history = 100
+        self._interaction_undo_pushed = False
+        self._plugin_render_cache = {}
+        self._current_step_index = 0
+
+    def _snapshot_layers(self):
+        snapshot_layers = []
+        selected_indices = []
+        for idx, layer in enumerate(self.layers):
+            layer_copy = layer.copy()
+            layer_copy.selected = layer.selected
+            if layer.selected:
+                selected_indices.append(idx)
+            snapshot_layers.append(layer_copy)
+        return {
+            "layers": snapshot_layers,
+            "selected_indices": selected_indices,
+        }
+
+    def _restore_layers(self, snapshot):
+        restored_layers = [layer.copy() for layer in snapshot.get("layers", [])]
+        selected_indices = set(snapshot.get("selected_indices", []))
+        for idx, layer in enumerate(restored_layers):
+            layer.selected = idx in selected_indices
+        self.layers = restored_layers
+        self._plugin_render_cache.clear()
+        self.selected_layer = self._get_selected_layer()
+        self._update_back_buffer()
+        self.layersChanged.emit()
+        if self.selected_layer is not None:
+            self.layerSelected.emit(self.selected_layer)
+        self.update()
+
+    def push_undo_state(self):
+        """Capture current canvas layers for undo."""
+        self._undo_stack.append(self._snapshot_layers())
+        if len(self._undo_stack) > self._max_history:
+            self._undo_stack.pop(0)
+        self._redo_stack.clear()
+
+    def undo(self):
+        """Undo the last canvas edit operation."""
+        if not self._undo_stack:
+            self.messageSignal.emit("Nothing to undo.")
+            return False
+        self._redo_stack.append(self._snapshot_layers())
+        snapshot = self._undo_stack.pop()
+        self._restore_layers(snapshot)
+        self.messageSignal.emit("Undo applied.")
+        return True
+
+    def redo(self):
+        """Redo the last undone canvas edit operation."""
+        if not self._redo_stack:
+            self.messageSignal.emit("Nothing to redo.")
+            return False
+        self._undo_stack.append(self._snapshot_layers())
+        snapshot = self._redo_stack.pop()
+        self._restore_layers(snapshot)
+        self.messageSignal.emit("Redo applied.")
+        return True
+
+    def _apply_plugins_to_state(
+        self,
+        layer: BaseLayer,
+        state,
+        step: int,
+        total_steps: int,
+    ):
+        plugins = getattr(layer, "plugins", [])
+        if not plugins:
+            return state
+
+        for plugin in plugins:
+            if not getattr(plugin, "enabled", True):
+                continue
+            try:
+                updated_state = plugin.update(
+                    state=state,
+                    step=step,
+                    total_steps=total_steps,
+                    layer=layer,
+                    canvas=self,
+                )
+                if updated_state is not None:
+                    state = updated_state
+            except Exception as error:
+                logger.error(
+                    f"Plugin '{getattr(plugin, 'name', type(plugin).__name__)}' failed: {error}"
+                )
+        return state
+
+    def _build_states_for_step(self, step: int, total_steps: int):
+        built_states = []
+        for order, layer in enumerate(self.layers):
+            state = layer.layer_state.copy()
+            state.order = order
+            state.selected = False
+            state.caption = layer.caption
+            state.drawing_states = [
+                DrawingState(position=d.position, color=d.color, size=d.size)
+                for d in layer.layer_state.drawing_states
+            ]
+            state = self._apply_plugins_to_state(layer, state, step, total_steps)
+            built_states.append(state)
+        return built_states
+
+    def _plugin_cache_key(self, layer: BaseLayer, step: int, total_steps: int):
+        def _plugin_desc(plugin):
+            describe_fn = getattr(plugin, "describe", None)
+            if callable(describe_fn):
+                return describe_fn()
+            return str(plugin)
+
+        plugin_signature = tuple(
+            (
+                type(plugin).__name__,
+                getattr(plugin, "enabled", True),
+                _plugin_desc(plugin),
+            )
+            for plugin in getattr(layer, "plugins", [])
+        )
+        return (
+            layer.layer_id,
+            int(step),
+            int(total_steps),
+            int(layer.image.cacheKey()) if not layer.image.isNull() else 0,
+            plugin_signature,
+        )
+
+    def _state_step_index(self, step_key: int):
+        if not self.states:
+            return 0
+        ordered_steps = self._ordered_state_steps()
+        try:
+            return ordered_steps.index(step_key)
+        except ValueError:
+            return 0
+
+    def _ordered_state_steps(self) -> list[int]:
+        if not self.states:
+            return []
+        return sorted(self.states.keys())
+
+    def _step_key_for_index(self, step_index: int) -> int | None:
+        ordered_steps = self._ordered_state_steps()
+        if not ordered_steps:
+            return None
+        idx = max(0, min(len(ordered_steps) - 1, int(step_index)))
+        return ordered_steps[idx]
+
+    def _get_layer_render_pixmap(self, layer: BaseLayer, step: int, total_steps: int):
+        if not getattr(layer, "plugins", []):
+            return layer.image
+
+        key = self._plugin_cache_key(layer, step, total_steps)
+        cached = self._plugin_render_cache.get(key)
+        if cached is not None:
+            return cached
+
+        rendered = apply_pixel_plugins(
+            layer=layer,
+            step=step,
+            total_steps=total_steps,
+            canvas=self,
+        )
+        self._plugin_render_cache[key] = rendered
+        if len(self._plugin_render_cache) > 256:
+            self._plugin_render_cache.pop(next(iter(self._plugin_render_cache)))
+        return rendered
+
+    def save_current_state(self, steps: int = 1):
+        """Save current state and apply plugins for each generated step."""
+        curr_states = {}
+        mode = self.mouse_mode
+        total_steps = max(1, int(steps))
+        start_step = (max(self.states.keys()) + 1) if self.states else 0
+
+        for layer in self.layers:
+            intermediate_states = calculate_intermediate_states(
+                layer.previous_state, layer.layer_state.copy(), total_steps
+            )
+            is_selected = layer.selected
+
+            for local_step, state in enumerate(intermediate_states):
+                state_step = start_step + local_step
+                state.selected = False
+                state.drawing_states = [
+                    DrawingState(position=d.position, color=d.color, size=d.size)
+                    for d in layer.layer_state.drawing_states
+                ]
+                state = self._apply_plugins_to_state(
+                    layer, state, local_step, total_steps
+                )
+                if state_step not in curr_states:
+                    curr_states[state_step] = []
+                curr_states[state_step].append(state)
+
+            layer.previous_state = layer.layer_state.copy()
+            layer.selected = is_selected
+
+        for state_step, states in sorted(curr_states.items()):
+            self.states[state_step] = states
+            self.current_step = state_step
+
+        self._current_step_index = self._state_step_index(self.current_step)
+        self._plugin_render_cache.clear()
+        self.previous_state = self.layer_state.copy()
+        self.layer_state.drawing_states = [
+            DrawingState(position=d.position, color=d.color, size=d.size)
+            for d in self.layer_state.drawing_states
+        ]
+        self.messageSignal.emit(f"Saved state {self.current_step}")
+        self.mouse_mode = mode
+        self.update()
+
+    def add_plugins_to_selected_layers(self, plugins: list[BasePlugin]) -> tuple[int, int]:
+        """Attach plugin instances to each selected layer."""
+        selected_layers = self._get_selected_layers()
+        if not selected_layers:
+            self.messageSignal.emit("Select at least one layer to add a plugin.")
+            return 0, 0
+        if not plugins:
+            self.messageSignal.emit("No plugins selected.")
+            return 0, 0
+
+        self.push_undo_state()
+        added = 0
+        skipped = 0
+        for layer in selected_layers:
+            layer_plugins = getattr(layer, "plugins", [])
+            for plugin in plugins:
+                if any(type(existing) is type(plugin) for existing in layer_plugins):
+                    skipped += 1
+                    continue
+                layer_plugins.append(plugin.copy())
+                added += 1
+            layer.plugins = layer_plugins
+
+        self._plugin_render_cache.clear()
+        self.layersChanged.emit()
+        self.update()
+        plugin_names = ", ".join(plugin.name for plugin in plugins)
+        self.messageSignal.emit(
+            f"Added plugin(s) [{plugin_names}] {added} time(s)."
+            + (f" Skipped {skipped} duplicate attachment(s)." if skipped else "")
+        )
+        return added, skipped
+
+    def add_plugin_to_selected_layers(self, plugin: BasePlugin) -> tuple[int, int]:
+        """Backward-compatible wrapper for single-plugin add."""
+        return self.add_plugins_to_selected_layers([plugin])
+
+    def set_plugins_for_selected_layers(
+        self, plugin_classes: list[type[BasePlugin]]
+    ) -> tuple[int, int]:
+        """Set selected layers' plugins to exactly the provided plugin classes."""
+        selected_layers = self._get_selected_layers()
+        if not selected_layers:
+            self.messageSignal.emit("Select at least one layer to configure plugins.")
+            return 0, 0
+
+        desired = tuple(plugin_classes)
+        updates = []
+        failed = 0
+
+        for layer in selected_layers:
+            current_plugins = getattr(layer, "plugins", [])
+            current_map = {type(plugin): plugin for plugin in current_plugins}
+            current_types = tuple(type(plugin) for plugin in current_plugins)
+            if current_types == desired:
+                continue
+
+            new_plugins = []
+            for plugin_class in desired:
+                existing = current_map.get(plugin_class)
+                if existing is not None:
+                    existing.enabled = True
+                    new_plugins.append(existing)
+                    continue
+                try:
+                    new_plugins.append(plugin_class())
+                except Exception as error:
+                    logger.error(
+                        f"Failed to instantiate plugin '{plugin_class.__name__}': {error}"
+                    )
+                    failed += 1
+            updates.append((layer, new_plugins))
+
+        if not updates and failed == 0:
+            return 0, 0
+
+        self.push_undo_state()
+        for layer, new_plugins in updates:
+            layer.plugins = new_plugins
+
+        changed_layers = len(updates)
+        self._plugin_render_cache.clear()
+        self.layersChanged.emit()
+        self.update()
+        self.messageSignal.emit(
+            f"Updated plugins on {changed_layers} selected layer(s)."
+            + (f" Failed {failed} plugin instantiation(s)." if failed else "")
+        )
+        return changed_layers, failed
+
+    def clear_plugins_from_selected_layers(self) -> int:
+        """Remove all plugins from selected layers."""
+        selected_layers = self._get_selected_layers()
+        if not selected_layers:
+            self.messageSignal.emit("Select at least one layer to remove plugins.")
+            return 0
+
+        removed = 0
+        for layer in selected_layers:
+            removed += len(getattr(layer, "plugins", []))
+
+        if removed == 0:
+            self.messageSignal.emit("Selected layers do not have plugins.")
+            return 0
+
+        self.push_undo_state()
+        for layer in selected_layers:
+            layer.plugins = []
+
+        self._plugin_render_cache.clear()
+        self.layersChanged.emit()
+        self.update()
+        self.messageSignal.emit(f"Removed {removed} plugin instance(s).")
+        return removed
 
     def init_ui(self):
         """
@@ -150,6 +486,22 @@ class CanvasLayer(BaseLayer):
             event.accept()
             return  # Important: return after handling
 
+        # Handle Ctrl+Z / Ctrl+Y
+        if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_Z:
+            self.undo()
+            event.accept()
+            return
+        if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_Y:
+            self.redo()
+            event.accept()
+            return
+
+        # Handle Ctrl+G
+        if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_G:
+            self.group_selected_layers()
+            event.accept()
+            return
+
         if event.modifiers() == Qt.ControlModifier and event.key() == Qt.Key_S:
             self.save_current_state(steps=1)
             self.messageSignal.emit("Current state saved.")
@@ -175,6 +527,7 @@ class CanvasLayer(BaseLayer):
         if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_H:
             selected_layer = self._get_selected_layer()
             if selected_layer:
+                self.push_undo_state()
                 selected_layer.visible = not selected_layer.visible
                 selected_layer.update()
                 self.layersChanged.emit()
@@ -205,8 +558,13 @@ class CanvasLayer(BaseLayer):
         """
         painter.translate(self.pan_offset)
         painter.scale(self.scale, self.scale)
+        total_steps = max(1, len(self.states)) if self.states else 1
+        render_step = self._current_step_index if self.states else 0
         for layer in self.layers:
             if layer.visible and not layer.image.isNull():
+                render_pixmap = self._get_layer_render_pixmap(
+                    layer=layer, step=render_step, total_steps=total_steps
+                )
                 painter.save()
                 painter.translate(layer.position)
                 painter.rotate(layer.rotation)
@@ -215,14 +573,14 @@ class CanvasLayer(BaseLayer):
                 # painter.drawPixmap(0, 0, layer.image)
                 # painter.setOpacity(layer.opacity / 255)
                 # Create a new pixmap with adjusted opacity
-                pixmap_with_alpha = QPixmap(layer.image.size())
+                pixmap_with_alpha = QPixmap(render_pixmap.size())
                 pixmap_with_alpha.fill(Qt.transparent)  # Ensure transparency
 
                 # Use QPainter to apply opacity to the pixmap
                 temp_painter = QPainter(pixmap_with_alpha)
                 opacity = layer.opacity / 255.0
                 temp_painter.setOpacity(opacity)  # Scale opacity to 0.0-1.0
-                temp_painter.drawPixmap(0, 0, layer.image)
+                temp_painter.drawPixmap(0, 0, render_pixmap)
 
                 temp_painter.end()
 
@@ -292,7 +650,14 @@ class CanvasLayer(BaseLayer):
                 painter.drawPoint(state.position)
 
             painter.restore()
-        painter.end()
+
+    def _grid_view_transform(self) -> tuple[QPointF, float]:
+        """Use canvas pan + zoom so grid scales and moves with the page view."""
+        anchor = (
+            self.pan_offset if isinstance(self.pan_offset, QPointF) else QPointF(0, 0)
+        )
+        zoom = float(self.scale) if self.scale else 1.0
+        return anchor, max(0.01, zoom)
 
     def _draw_transform_handles(self, painter, layer):
         """
@@ -492,6 +857,7 @@ class CanvasLayer(BaseLayer):
         if event.button() == Qt.LeftButton:
             self._active_handle = None
             self._dragging_layer = None
+            self._interaction_undo_pushed = False
 
             # Reset drawing state
             if self.mouse_mode in [MouseMode.DRAW, MouseMode.ERASE]:
@@ -530,6 +896,9 @@ class CanvasLayer(BaseLayer):
         if self._active_handle:
             handle_type, layer = self._active_handle
             start = self._drag_start
+            if not self._interaction_undo_pushed:
+                self.push_undo_state()
+                self._interaction_undo_pushed = True
             if "rotate" in handle_type:
                 start = self._drag_start
                 center = start["center"]
@@ -631,6 +1000,9 @@ class CanvasLayer(BaseLayer):
                 self.layersChanged.emit()
             self.update()
         elif self._dragging_layer:
+            if not self._interaction_undo_pushed:
+                self.push_undo_state()
+                self._interaction_undo_pushed = True
             self._dragging_layer.position = pos - self._drag_offset
             self._dragging_layer.selected = True
             self._dragging_layer.update()
@@ -645,15 +1017,39 @@ class CanvasLayer(BaseLayer):
     def handle_mouse_press(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
             pos = (event.position() - self.pan_offset) / self.scale
+            self._interaction_undo_pushed = False
             if self.mouse_mode in [MouseMode.DRAW, MouseMode.ERASE]:
+                if self._get_selected_layer() is not None:
+                    self.push_undo_state()
                 logger.info(f"Drawing mode: {self.mouse_mode} at position: {pos}")
                 # Add a drawing state immediately on mouse press
                 self._last_draw_point = pos
                 self._add_drawing_state(pos)  # Add the drawing state here
                 return
             if event.modifiers() & Qt.ControlModifier:
-                self.mouse_mode = MouseMode.PAN
-                self.last_pan_point = event.position()
+                clicked_layer = None
+                for layer in reversed(self.layers):
+                    if not layer.visible:
+                        continue
+                    transform = QTransform()
+                    transform.translate(layer.position.x(), layer.position.y())
+                    transform.rotate(layer.rotation)
+                    transform.scale(layer.scale_x, layer.scale_y)
+                    rect = transform.mapRect(QRectF(QPointF(0, 0), layer.original_size))
+                    if rect.contains(pos):
+                        clicked_layer = layer
+                        break
+
+                if clicked_layer is not None:
+                    clicked_layer.selected = not clicked_layer.selected
+                    self.selected_layer = (
+                        clicked_layer if clicked_layer.selected else self._get_selected_layer()
+                    )
+                    self.layersChanged.emit()
+                    self.update()
+                else:
+                    self.mouse_mode = MouseMode.PAN
+                    self.last_pan_point = event.position()
                 return
             # Check handles first
             for layer in reversed(self.layers):
@@ -783,19 +1179,303 @@ class CanvasLayer(BaseLayer):
                 return layer
         return None
 
-    def add_layer(self, layer: BaseLayer, index=-1):
+    def _get_selected_layers(self) -> list[BaseLayer]:
+        return [layer for layer in self.layers if layer.selected]
+
+    @staticmethod
+    def _compose_layer_transform(layer: BaseLayer) -> QTransform:
+        transform = QTransform()
+        transform.translate(layer.position.x(), layer.position.y())
+        transform.rotate(layer.rotation)
+        transform.scale(layer.scale_x, layer.scale_y)
+        return transform
+
+    @staticmethod
+    def _decompose_transform(transform: QTransform) -> tuple[QPointF, float, float, float]:
+        m11 = transform.m11()
+        m12 = transform.m12()
+        m21 = transform.m21()
+        m22 = transform.m22()
+
+        scale_x = math.hypot(m11, m12)
+        scale_y = math.hypot(m21, m22)
+
+        # Avoid zero scales while keeping transform stable.
+        scale_x = max(0.001, scale_x)
+        scale_y = max(0.001, scale_y)
+        rotation = math.degrees(math.atan2(m12, m11))
+        position = QPointF(transform.dx(), transform.dy())
+        return position, rotation, scale_x, scale_y
+
+    @staticmethod
+    def _is_group_layer(layer: BaseLayer) -> bool:
+        return len(layer.layers) >= 2
+
+    @staticmethod
+    def _map_annotation_to_group(
+        annotation: Annotation, layer_transform: QTransform
+    ) -> Annotation:
+        mapped = annotation.copy()
+        if mapped.rectangle:
+            mapped.rectangle = layer_transform.mapRect(mapped.rectangle)
+        if mapped.polygon:
+            mapped.polygon = layer_transform.map(mapped.polygon)
+        if mapped.points:
+            mapped.points = [layer_transform.map(point) for point in mapped.points]
+        return mapped
+
+    def group_selected_layers(self) -> bool:
+        """
+        Group exactly two selected layers, or ungroup one selected grouped layer.
+        Returns:
+            bool: True when grouping was applied, otherwise False.
+        """
+        selected_layers = self._get_selected_layers()
+        if len(selected_layers) == 1 and self._is_group_layer(selected_layers[0]):
+            return self._ungroup_layer(selected_layers[0])
+
+        if len(selected_layers) != 2:
+            self.messageSignal.emit("Select exactly 2 layers to group.")
+            return False
+
+        indices = sorted(self.layers.index(layer) for layer in selected_layers)
+        ordered_layers = [self.layers[idx] for idx in indices]
+
+        union_rect = None
+        transformed_rects: list[QRectF] = []
+        for layer in ordered_layers:
+            if layer.image.isNull():
+                self.messageSignal.emit("Cannot group layers with empty images.")
+                return False
+
+            layer_transform = self._compose_layer_transform(layer)
+            transformed_rect = layer_transform.mapRect(
+                QRectF(QPointF(0, 0), layer.original_size)
+            )
+            transformed_rects.append(transformed_rect)
+            union_rect = (
+                transformed_rect
+                if union_rect is None
+                else union_rect.united(transformed_rect)
+            )
+
+        if union_rect is None or union_rect.width() <= 0 or union_rect.height() <= 0:
+            self.messageSignal.emit("Unable to group selected layers.")
+            return False
+
+        self.push_undo_state()
+        group_width = max(1, int(math.ceil(union_rect.width())))
+        group_height = max(1, int(math.ceil(union_rect.height())))
+
+        composed = QPixmap(group_width, group_height)
+        composed.fill(Qt.transparent)
+
+        composed_painter = QPainter(composed)
+        composed_painter.setRenderHints(
+            QPainter.Antialiasing | QPainter.SmoothPixmapTransform
+        )
+        try:
+            for layer in ordered_layers:
+                layer_local_transform = QTransform()
+                layer_local_transform.translate(
+                    layer.position.x() - union_rect.left(),
+                    layer.position.y() - union_rect.top(),
+                )
+                layer_local_transform.rotate(layer.rotation)
+                layer_local_transform.scale(layer.scale_x, layer.scale_y)
+
+                composed_painter.save()
+                composed_painter.setTransform(layer_local_transform, combine=False)
+                composed_painter.setOpacity(max(0.0, min(1.0, layer.opacity / 255.0)))
+                composed_painter.drawPixmap(0, 0, layer.image)
+
+                for state in layer.layer_state.drawing_states:
+                    composed_painter.setPen(
+                        QPen(
+                            state.color,
+                            state.size,
+                            Qt.SolidLine,
+                            Qt.RoundCap,
+                            Qt.RoundJoin,
+                        )
+                    )
+                    composed_painter.drawPoint(state.position)
+                composed_painter.restore()
+        finally:
+            composed_painter.end()
+
+        grouped_layer = ordered_layers[-1].copy()
+        grouped_layer.set_image(composed)
+        grouped_layer.position = QPointF(union_rect.left(), union_rect.top())
+        grouped_layer.rotation = 0.0
+        grouped_layer.scale_x = 1.0
+        grouped_layer.scale_y = 1.0
+        grouped_layer.opacity = 255
+        grouped_layer.visible = True
+        grouped_layer.selected = True
+        grouped_layer.allow_annotation_export = any(
+            layer.allow_annotation_export for layer in ordered_layers
+        )
+        grouped_layer.layer_name = (
+            f"Group({ordered_layers[0].layer_name}, {ordered_layers[1].layer_name})"
+        )
+        grouped_layer.caption = (
+            f"Grouped: {ordered_layers[0].layer_name}, {ordered_layers[1].layer_name}"
+        )
+        grouped_layer.layers = []
+        grouped_layer.plugins = []
+
+        merged_annotations: list[Annotation] = []
+        for layer in ordered_layers:
+            child_copy = layer.copy()
+            child_copy.selected = False
+            child_copy.position = child_copy.position - QPointF(
+                union_rect.left(), union_rect.top()
+            )
+            grouped_layer.layers.append(child_copy)
+            grouped_layer.plugins.extend(
+                [
+                    plugin.copy() if hasattr(plugin, "copy") else plugin
+                    for plugin in getattr(layer, "plugins", [])
+                ]
+            )
+
+            annotation_transform = QTransform()
+            annotation_transform.translate(
+                layer.position.x() - union_rect.left(),
+                layer.position.y() - union_rect.top(),
+            )
+            annotation_transform.rotate(layer.rotation)
+            annotation_transform.scale(layer.scale_x, layer.scale_y)
+            for annotation in layer.annotations:
+                mapped = self._map_annotation_to_group(annotation, annotation_transform)
+                mapped.selected = False
+                mapped.file_path = grouped_layer.file_path
+                merged_annotations.append(mapped)
+
+        if not merged_annotations:
+            merged_annotations = [
+                Annotation(annotation_id=0, label="Grouped", color=QColor(255, 255, 255))
+            ]
+
+        for idx, annotation in enumerate(merged_annotations):
+            annotation.annotation_id = idx
+        grouped_layer.annotations = merged_annotations
+
+        for layer in self.layers:
+            layer.selected = False
+        insert_index = indices[-1]
+        for idx in reversed(indices):
+            del self.layers[idx]
+            if idx < insert_index:
+                insert_index -= 1
+        self.layers.insert(insert_index, grouped_layer)
+
+        for order, layer in enumerate(self.layers):
+            layer.order = order
+
+        self.selected_layer = grouped_layer
+        self._update_back_buffer()
+        self.layersChanged.emit()
+        self.layerSelected.emit(grouped_layer)
+        self.update()
+        self.messageSignal.emit(
+            f"Grouped layers: {ordered_layers[0].layer_name} + {ordered_layers[1].layer_name}"
+        )
+        return True
+
+    def _ungroup_layer(self, grouped_layer: BaseLayer) -> bool:
+        """Ungroup a previously grouped layer back into child layers."""
+        if not self._is_group_layer(grouped_layer):
+            self.messageSignal.emit("Select a grouped layer to ungroup.")
+            return False
+
+        if grouped_layer not in self.layers:
+            self.messageSignal.emit("Grouped layer not found in canvas.")
+            return False
+        self.push_undo_state()
+
+        group_index = self.layers.index(grouped_layer)
+        group_transform = self._compose_layer_transform(grouped_layer)
+        restored_layers: list[BaseLayer] = []
+        for child_relative in grouped_layer.layers:
+            child = child_relative.copy()
+            child_local_transform = self._compose_layer_transform(child)
+            child_world_transform = group_transform * child_local_transform
+
+            position, rotation, scale_x, scale_y = self._decompose_transform(
+                child_world_transform
+            )
+            child.position = position
+            child.rotation = rotation
+            child.scale_x = scale_x
+            child.scale_y = scale_y
+            child.opacity = int(round((child.opacity * grouped_layer.opacity) / 255.0))
+            child.visible = grouped_layer.visible and child.visible
+            child.selected = False
+            restored_layers.append(child)
+
+        del self.layers[group_index]
+        for offset, child in enumerate(restored_layers):
+            self.layers.insert(group_index + offset, child)
+
+        for layer in self.layers:
+            layer.selected = False
+        if restored_layers:
+            restored_layers[0].selected = True
+            self.selected_layer = restored_layers[0]
+        else:
+            self.selected_layer = None
+
+        for order, layer in enumerate(self.layers):
+            layer.order = order
+
+        self._update_back_buffer()
+        self.layersChanged.emit()
+        if self.selected_layer is not None:
+            self.layerSelected.emit(self.selected_layer)
+        self.update()
+        self.messageSignal.emit(f"Ungrouped layer: {grouped_layer.layer_name}")
+        return True
+
+    def _center_layer_in_view(self, layer: BaseLayer):
+        """Center a layer in the current canvas viewport."""
+        if layer.image.isNull():
+            return
+
+        view_center = QPointF(self.width() / 2.0, self.height() / 2.0)
+        world_center = (
+            (view_center - self.pan_offset) / self.scale
+            if self.scale != 0
+            else view_center
+        )
+        half_width = (layer.image.width() * layer.scale_x) / 2.0
+        half_height = (layer.image.height() * layer.scale_y) / 2.0
+        layer.position = QPointF(world_center.x() - half_width, world_center.y() - half_height)
+
+    def add_layer(
+        self, layer: BaseLayer, index=-1, center=False, on_top=False, track_undo=True
+    ):
         """
         This function adds a new layer to the canvas layer.
 
         Args:
             layer (BaseLayer): The layer to add.
             index (int, optional): The index at which to add the layer. Defaults to -1.
+            center (bool, optional): Whether to center the layer in current view.
+            on_top (bool, optional): Whether to place the layer on top of the stack.
 
         Raises:
             ValueError: If the layer is not a BaseLayer instance
         """
+        if track_undo:
+            self.push_undo_state()
+
+        if center:
+            self._center_layer_in_view(layer)
+
         layer.layer_name = f"{len(self.layers) + 1}_" + layer.layer_name
-        if index >= 0:
+        if on_top or index >= 0:
             self.layers.append(layer)
         else:
             self.layers.insert(0, layer)
@@ -808,6 +1488,8 @@ class CanvasLayer(BaseLayer):
         """
         Clear all layers from the canvas layer.
         """
+        if self.layers:
+            self.push_undo_state()
         self.layers.clear()
         self._update_back_buffer()
         self.update()
@@ -831,7 +1513,7 @@ class CanvasLayer(BaseLayer):
         if self.copied_layer:
             new_layer = self.copied_layer.copy()
             new_layer.position += QPointF(10, 10)
-            self.add_layer(new_layer, index=0)
+            self.add_layer(new_layer, on_top=True)
             self.update()
             self.layerSelected.emit(new_layer)
             self.messageSignal.emit(f"Pasted layer {new_layer.layer_name}.")
@@ -841,6 +1523,7 @@ class CanvasLayer(BaseLayer):
     def _delete_layer(self):
         self.selected_layer = self._get_selected_layer()
         if self.selected_layer:
+            self.push_undo_state()
             self.layers = [
                 layer for layer in self.layers if layer is not self.selected_layer
             ]
@@ -854,6 +1537,7 @@ class CanvasLayer(BaseLayer):
         selected_layer = self._get_selected_layer()
         if not selected_layer:
             return
+        self.push_undo_state()
 
         index = self.layers.index(selected_layer)
         if index > 0:
@@ -871,6 +1555,7 @@ class CanvasLayer(BaseLayer):
         selected_layer = self._get_selected_layer()
         if not selected_layer:
             return
+        self.push_undo_state()
 
         index = self.layers.index(selected_layer)
         if index < len(self.layers) - 1:
@@ -910,7 +1595,7 @@ class CanvasLayer(BaseLayer):
         )
         filename = self.config.export_folder / f"{filename}.png"
         logger.info(f"Exporting baked image to {filename}")
-        self.states = {0: [layer.layer_state for layer in self.layers]}
+        self.states = {0: self._build_states_for_step(step=0, total_steps=1)}
         logger.debug(f"Exporting states: {self.states}")
 
         self.loading_dialog = QProgressDialog(
@@ -968,13 +1653,23 @@ class CanvasLayer(BaseLayer):
         self.export_current_state(export_to_annotation_tab=True)
 
     def seek_state(self, step):
-        """Seek to a specific state using the timeline slider."""
-        self.messageSignal.emit(f"Seeking to step {step}")
-        logger.info(f"Seeking to step {step}")
+        """Seek to a specific state key or timeline index."""
+        if not self.states:
+            return
+
+        requested = int(step)
+        step_key = requested if requested in self.states else self._step_key_for_index(requested)
+        if step_key is None:
+            return
+
+        self.messageSignal.emit(f"Seeking to step {step_key}")
+        logger.info(f"Seeking to step {step_key}")
+        self.current_step = step_key
+        self._current_step_index = self._state_step_index(step_key)
 
         # Get the states for the selected step
-        if step in self.states:
-            states = self.states[step]
+        if step_key in self.states:
+            states = self.states[step_key]
             for state in states:
                 layer = self.get_layer(state.layer_id)
                 if layer:
@@ -1006,9 +1701,11 @@ class CanvasLayer(BaseLayer):
         ):  # Ensure states are played in order
             self.messageSignal.emit(f"Playing step {step}")
             logger.info(f"Playing step {step}")
+            self.current_step = step
+            self._current_step_index = self._state_step_index(step)
 
             # Update the slider position
-            self.parentWidget().timeline_slider.setValue(step)
+            self.parentWidget().timeline_slider.setValue(self._current_step_index)
             # Clear the current drawing states
 
             for state in states:
@@ -1042,13 +1739,58 @@ class CanvasLayer(BaseLayer):
         logger.info("Finished playing states")
         self.messageSignal.emit("Finished playing states")
 
+    def randomize_states(self, num_states: int):
+        """Create randomized states for all layers."""
+        if not self.layers:
+            self.messageSignal.emit("No layers available to randomize.")
+            return
+
+        num_states = max(1, int(num_states))
+        self.states.clear()
+
+        canvas_width = max(1, self.width())
+        canvas_height = max(1, self.height())
+
+        for step in range(num_states):
+            randomized_states = []
+            for order, layer in enumerate(self.layers):
+                state = layer.layer_state.copy()
+
+                state.scale_x = random.uniform(0.5, 1.5)
+                state.scale_y = random.uniform(0.5, 1.5)
+                max_x = max(0.0, canvas_width - (layer.image.width() * state.scale_x))
+                max_y = max(0.0, canvas_height - (layer.image.height() * state.scale_y))
+                state.position = QPointF(
+                    random.uniform(0.0, max_x),
+                    random.uniform(0.0, max_y),
+                )
+                state.rotation = random.uniform(0.0, 360.0)
+                state.opacity = random.randint(128, 255)
+                state.order = order
+                state.selected = False
+                state.caption = layer.caption
+                state.drawing_states = [
+                    DrawingState(position=d.position, color=d.color, size=d.size)
+                    for d in layer.layer_state.drawing_states
+                ]
+                state = self._apply_plugins_to_state(layer, state, step, num_states)
+
+                randomized_states.append(state)
+
+            self.states[step] = randomized_states
+
+        self.current_step = num_states - 1
+        self.seek_state(0)
+        self.update()
+        self.messageSignal.emit(f"Randomized {num_states} state(s).")
+
     def export_baked_states(self, export_to_annotation_tab=False):
         """Export all the states stored in self.states."""
         if len(self.states) == 0:
             msg = "No states to export. Creating a single image."
             logger.warning(msg)
             self.messageSignal.emit(msg)
-            self.states = {0: [layer.layer_state for layer in self.layers]}
+            self.states = {0: self._build_states_for_step(step=0, total_steps=1)}
 
         filename = self.config.filename_format.format(
             project_name=self.config.project_name,

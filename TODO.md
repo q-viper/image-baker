@@ -1,17 +1,18 @@
 Highest Priority First
 ----------------------
-- [ ] Define a plugin method. Try to implement smokesim here.
-- [ ] Merging two layers
+- [ ] Implement `SmokeSim` plugin using the new plugin framework.
 - [ ] Occlusion handling.
 - [ ] Instead of separate prompt model class, use a flag in the config. If a prompt is allowed, the prompt will be sent to the model else the propmt will be applied on the image i.e. if passed rectangle for non prompt segmentation model, model will receive cropped image.
 - [ ] Add test scripts (to reproduce results if that is even possible).
-- [ ] How to work with OCR? i.e. generating the image data with text on it.
-- [ ] Layerifying the drawing.
-- [ ] Option to show gridlines. Only if it does not affect the performance much.
 - [ ] Add Circle mode. Now, we only have point, rectangle and polygon.
 - [ ] Loading of video?
 - [ ] Add pose annotation.
 
+- [x] Define plugin base method and runtime pipeline with auto-discovery.
+- [x] Option to show gridlines with lightweight overlay behavior.
+- [x] Merging two layers
+- [x] Layerifying the drawing.
+- [x] How to work with OCR? i.e. generating the image data with text on it. Got TextBaker.
 - [x] A small dropdown on the layers list that toggles what annotation to export for this layer. Should be options: Default, Rectangle, Polygon.
 - [x] Instead of defining everything on app.py, use different file for each tab. Try to abstract more generic things in Base classes and inherit them.
 - [x] Add color picker from the active QWidget.

@@ -300,30 +300,25 @@ class AnnotableLayer(BaseLayer):
             self.image = transparent_pixmap
 
     def paint_layer(self, painter: QPainter):
-        with QPainter(self) as painter:
-            painter.fillRect(
-                self.rect(),
-                self.config.normal_draw_config.background_color,
-            )
-            painter.setRenderHints(
-                QPainter.Antialiasing | QPainter.SmoothPixmapTransform
-            )
+        painter.setRenderHints(
+            QPainter.Antialiasing | QPainter.SmoothPixmapTransform
+        )
 
-            if not self.image.isNull():
-                painter.save()
-                painter.translate(self.offset)
-                painter.scale(self.scale, self.scale)
-                painter.drawPixmap(0, 0, self.image)
+        if not self.image.isNull():
+            painter.save()
+            painter.translate(self.offset)
+            painter.scale(self.scale, self.scale)
+            painter.drawPixmap(0, 0, self.image)
 
-                # Draw all annotations
-                for annotation in self.annotations:
-                    self.draw_annotation(painter, annotation)
+            # Draw all annotations
+            for annotation in self.annotations:
+                self.draw_annotation(painter, annotation)
 
-                # Draw current annotation
-                if self.current_annotation:
-                    self.draw_annotation(painter, self.current_annotation, is_temp=True)
+            # Draw current annotation
+            if self.current_annotation:
+                self.draw_annotation(painter, self.current_annotation, is_temp=True)
 
-                painter.restore()
+            painter.restore()
 
     def draw_annotation(self, painter, annotation: Annotation, is_temp=False):
         """
@@ -826,7 +821,7 @@ class AnnotableLayer(BaseLayer):
             if self.current_annotation and self.mouse_mode == MouseMode.POLYGON:
                 if len(self.current_annotation.polygon) > 0:
                     self.current_annotation.polygon = QPolygonF(
-                        [p for p in self.current_annotation.polygon][:-1]
+                        list(self.current_annotation.polygon)[:-1]
                     )
 
                 # If the polygon is now empty, reset to idle mode
@@ -1226,7 +1221,7 @@ class AnnotableLayer(BaseLayer):
                 new_annotation.annotation_id = len(self.annotations)
                 new_annotation.selected = False
                 new_annotation.file_path = self.file_path
-                setattr(new_annotation, "_skip_label_registry", True)
+                new_annotation._skip_label_registry = True
                 self.annotations.append(new_annotation)
                 self.annotationAdded.emit(new_annotation)
                 self.thumbnails[new_annotation.annotation_id] = self.get_thumbnail(

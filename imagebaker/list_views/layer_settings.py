@@ -18,6 +18,7 @@ from imagebaker.layers.base_layer import BaseLayer
 class LayerSettings(QDockWidget):
     layerState = Signal(LayerState)
     messageSignal = Signal(str)
+    beforeLayerEdit = Signal()
 
     def __init__(
         self,
@@ -99,6 +100,7 @@ class LayerSettings(QDockWidget):
         # Update layer caption on editing finished
         def update_caption():
             if self.selected_layer:
+                self.beforeLayerEdit.emit()
                 logger.info(
                     f"Updating caption for layer {self.selected_layer.layer_name} to {self.caption_input.text()}"
                 )
@@ -164,6 +166,7 @@ class LayerSettings(QDockWidget):
 
         try:
             self._disable_updates = True
+            self.beforeLayerEdit.emit()
             if sender == self.opacity_slider["slider"]:
                 self.selected_layer.opacity = value
             elif sender == self.x_slider["slider"]:

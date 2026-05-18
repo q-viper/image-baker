@@ -65,7 +65,12 @@ class LayerList(QDockWidget):
 
         # Add list and buttons to main layout
         main_layout.addWidget(self.list_widget)
-        # main_layout.addWidget(delete_button)
+        self.group_layers_button = QPushButton("Group Layers")
+        self.group_layers_button.setToolTip(
+            "Group 2 selected layers or ungroup 1 grouped layer (Ctrl+G)"
+        )
+        self.group_layers_button.clicked.connect(self.group_selected_layers)
+        main_layout.addWidget(self.group_layers_button)
 
         # Set main widget
         self.setWidget(main_widget)
@@ -174,6 +179,15 @@ class LayerList(QDockWidget):
             secondary_text.append(score_text)
             short_path = ann.file_path.stem
             secondary_text.append(f"<span style='color:#666;'>{short_path}</span>")
+            plugin_count = len(getattr(layer, "plugins", []))
+            if plugin_count:
+                plugin_names = ", ".join(
+                    getattr(plugin, "name", type(plugin).__name__)
+                    for plugin in layer.plugins[:3]
+                )
+                if plugin_count > 3:
+                    plugin_names += ", ..."
+                secondary_text.append(f"Plugins ({plugin_count}): {plugin_names}")
 
             if secondary_text:
                 info_color = "#888" if not layer.visible else "#444"
@@ -293,7 +307,9 @@ class LayerList(QDockWidget):
             self.canvas.update()
             self.update_list()
 
-            logger.info(f"Selected layers: {[l.layer_name for l in selected_layers]}")
+            logger.info(
+                f"Selected layers: {[layer.layer_name for layer in selected_layers]}"
+            )
 
     def on_layer_selected(self, indices):
         """Select multiple layers by indices"""
@@ -335,6 +351,19 @@ class LayerList(QDockWidget):
             current_row = self.list_widget.currentRow()
             if current_row >= 0:
                 self.confirm_delete_layer(current_row)
+        elif event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_G:
+            self.group_selected_layers()
+            event.accept()
+        elif event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_Z:
+            if self.canvas is not None and self.canvas.undo():
+                self.layers = self.canvas.layers
+                self.update_list()
+            event.accept()
+        elif event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_Y:
+            if self.canvas is not None and self.canvas.redo():
+                self.layers = self.canvas.layers
+                self.update_list()
+            event.accept()
         else:
             # Pass other key events to the parent class
             QListWidget.keyPressEvent(self.list_widget, event)
@@ -396,6 +425,15 @@ class LayerList(QDockWidget):
             if 0 <= self.list_widget.row(item) < len(self.layers)
         ]
 
+    def group_selected_layers(self):
+        """Group two selected layers, or ungroup one selected grouped layer."""
+        if self.canvas is None:
+            return
+        grouped = self.canvas.group_selected_layers()
+        if grouped:
+            self.layers = self.canvas.layers
+            self.update_list()
+
     def keyPressEvent(self, event):
         """Handle key presses."""
         self.selected_layer = self.canvas.selected_layer
@@ -410,5 +448,10 @@ class LayerList(QDockWidget):
         elif event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_V:
             self.canvas.paste_layer()
         elif event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_Z:
-            # self.selected_layer.undo()
-            self.messageSignal.emit("Undo not implemented yet")
+            if self.canvas.undo():
+                self.layers = self.canvas.layers
+                self.update_list()
+        elif event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_Y:
+            if self.canvas.redo():
+                self.layers = self.canvas.layers
+                self.update_list()

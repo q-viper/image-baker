@@ -1,5 +1,5 @@
-import os
 import hashlib
+import os
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -195,6 +195,42 @@ class LayerifyTab(QWidget):
         if added_any:
             self.update_label_combo()
 
+    @staticmethod
+    def _rgb(color: QColor) -> tuple[int, int, int]:
+        return color.red(), color.green(), color.blue()
+
+    def _label_color(self, label_name: str) -> QColor:
+        color = self.config.get_label_color(label_name)
+        return QColor(color.red(), color.green(), color.blue())
+
+    def normalize_annotation_colors(
+        self, annotations: list[Annotation], add_missing_labels: bool = True
+    ) -> bool:
+        """Normalize annotation colors to always match their label color."""
+        changed = False
+        added_any = False
+
+        for annotation in annotations:
+            if not annotation.label:
+                annotation.label = self.get_default_label().name
+                changed = True
+
+            if add_missing_labels:
+                added_any = (
+                    self.ensure_label_available(annotation.label, annotation.color)
+                    or added_any
+                )
+
+            target_color = self._label_color(annotation.label)
+            if self._rgb(annotation.color) != self._rgb(target_color):
+                annotation.color = target_color
+                changed = True
+
+        if added_any:
+            self.update_label_combo()
+
+        return changed
+
     def _entry_file_path(self, image_entry: ImageEntry) -> Path:
         if image_entry.is_baked_result and isinstance(image_entry.data, AnnotableLayer):
             return Path(image_entry.data.file_path)
@@ -205,7 +241,7 @@ class LayerifyTab(QWidget):
         logger.info(f"Image selected: {image_entry}")
 
         # Hide all layers first
-        for idx, layer in enumerate(self.annotable_layers):
+        for _idx, layer in enumerate(self.annotable_layers):
             layer.setVisible(False)
             # logger.info(f"Layer {idx} hidden.")
         current_label = self.layer.current_label
@@ -348,6 +384,7 @@ class LayerifyTab(QWidget):
             file_path = self._entry_file_path(image_entry)
             cache_path = self._cache_path_for_file(file_path)
             file_annotations = [ann.copy() for ann in annotations_by_file.get(file_path, [])]
+            self.normalize_annotation_colors(file_annotations)
             for index, annotation in enumerate(file_annotations):
                 annotation.annotation_id = index
                 annotation.selected = False
@@ -377,6 +414,8 @@ class LayerifyTab(QWidget):
             if load_dir.exists():
                 layer.annotations = Annotation.load_from_json(load_dir)
                 self.sync_labels_from_annotations(layer.annotations)
+                if self.normalize_annotation_colors(layer.annotations):
+                    Annotation.save_as_json(layer.annotations, load_dir)
                 logger.info(
                     f"Loaded annotations for {layer.layer_name} from {load_dir}"
                 )
@@ -455,6 +494,8 @@ class LayerifyTab(QWidget):
         ):
             logger.info(f"Label {annotation.label} created.")
             self.update_label_combo()
+
+        annotation.color = self._label_color(annotation.label)
         logger.info(f"Added annotation: {annotation.label}")
         self.messageSignal.emit(f"Added annotation: {annotation.label}")
         self.save_layer_annotations(self.layer)
@@ -468,7 +509,7 @@ class LayerifyTab(QWidget):
         Args:
             annotation (Annotation): The updated annotation.
         """
-        # logger.info(f"Updated annotation: {annotation}")
+        annotation.color = self._label_color(annotation.label)
         self.messageSignal.emit(f"Updated annotation: {annotation.label}")
 
         # Refresh the annotation list
@@ -525,6 +566,34 @@ class LayerifyTab(QWidget):
                 if annotation.label == old_label:
                     annotation.label = new_label
                     changed = True
+            if changed:
+                Annotation.save_as_json(annotations, cache_path)
+
+    def update_annotations_for_label_color(self, label_name: str, color: QColor):
+        for layer in self.annotable_layers:
+            changed = False
+            for annotation in layer.annotations:
+                if annotation.label == label_name:
+                    if self._rgb(annotation.color) != self._rgb(color):
+                        annotation.color = QColor(color.red(), color.green(), color.blue())
+                        changed = True
+            if changed:
+                self.save_layer_annotations(layer)
+                layer.update()
+
+        for image_entry in self.image_entries:
+            file_path = self._entry_file_path(image_entry)
+            cache_path = self._cache_path_for_file(file_path)
+            if not cache_path.exists():
+                continue
+
+            annotations = Annotation.load_from_json(cache_path)
+            changed = False
+            for annotation in annotations:
+                if annotation.label == label_name:
+                    if self._rgb(annotation.color) != self._rgb(color):
+                        annotation.color = QColor(color.red(), color.green(), color.blue())
+                        changed = True
             if changed:
                 Annotation.save_as_json(annotations, cache_path)
 
@@ -919,9 +988,10 @@ class LayerifyTab(QWidget):
         """
         # update canvas with predictions
         for prediction in predictions:
-            if prediction.class_name not in self.config.predefined_labels:
-                self.config.predefined_labels.append(Label(prediction.class_name))
+            if self.ensure_label_available(prediction.class_name):
                 self.update_label_combo()
+
+            prediction_color = self._label_color(prediction.class_name)
             if prediction.rectangle:
                 # make sure the returned rectangle is within the image
 
@@ -929,8 +999,7 @@ class LayerifyTab(QWidget):
                     Annotation(
                         annotation_id=len(self.layer.annotations),
                         label=prediction.class_name,
-                        color=self.config.get_label_color(prediction.class_name)
-                        or QColor(255, 255, 255),
+                        color=prediction_color,
                         rectangle=QRectF(*prediction.rectangle),
                         is_complete=True,
                         score=prediction.score,
@@ -948,8 +1017,7 @@ class LayerifyTab(QWidget):
                     Annotation(
                         annotation_id=len(self.layer.annotations),
                         label=prediction.class_name,
-                        color=self.config.get_label_color(prediction.class_name)
-                        or QColor(255, 255, 255),
+                        color=prediction_color,
                         polygon=QPolygonF([QPointF(*p) for p in prediction.polygon]),
                         is_complete=True,
                         score=prediction.score,
@@ -965,8 +1033,7 @@ class LayerifyTab(QWidget):
                     Annotation(
                         annotation_id=len(self.layer.annotations),
                         label=prediction.class_name,
-                        color=self.config.get_label_color(prediction.class_name)
-                        or QColor(255, 255, 255),
+                        color=prediction_color,
                         points=[QPointF(x, y)],
                         is_complete=True,
                         score=prediction.score,
@@ -976,6 +1043,8 @@ class LayerifyTab(QWidget):
                     )
                 )
 
+        self.normalize_annotation_colors(self.layer.annotations, add_missing_labels=False)
+        self.save_layer_annotations(self.layer)
         self.layer.update()
         self.annotation_list.update_list()
         self.update_annotation_list()
@@ -1013,7 +1082,7 @@ class LayerifyTab(QWidget):
         msg_box.setWindowTitle("Save Annotations")
         msg_box.setText("Do you want to save annotations from all layers?")
         yes_button = msg_box.addButton("All Layers", QMessageBox.YesRole)
-        just_this_button = msg_box.addButton("Just This Layer", QMessageBox.NoRole)
+        msg_box.addButton("Just This Layer", QMessageBox.NoRole)
         msg_box.setDefaultButton(yes_button)
         msg_box.exec()
         save_all = msg_box.clickedButton() == yes_button
@@ -1066,7 +1135,7 @@ class LayerifyTab(QWidget):
         msg_box.setWindowTitle("Load Annotations")
         msg_box.setText("Do you want to load annotations from all layers?")
         yes_button = msg_box.addButton("All Layers", QMessageBox.YesRole)
-        just_this_button = msg_box.addButton("Just This Layer", QMessageBox.NoRole)
+        msg_box.addButton("Just This Layer", QMessageBox.NoRole)
         msg_box.setDefaultButton(yes_button)
         msg_box.exec()
         load_all = msg_box.clickedButton() == yes_button
@@ -1097,6 +1166,9 @@ class LayerifyTab(QWidget):
         if file_name:
             try:
                 self.layer.annotations = Annotation.load_from_json(file_name)
+                self.sync_labels_from_annotations(self.layer.annotations)
+                self.normalize_annotation_colors(self.layer.annotations, add_missing_labels=False)
+                self.save_layer_annotations(self.layer)
                 self.layer.update()
                 self.update_annotation_list()
                 QMessageBox.information(
@@ -1139,10 +1211,9 @@ class LayerifyTab(QWidget):
                 # Update canvas color
                 self.layer.current_color = color
                 self.layer.update()
-        for annotation in self.layer.annotations:
-            if annotation.label == current_label:
-                annotation.color = color
-                self.layer.update()
+                self.update_annotations_for_label_color(current_label, color)
+                self.normalize_annotation_colors(self.layer.annotations, add_missing_labels=False)
+                self.annotation_list.update_list()
 
     def add_new_label(self):
         """Add a new label to the predefined labels."""
@@ -1214,6 +1285,22 @@ class LayerifyTab(QWidget):
         # else appends already added too
         self.layer.layerify_annotation(self.layer.annotations)
 
+    def toggle_gridlines(self):
+        """Toggle lightweight grid overlay in both tabs."""
+        checked = self.grid_btn.isChecked() if hasattr(self, "grid_btn") else False
+        self.config.show_gridlines = checked
+        self.canvas_config.show_gridlines = checked
+        if self.layer:
+            self.layer.update()
+        if hasattr(self.main_window, "baker_tab") and self.main_window.baker_tab.current_canvas:
+            self.main_window.baker_tab.current_canvas.update()
+        self.messageSignal.emit(f"Gridlines {'enabled' if checked else 'disabled'}.")
+
+    def toggle_theme(self):
+        """Toggle app theme."""
+        if hasattr(self.main_window, "toggle_theme"):
+            self.main_window.toggle_theme()
+
     def create_toolbar(self):
         """Create Layerify-specific toolbar"""
         self.toolbar = QWidget()
@@ -1243,7 +1330,8 @@ class LayerifyTab(QWidget):
             btn_txt = icon + text
             btn = QPushButton(btn_txt)
             btn.setToolTip(btn_txt)
-            btn.setMaximumWidth(80)
+            btn.setMinimumWidth(96)
+            btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
             if isinstance(mode, MouseMode):
                 btn.setCheckable(True)
                 btn.setStyleSheet(
@@ -1261,6 +1349,16 @@ class LayerifyTab(QWidget):
             toolbar_layout.addWidget(btn)
 
         # Add spacer
+        self.grid_btn = QPushButton("Grid")
+        self.grid_btn.setCheckable(True)
+        self.grid_btn.setChecked(self.config.show_gridlines)
+        self.grid_btn.clicked.connect(self.toggle_gridlines)
+        toolbar_layout.addWidget(self.grid_btn)
+
+        self.theme_btn = QPushButton("Theme")
+        self.theme_btn.clicked.connect(self.toggle_theme)
+        toolbar_layout.addWidget(self.theme_btn)
+
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         toolbar_layout.addWidget(spacer)

@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+import numpy as np
 from PySide6.QtCore import (
     QObject,
     QPoint,
@@ -9,12 +11,16 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QImage, QPainter, QPen, QPixmap, QPolygonF, QTransform
+from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap, QPolygonF, QTransform
 
 from imagebaker import logger
 from imagebaker.core.defs.defs import Annotation, BakingResult, LayerState
+from imagebaker.plugins.runtime import apply_pixel_plugins
 from imagebaker.utils.image import qpixmap_to_numpy
 from imagebaker.utils.transform_mask import mask_to_polygons, mask_to_rectangles
+
+if TYPE_CHECKING:
+    from imagebaker.layers.base_layer import BaseLayer
 
 
 class BakerWorker(QObject):
@@ -24,7 +30,7 @@ class BakerWorker(QObject):
     def __init__(
         self,
         states: dict[int, list["LayerState"]],
-        layers: list["Layer"],
+        layers: list["BaseLayer"],
         filename: Path,
     ):
         """
@@ -45,7 +51,8 @@ class BakerWorker(QObject):
     def process(self):
         results = []
         try:
-            for step, states in sorted(self.states.items()):
+            total_steps = max(1, len(self.states))
+            for step_index, (step, states) in enumerate(sorted(self.states.items())):
                 logger.info(f"Processing step {step}")
 
                 # Calculate bounding box for all layers in this step
@@ -71,12 +78,19 @@ class BakerWorker(QObject):
                             layer._apply_edge_opacity()
                         layer.update()
 
+                        render_pixmap = apply_pixel_plugins(
+                            layer=layer,
+                            step=step_index,
+                            total_steps=total_steps,
+                            canvas=None,
+                        )
+
                         transform = QTransform()
                         transform.translate(layer.position.x(), layer.position.y())
                         transform.rotate(layer.rotation)
                         transform.scale(layer.scale_x, layer.scale_y)
 
-                        original_rect = QRectF(QPointF(0, 0), layer.image.size())
+                        original_rect = QRectF(QPointF(0, 0), render_pixmap.size())
                         transformed_rect = transform.mapRect(original_rect)
 
                         top_left.setX(min(top_left.x(), transformed_rect.left()))
@@ -109,20 +123,26 @@ class BakerWorker(QObject):
                         layer = self._get_layer(state.layer_id)
 
                         if layer and layer.visible and not layer.image.isNull():
+                            render_pixmap = apply_pixel_plugins(
+                                layer=layer,
+                                step=step_index,
+                                total_steps=total_steps,
+                                canvas=None,
+                            )
                             # Draw the layer image with transformations
                             painter.save()
                             try:
                                 painter.translate(layer.position - top_left)
                                 painter.rotate(layer.rotation)
                                 painter.scale(layer.scale_x, layer.scale_y)
-                                pixmap_with_alpha = QPixmap(layer.image.size())
+                                pixmap_with_alpha = QPixmap(render_pixmap.size())
                                 pixmap_with_alpha.fill(Qt.transparent)
 
                                 temp_painter = QPainter(pixmap_with_alpha)
                                 try:
                                     opacity = layer.opacity / 255.0
                                     temp_painter.setOpacity(opacity)
-                                    temp_painter.drawPixmap(0, 0, layer.image)
+                                    temp_painter.drawPixmap(0, 0, render_pixmap)
                                 finally:
                                     temp_painter.end()
 
@@ -172,7 +192,7 @@ class BakerWorker(QObject):
                                 mask_painter.translate(layer.position - top_left)
                                 mask_painter.rotate(layer.rotation)
                                 mask_painter.scale(layer.scale_x, layer.scale_y)
-                                mask_painter.drawPixmap(QPoint(0, 0), layer.image)
+                                mask_painter.drawPixmap(QPoint(0, 0), render_pixmap)
 
                                 if state.drawing_states:
                                     mask_painter.save()
@@ -207,12 +227,31 @@ class BakerWorker(QObject):
 
                             # Generate annotations
                             if layer.allow_annotation_export:
-                                ann: Annotation = layer.annotations[0]
-                                new_annotation = self._generate_annotation(
-                                    ann, alpha_channel
+                                base_ann: Annotation | None = (
+                                    layer.annotations[0] if layer.annotations else None
                                 )
-                                new_annotation.caption = layer.caption
-                                new_annotations.append(new_annotation)
+                                if base_ann is not None:
+                                    new_annotation = self._generate_annotation(
+                                        base_ann, alpha_channel
+                                    )
+                                    new_annotation.caption = layer.caption
+                                    new_annotations.append(new_annotation)
+
+                                brush_mask = self._render_brush_mask(
+                                    width=width,
+                                    height=height,
+                                    layer=layer,
+                                    state=state,
+                                    top_left=top_left,
+                                )
+                                brush_annotation = self._generate_brush_annotation(
+                                    base_ann=base_ann,
+                                    brush_mask=brush_mask,
+                                    fallback_name=layer.layer_name,
+                                    caption=layer.caption,
+                                )
+                                if brush_annotation is not None:
+                                    new_annotations.append(brush_annotation)
                 finally:
                     painter.end()
 
@@ -260,7 +299,18 @@ class BakerWorker(QObject):
         )
 
         if ann.points:
-            new_annotation.points = ann.points
+            # Avoid exporting point clouds for baked results; use shape geometry.
+            polygons = mask_to_polygons(alpha_channel, merge_polygons=True)
+            if polygons:
+                new_annotation.polygon = QPolygonF(
+                    [QPointF(p[0], p[1]) for p in polygons[0]]
+                )
+            else:
+                xywhs = mask_to_rectangles(alpha_channel, merge_rectangles=True)
+                if xywhs:
+                    new_annotation.rectangle = QRectF(
+                        xywhs[0][0], xywhs[0][1], xywhs[0][2], xywhs[0][3]
+                    )
         elif ann.rectangle:
             xywhs = mask_to_rectangles(alpha_channel, merge_rectangles=True)
             if len(xywhs) == 0:
@@ -273,8 +323,92 @@ class BakerWorker(QObject):
                 )
         elif ann.polygon:
             polygon = mask_to_polygons(alpha_channel, merge_polygons=True)
-            poly = QPolygonF([QPointF(p[0], p[1]) for p in polygon[0]])
-            new_annotation.polygon = poly
+            if polygon:
+                poly = QPolygonF([QPointF(p[0], p[1]) for p in polygon[0]])
+                new_annotation.polygon = poly
+            else:
+                xywhs = mask_to_rectangles(alpha_channel, merge_rectangles=True)
+                if xywhs:
+                    new_annotation.rectangle = QRectF(
+                        xywhs[0][0], xywhs[0][1], xywhs[0][2], xywhs[0][3]
+                    )
         else:
             logger.info("No annotation found")
         return new_annotation
+
+    def _render_brush_mask(self, width, height, layer, state, top_left):
+        if not state.drawing_states:
+            return None
+
+        brush_mask = QImage(width, height, QImage.Format_ARGB32)
+        brush_mask.fill(Qt.transparent)
+        brush_painter = QPainter(brush_mask)
+
+        try:
+            brush_painter.setRenderHints(
+                QPainter.Antialiasing | QPainter.SmoothPixmapTransform
+            )
+            brush_painter.translate(layer.position - top_left)
+            brush_painter.rotate(layer.rotation)
+            brush_painter.scale(layer.scale_x, layer.scale_y)
+            for drawing_state in state.drawing_states:
+                brush_painter.setPen(
+                    QPen(
+                        Qt.white,
+                        drawing_state.size,
+                        Qt.SolidLine,
+                        Qt.RoundCap,
+                        Qt.RoundJoin,
+                    )
+                )
+                brush_painter.drawPoint(drawing_state.position)
+        finally:
+            brush_painter.end()
+
+        mask_arr = qpixmap_to_numpy(brush_mask)
+        alpha_channel = mask_arr[:, :, 3].copy()
+        alpha_channel[alpha_channel > 0] = 255
+        if not np.any(alpha_channel):
+            return None
+        return alpha_channel
+
+    def _generate_brush_annotation(
+        self,
+        base_ann: Annotation | None,
+        brush_mask: np.ndarray | None,
+        fallback_name: str,
+        caption: str = "",
+    ) -> Annotation | None:
+        if brush_mask is None:
+            return None
+
+        label = f"{base_ann.label}_brush" if base_ann is not None else "Brush"
+        color = base_ann.color if base_ann is not None else QColor(255, 255, 255)
+        annotation_id = (
+            base_ann.annotation_id * 1000 + 1
+            if base_ann is not None
+            else abs(hash((fallback_name, "brush"))) % 1_000_000
+        )
+
+        brush_annotation = Annotation(
+            annotation_id=annotation_id,
+            label=label,
+            color=color,
+            mask=brush_mask,
+            is_complete=True,
+            visible=True,
+            caption=caption or (base_ann.caption if base_ann is not None else ""),
+        )
+
+        polygons = mask_to_polygons(brush_mask, merge_polygons=True)
+        if polygons:
+            brush_annotation.polygon = QPolygonF(
+                [QPointF(p[0], p[1]) for p in polygons[0]]
+            )
+        else:
+            xywhs = mask_to_rectangles(brush_mask, merge_rectangles=True)
+            if xywhs:
+                x, y, w, h = xywhs[0]
+                brush_annotation.rectangle = QRectF(x, y, w, h)
+
+        return brush_annotation

@@ -2,16 +2,18 @@ from collections import deque
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QAction, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QColorDialog,
     QDockWidget,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QSizePolicy,
     QSlider,
     QSpinBox,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -22,6 +24,7 @@ from imagebaker.core.defs import Annotation, BakingResult, MouseMode
 from imagebaker.layers.canvas_layer import CanvasLayer
 from imagebaker.list_views import LayerList, LayerSettings
 from imagebaker.list_views.canvas_list import CanvasList
+from imagebaker.plugins.discovery import discover_plugin_classes
 
 
 class BakerTab(QWidget):
@@ -37,6 +40,9 @@ class BakerTab(QWidget):
         self.main_window = main_window
         self.config = config
         self.toolbar = None
+        self.plugin_registry = {}
+        self.plugin_actions: dict[str, QAction] = {}
+        self._updating_plugin_menu = False
         self.main_layout = QVBoxLayout(self)
 
         # Deque to store multiple CanvasLayer objects with a fixed size
@@ -75,6 +81,7 @@ class BakerTab(QWidget):
             parent=self.main_window,
             layer_settings=self.layer_settings,
         )
+        self.layer_list.layersSelected.connect(self.sync_plugin_menu_with_selection)
         self.layer_settings.setVisible(False)
         self.main_window.addDockWidget(Qt.RightDockWidgetArea, self.layer_list)
         self.main_window.addDockWidget(Qt.RightDockWidgetArea, self.layer_settings)
@@ -89,6 +96,7 @@ class BakerTab(QWidget):
 
         # Connections
         self.layer_settings.messageSignal.connect(self.messageSignal.emit)
+        self.layer_settings.beforeLayerEdit.connect(self.capture_undo_state)
         self.current_canvas.bakingResult.connect(self.bakingResult.emit)
         self.current_canvas.layersChanged.connect(self.update_list)
         self.current_canvas.layerRemoved.connect(self.update_list)
@@ -97,6 +105,11 @@ class BakerTab(QWidget):
         self.canvas_list.canvasAdded.connect(self.on_canvas_added)
         self.canvas_list.canvasDeleted.connect(self.on_canvas_deleted)
         # self.current_canvas.thumbnailsAvailable.connect(self.generate_state_previews)
+
+    def capture_undo_state(self):
+        """Capture an undo snapshot for settings edits."""
+        if self.current_canvas is not None:
+            self.current_canvas.push_undo_state()
 
     def update_slider_range(self, steps):
         """Update the slider range based on the number of steps."""
@@ -114,7 +127,7 @@ class BakerTab(QWidget):
                 widget.deleteLater()
 
         # Generate a preview for each state
-        for step, states in sorted(self.current_canvas.states.items()):
+        for step, _states in sorted(self.current_canvas.states.items()):
             # Create a container widget for the preview
             preview_widget = QWidget()
             preview_layout = QVBoxLayout(preview_widget)
@@ -174,6 +187,12 @@ class BakerTab(QWidget):
         if layer:
             self.layer_list.layers = self.current_canvas.layers
         self.layer_list.update_list()
+        selected_layers = (
+            [layer for layer in self.current_canvas.layers if layer.selected]
+            if self.current_canvas
+            else []
+        )
+        self.sync_plugin_menu_with_selection(selected_layers)
         self.layer_settings.update_sliders()
         self.update()
 
@@ -242,34 +261,34 @@ class BakerTab(QWidget):
         self.layer_settings.update_sliders()
 
     def create_toolbar(self):
-        """Create Baker-specific toolbar"""
+        """Create Baker-specific toolbar."""
         self.toolbar = QWidget()
         baker_toolbar_layout = QHBoxLayout(self.toolbar)
         baker_toolbar_layout.setContentsMargins(5, 5, 5, 5)
         baker_toolbar_layout.setSpacing(10)
 
-        # Add a label for "Steps"
         steps_label = QLabel("Steps:")
         steps_label.setStyleSheet("font-weight: bold;")
         baker_toolbar_layout.addWidget(steps_label)
 
-        # Add a spin box for entering the number of steps
         self.steps_spinbox = QSpinBox()
         self.steps_spinbox.setMinimum(1)
-        self.steps_spinbox.setMaximum(1000)  # Arbitrary maximum value
-        self.steps_spinbox.setValue(1)  # Default value
+        self.steps_spinbox.setMaximum(1000)
+        self.steps_spinbox.setValue(1)
         self.steps_spinbox.valueChanged.connect(self.update_slider_range)
         baker_toolbar_layout.addWidget(self.steps_spinbox)
 
-        # Add buttons for Baker modes with emojis
         baker_modes = [
-            ("📤 Export Current State", self.export_current_state),
-            ("💾 Save State", self.save_current_state),
-            ("🔮 Predict State", self.predict_state),
-            ("▶️ Play States", self.play_saved_states),
-            ("🗑️ Clear States", self.clear_states),  # New button
-            ("📤 Annotate States", self.export_for_annotation),
-            ("📤 Export States", self.export_locally),
+            ("Export Current State", self.export_current_state),
+            ("Save State", self.save_current_state),
+            ("Randomize States", self.randomize_states),
+            ("Group Layers", self.group_layers),
+            ("Convert Ann Type", self.convert_selected_annotation_type),
+            ("Predict State", self.predict_state),
+            ("Play States", self.play_saved_states),
+            ("Clear States", self.clear_states),
+            ("Annotate States", self.export_for_annotation),
+            ("Export States", self.export_locally),
         ]
 
         for text, callback in baker_modes:
@@ -277,43 +296,52 @@ class BakerTab(QWidget):
             btn.clicked.connect(callback)
             baker_toolbar_layout.addWidget(btn)
 
-            # If the button is "Play States", add the slider beside it
-            if text == "▶️ Play States":
-                self.timeline_slider = QSlider(Qt.Horizontal)  # Create the slider
+            if text == "Play States":
+                self.timeline_slider = QSlider(Qt.Horizontal)
                 self.timeline_slider.setMinimum(0)
-                self.timeline_slider.setMaximum(0)  # Will be updated dynamically
+                self.timeline_slider.setMaximum(0)
                 self.timeline_slider.setValue(0)
-                self.timeline_slider.setSingleStep(
-                    1
-                )  # Set the granularity of the slider
-                self.timeline_slider.setPageStep(1)  # Allow smoother jumps
-                self.timeline_slider.setEnabled(False)  # Initially disabled
+                self.timeline_slider.setSingleStep(1)
+                self.timeline_slider.setPageStep(1)
+                self.timeline_slider.setEnabled(False)
                 self.timeline_slider.valueChanged.connect(self.seek_state)
                 baker_toolbar_layout.addWidget(self.timeline_slider)
 
-        # Add a drawing button
-        draw_button = QPushButton("✏️ Draw")
-        draw_button.setCheckable(True)  # Make it toggleable
+        self.plugin_dropdown_btn = QToolButton()
+        self.plugin_dropdown_btn.setText("Plugin Options")
+        self.plugin_dropdown_btn.setPopupMode(QToolButton.InstantPopup)
+        self.plugin_menu = QMenu(self.plugin_dropdown_btn)
+        self.plugin_dropdown_btn.setMenu(self.plugin_menu)
+        baker_toolbar_layout.addWidget(self.plugin_dropdown_btn)
+
+        draw_button = QPushButton("Draw")
+        draw_button.setCheckable(True)
         draw_button.clicked.connect(self.toggle_drawing_mode)
         baker_toolbar_layout.addWidget(draw_button)
 
-        # Add an erase button
-        erase_button = QPushButton("🧹 Erase")
-        erase_button.setCheckable(True)  # Make it toggleable
+        erase_button = QPushButton("Erase")
+        erase_button.setCheckable(True)
         erase_button.clicked.connect(self.toggle_erase_mode)
         baker_toolbar_layout.addWidget(erase_button)
 
-        # Add a color picker button
-        color_picker_button = QPushButton("🎨")
+        color_picker_button = QPushButton("Color")
         color_picker_button.clicked.connect(self.open_color_picker)
         baker_toolbar_layout.addWidget(color_picker_button)
 
-        # Add a spacer to push the rest of the elements to the right
+        self.grid_btn = QPushButton("Grid")
+        self.grid_btn.setCheckable(True)
+        self.grid_btn.setChecked(self.config.show_gridlines)
+        self.grid_btn.clicked.connect(self.toggle_gridlines)
+        baker_toolbar_layout.addWidget(self.grid_btn)
+
+        self.theme_btn = QPushButton("Theme")
+        self.theme_btn.clicked.connect(self.toggle_theme)
+        baker_toolbar_layout.addWidget(self.theme_btn)
+
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         baker_toolbar_layout.addWidget(spacer)
 
-        # Add the toolbar to the main layout
         self.main_layout.addWidget(self.toolbar)
 
     def toggle_drawing_mode(self):
@@ -344,6 +372,23 @@ class BakerTab(QWidget):
         if color.isValid():
             self.current_canvas.drawing_color = color
             self.messageSignal.emit(f"Selected custom color: {color.name()}")
+
+    def toggle_gridlines(self):
+        """Toggle lightweight grid overlay."""
+        checked = self.grid_btn.isChecked() if hasattr(self, "grid_btn") else False
+        self.config.show_gridlines = checked
+        if hasattr(self.main_window, "layerify_config"):
+            self.main_window.layerify_config.show_gridlines = checked
+        if self.current_canvas:
+            self.current_canvas.update()
+        if hasattr(self.main_window, "layerify_tab") and self.main_window.layerify_tab.layer:
+            self.main_window.layerify_tab.layer.update()
+        self.messageSignal.emit(f"Gridlines {'enabled' if checked else 'disabled'}.")
+
+    def toggle_theme(self):
+        """Toggle app theme."""
+        if hasattr(self.main_window, "toggle_theme"):
+            self.main_window.toggle_theme()
 
     def export_for_annotation(self):
         """Export the baked states for annotation."""
@@ -390,10 +435,19 @@ class BakerTab(QWidget):
             f"Current state saved. Total states: {len(self.current_canvas.states)}"
         )
 
-        self.steps_spinbox.setValue(1)  # Reset the spinbox value
+        self.steps_spinbox.setValue(1)
         self.steps_spinbox.update()
-        # Disable the timeline slider
-        self.timeline_slider.setEnabled(False)
+
+        total_states = len(self.current_canvas.states)
+        if total_states > 0:
+            self.timeline_slider.setMaximum(total_states - 1)
+            self.timeline_slider.setEnabled(True)
+            self.timeline_slider.setValue(
+                self.current_canvas._state_step_index(self.current_canvas.current_step)
+            )
+        else:
+            self.timeline_slider.setMaximum(0)
+            self.timeline_slider.setEnabled(False)
         self.timeline_slider.update()
 
     def clear_states(self):
@@ -412,6 +466,77 @@ class BakerTab(QWidget):
         self.steps_spinbox.update()
         self.timeline_slider.update()
         self.current_canvas.update()
+
+    def randomize_states(self):
+        """Randomize states for the current canvas."""
+        if not self.current_canvas or not self.current_canvas.layers:
+            self.messageSignal.emit("No layers available to randomize.")
+            return
+
+        num_states = max(1, self.steps_spinbox.value())
+        self.current_canvas.randomize_states(num_states=num_states)
+        self.timeline_slider.setMaximum(num_states - 1)
+        self.timeline_slider.setEnabled(True)
+        self.timeline_slider.setValue(0)
+        self.update_list()
+        self.messageSignal.emit(f"Created {num_states} randomized state(s).")
+
+    def convert_selected_annotation_type(self):
+        """
+        Convert annotation type for selected layers.
+        rectangle -> polygon, polygon -> rectangle
+        """
+        if not self.current_canvas or not self.current_canvas.layers:
+            self.messageSignal.emit("No layers available.")
+            return
+
+        target_layers = [layer for layer in self.current_canvas.layers if layer.selected]
+        if not target_layers:
+            self.messageSignal.emit("Select one or more layers to convert annotation type.")
+            return
+
+        converted = 0
+        skipped = 0
+
+        for layer in target_layers:
+            if not layer.annotations:
+                skipped += 1
+                continue
+
+            ann = layer.annotations[0]
+            if ann.polygon is not None and len(ann.polygon) >= 3:
+                rect = ann.polygon.boundingRect()
+                ann.rectangle = rect
+                ann.polygon = None
+                ann.points = []
+                ann.mask = None
+                converted += 1
+            elif ann.rectangle is not None:
+                rect = ann.rectangle
+                ann.polygon = QPolygonF(
+                    [
+                        rect.topLeft(),
+                        rect.topRight(),
+                        rect.bottomRight(),
+                        rect.bottomLeft(),
+                    ]
+                )
+                ann.rectangle = None
+                ann.points = []
+                ann.mask = None
+                converted += 1
+            else:
+                skipped += 1
+
+            layer._apply_edge_opacity()
+            layer.update()
+
+        self.current_canvas.update()
+        self.layer_list.update_list()
+        self.layer_settings.update_sliders()
+        self.messageSignal.emit(
+            f"Converted {converted} annotation(s). Skipped {skipped} layer(s)."
+        )
 
     def seek_state(self, step):
         """Seek to a specific state using the timeline slider."""
@@ -433,9 +558,116 @@ class BakerTab(QWidget):
 
         self.current_canvas.predict_state()
 
+    def group_layers(self):
+        """Group exactly two selected layers on the current canvas."""
+        if self.current_canvas is None:
+            return
+        grouped = self.current_canvas.group_selected_layers()
+        if grouped:
+            self.layer_list.update_list()
+            self.layer_settings.selected_layer = self.current_canvas.selected_layer
+            self.layer_settings.update_sliders()
+
+    def reload_plugins(self):
+        """Reload discoverable plugins from project root."""
+        self.plugin_registry = discover_plugin_classes(Path.cwd())
+        self.plugin_actions.clear()
+        self.plugin_menu.clear()
+
+        if not self.plugin_registry:
+            placeholder = QAction("No plugins discovered", self.plugin_menu)
+            placeholder.setEnabled(False)
+            self.plugin_menu.addAction(placeholder)
+            self.messageSignal.emit("No plugins discovered in project root.")
+            return
+
+        for plugin_name in sorted(self.plugin_registry):
+            action = QAction(plugin_name, self.plugin_menu)
+            action.setCheckable(True)
+            action.toggled.connect(self.on_plugin_selection_changed)
+            self.plugin_menu.addAction(action)
+            self.plugin_actions[plugin_name] = action
+
+        self.messageSignal.emit(
+            f"Discovered {len(self.plugin_registry)} plugin option(s)."
+        )
+        self.sync_plugin_menu_with_selection()
+
+    def _selected_plugin_classes(self):
+        selected = []
+        for plugin_name, action in self.plugin_actions.items():
+            if action.isChecked() and plugin_name in self.plugin_registry:
+                selected.append(self.plugin_registry[plugin_name])
+        return selected
+
+    def on_plugin_selection_changed(self, _checked: bool):
+        if self._updating_plugin_menu:
+            return
+        self.apply_plugin_selection()
+
+    def apply_plugin_selection(self):
+        """Apply currently checked plugin options to selected layers."""
+        if self.current_canvas is None:
+            return
+
+        plugin_classes = self._selected_plugin_classes()
+        selected_layers = [layer for layer in self.current_canvas.layers if layer.selected]
+        if selected_layers:
+            self.current_canvas.set_plugins_for_selected_layers(plugin_classes)
+        else:
+            if not self.current_canvas.layers:
+                return
+            for layer in self.current_canvas.layers:
+                layer.selected = True
+            try:
+                self.current_canvas.set_plugins_for_selected_layers(plugin_classes)
+                self.messageSignal.emit(
+                    "No layer selected. Applied plugin options to all layers."
+                )
+            finally:
+                for layer in self.current_canvas.layers:
+                    layer.selected = False
+                self.current_canvas.selected_layer = None
+        self.layer_list.update_list()
+        self.layer_settings.update_sliders()
+
+    def sync_plugin_menu_with_selection(self, selected_layers=None):
+        """Sync dropdown checks from selected layers' current plugin set."""
+        if self.current_canvas is None or not self.plugin_actions:
+            return
+
+        if selected_layers is None:
+            selected_layers = [
+                layer for layer in self.current_canvas.layers if layer.selected
+            ]
+        if not selected_layers:
+            return
+
+        intersection = None
+        for layer in selected_layers:
+            layer_types = {
+                type(plugin)
+                for plugin in getattr(layer, "plugins", [])
+                if getattr(plugin, "enabled", True)
+            }
+            if intersection is None:
+                intersection = set(layer_types)
+            else:
+                intersection &= layer_types
+
+        intersection = intersection or set()
+        self._updating_plugin_menu = True
+        try:
+            for plugin_name, action in self.plugin_actions.items():
+                plugin_class = self.plugin_registry.get(plugin_name)
+                action.setChecked(plugin_class in intersection)
+        finally:
+            self._updating_plugin_menu = False
+
     def add_layer(self, layer: CanvasLayer):
         """Add a new layer to the canvas."""
-        self.layer_list.add_layer(layer)
+        self.current_canvas.add_layer(layer, center=True, on_top=True)
+        self.layer_list.update_list()
         self.layer_settings.selected_layer = self.current_canvas.selected_layer
         self.layer_settings.update_sliders()
 
@@ -445,7 +677,17 @@ class BakerTab(QWidget):
             event.key() in {Qt.Key_Delete, Qt.Key_H, Qt.Key_W, Qt.Key_S}
             or (
                 event.modifiers() == Qt.ControlModifier
-                and event.key() in {Qt.Key_C, Qt.Key_V, Qt.Key_D, Qt.Key_E, Qt.Key_S}
+                and event.key()
+                in {
+                    Qt.Key_C,
+                    Qt.Key_V,
+                    Qt.Key_D,
+                    Qt.Key_E,
+                    Qt.Key_S,
+                    Qt.Key_G,
+                    Qt.Key_Z,
+                    Qt.Key_Y,
+                }
             )
         )
         if handled_by_canvas and self.current_canvas is not None:
@@ -467,7 +709,7 @@ class BakerTab(QWidget):
             balnk_qimage = QPixmap(self.current_canvas.size())
             balnk_qimage.fill(Qt.transparent)
             new_layer.set_image(balnk_qimage)
-            self.current_canvas.layers.append(new_layer)
+            self.current_canvas.add_layer(new_layer, center=True, on_top=True)
             self.current_canvas.update()
             self.layer_list.update_list()
             self.messageSignal.emit(f"Added new layer: {new_layer.layer_name}")
@@ -477,3 +719,5 @@ class BakerTab(QWidget):
     def save_canvas_to_cache(self, canvas: CanvasLayer, path: Path | None = None):
         """Save the current canvas state to a file."""
         logger.warning("save_canvas_to_cache is not implemented yet.")
+
+

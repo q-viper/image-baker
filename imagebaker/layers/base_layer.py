@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 
 import cv2
@@ -168,6 +169,7 @@ class BaseLayer(QWidget):
         self.selected_annotation: Annotation | None = None
 
         self.layers: list[BaseLayer] = []
+        self.plugins = []
         self.layer_masks = []
         self._back_buffer = QPixmap()
         self.current_label: str = None
@@ -182,14 +184,15 @@ class BaseLayer(QWidget):
         self._active_handle = None
         self._transform_start = None
         self._is_panning = False
+        self._mouse_widget_pos: QPointF | None = None
         self.offset = QPointF(0, 0)
         self.copied_layer: BaseLayer = None
         self.selected_layer: BaseLayer = None
         self.mouse_mode = MouseMode.IDLE
         self.prev_mouse_mode = MouseMode.IDLE
-        self.states: dict[str, list[LayerState]] = dict()
+        self.states: dict[str, list[LayerState]] = {}
 
-        self.states: dict[int, list[LayerState]] = dict()
+        self.states: dict[int, list[LayerState]] = {}
         self.previous_state = None
         self.current_step = 0
         self.drawing_color = QColor(Qt.red)  # Default drawing color
@@ -308,6 +311,10 @@ class BaseLayer(QWidget):
             self.setCursor(CursorDef.POLYGON_CURSOR)
         elif MouseMode.PAN == self.mouse_mode:
             self.setCursor(CursorDef.PAN_CURSOR)
+        elif MouseMode.ZOOM_IN == self.mouse_mode:
+            self.setCursor(self._create_zoom_cursor(zoom_in=True))
+        elif MouseMode.ZOOM_OUT == self.mouse_mode:
+            self.setCursor(self._create_zoom_cursor(zoom_in=False))
         elif MouseMode.IDLE == self.mouse_mode:
             self.setCursor(CursorDef.IDLE_CURSOR)
         elif MouseMode.RESIZE == self.mouse_mode:
@@ -348,6 +355,29 @@ class BaseLayer(QWidget):
 
         painter.end()
         return QCursor(pixmap)
+
+    def _create_zoom_cursor(self, zoom_in: bool) -> QCursor:
+        """Create a magnifier-like cursor with plus/minus marker."""
+        size = 24
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.transparent)
+
+        painter = QPainter(pixmap)
+        painter.setRenderHints(QPainter.Antialiasing)
+        pen = QPen(Qt.black, 2)
+        painter.setPen(pen)
+
+        # Lens
+        painter.drawEllipse(2, 2, 14, 14)
+        # Handle
+        painter.drawLine(13, 13, 21, 21)
+        # Center marker
+        painter.drawLine(6, 9, 12, 9)
+        if zoom_in:
+            painter.drawLine(9, 6, 9, 12)
+
+        painter.end()
+        return QCursor(pixmap, 2, 2)
 
     def set_image(self, image_path: Path | QPixmap | QImage):
         """
@@ -530,6 +560,10 @@ class BaseLayer(QWidget):
         layer.annotations = [ann.copy() for ann in self.annotations]
         # Copy child layers from the source layer (not from the new layer itself).
         layer.layers = [child.copy() for child in self.layers]
+        layer.plugins = [
+            plugin.copy() if hasattr(plugin, "copy") else plugin
+            for plugin in self.plugins
+        ]
         layer.layer_name = self.layer_name
         layer.file_path = Path(self.file_path)
         layer.position = self.position
@@ -569,13 +603,18 @@ class BaseLayer(QWidget):
 
     def mousePressEvent(self, event):
         self.setFocus()
+        self._mouse_widget_pos = (
+            event.position() if hasattr(event, "position") else QPointF(event.pos())
+        )
         self.handle_mouse_press(event)
 
         self.update()
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
-
+        self._mouse_widget_pos = (
+            event.position() if hasattr(event, "position") else QPointF(event.pos())
+        )
         self.handle_mouse_move(event)
         self.update()
         super().mouseMoveEvent(event)
@@ -585,6 +624,11 @@ class BaseLayer(QWidget):
         self.handle_mouse_release(event)
         self.update()
         super().mouseReleaseEvent(event)
+
+    def leaveEvent(self, event):
+        self._mouse_widget_pos = None
+        self.update()
+        super().leaveEvent(event)
 
     def wheelEvent(self, event):
         self.handle_wheel(event)
@@ -663,23 +707,116 @@ class BaseLayer(QWidget):
         self.annotationCleared.emit()
         self.update()
 
+    def _grid_view_transform(self) -> tuple[QPointF, float]:
+        """Return widget-space anchor offset and zoom used by the grid."""
+        anchor = self.offset if isinstance(self.offset, QPointF) else QPointF(0, 0)
+        zoom = float(self.scale) if self.scale else 1.0
+        return anchor, max(0.01, zoom)
+
+    def _draw_grid_overlay(self, painter: QPainter):
+        """Draw a lightweight screen-space grid overlay with hover highlight."""
+        if not getattr(self.config, "show_gridlines", False):
+            return
+
+        logical_spacing = max(16, int(getattr(self.config, "grid_spacing", 48)))
+        width = self.width()
+        height = self.height()
+        if width <= 0 or height <= 0:
+            return
+
+        grid_color = getattr(self.config, "grid_color", QColor(120, 120, 120, 80))
+        anchor, zoom = self._grid_view_transform()
+        base_step = logical_spacing * zoom
+        if base_step <= 0:
+            return
+
+        # Keep draw cost bounded when zoomed far out by skipping minor lines.
+        min_screen_step = 8.0
+        stride = max(1, int(math.ceil(min_screen_step / base_step)))
+        step = base_step * stride
+        anchor_x = float(anchor.x())
+        anchor_y = float(anchor.y())
+
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.Antialiasing, False)
+
+        pen = QPen(grid_color, 1)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        start_x = anchor_x % step
+        start_y = anchor_y % step
+
+        max_vlines = int(width / step) + 3
+        max_hlines = int(height / step) + 3
+
+        for i in range(max_vlines):
+            x = start_x + (i * step)
+            if x > width:
+                break
+            x_px = int(round(x))
+            painter.drawLine(x_px, 0, x_px, height)
+
+        for i in range(max_hlines):
+            y = start_y + (i * step)
+            if y > height:
+                break
+            y_px = int(round(y))
+            painter.drawLine(0, y_px, width, y_px)
+
+        hover_pos = self._mouse_widget_pos
+        if hover_pos is not None:
+            hover_x = int(hover_pos.x())
+            hover_y = int(hover_pos.y())
+            if 0 <= hover_x < width and 0 <= hover_y < height:
+                highlight_color = QColor(grid_color).lighter(190)
+                highlight_color.setAlpha(210)
+
+                snap_x = int(
+                    round((hover_x - anchor_x) / step) * step + anchor_x
+                )
+                snap_y = int(
+                    round((hover_y - anchor_y) / step) * step + anchor_y
+                )
+                snap_x = max(0, min(width, snap_x))
+                snap_y = max(0, min(height, snap_y))
+
+                snap_pen = QPen(highlight_color, 2)
+                snap_pen.setCosmetic(True)
+                painter.setPen(snap_pen)
+                painter.drawLine(snap_x, 0, snap_x, height)
+                painter.drawLine(0, snap_y, width, snap_y)
+
+                dot_size = 4
+                painter.setBrush(highlight_color)
+                painter.setPen(Qt.NoPen)
+                painter.drawEllipse(QPointF(snap_x, snap_y), dot_size, dot_size)
+
+        painter.restore()
+
     def paintEvent(self, event):
         self.paint_event()
 
     def paint_event(self):
         painter = QPainter(self)
+        try:
+            painter.setRenderHints(
+                QPainter.Antialiasing | QPainter.SmoothPixmapTransform
+            )
 
-        painter.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
-
-        painter.fillRect(
-            self.rect(),
-            QColor(
-                self.config.normal_draw_config.background_color.red(),
-                self.config.normal_draw_config.background_color.green(),
-                self.config.normal_draw_config.background_color.blue(),
-            ),
-        )
-        self.paint_layer(painter)
+            painter.fillRect(
+                self.rect(),
+                QColor(
+                    self.config.normal_draw_config.background_color.red(),
+                    self.config.normal_draw_config.background_color.green(),
+                    self.config.normal_draw_config.background_color.blue(),
+                ),
+            )
+            self.paint_layer(painter)
+            # Keep the grid in front of layer content.
+            self._draw_grid_overlay(painter)
+        finally:
+            painter.end()
 
     def paint_layer(self, painter: QPainter):
         raise NotImplementedError

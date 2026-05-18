@@ -64,6 +64,9 @@ class BaseConfig(BaseModel):
     normal_draw_config: DrawConfig = DrawConfig()
     zoom_in_factor: float = 1.1
     zoom_out_factor: float = 0.9
+    show_gridlines: bool = False
+    grid_spacing: int = 48
+    grid_color: QColor = Field(default_factory=lambda: QColor(120, 120, 120, 80))
 
     @property
     def assets_folder(self):
@@ -148,8 +151,8 @@ class CanvasConfig(BaseConfig):
 
 class CursorDef:
     POINT_CURSOR: Qt.CursorShape = Qt.CrossCursor
-    POLYGON_CURSOR: Qt.CursorShape = Qt.CrossCursor
-    RECTANGLE_CURSOR: Qt.CursorShape = Qt.CrossCursor
+    POLYGON_CURSOR: Qt.CursorShape = Qt.PointingHandCursor
+    RECTANGLE_CURSOR: Qt.CursorShape = Qt.SizeAllCursor
     IDLE_CURSOR: Qt.CursorShape = Qt.ArrowCursor
     PAN_CURSOR: Qt.CursorShape = Qt.OpenHandCursor
     ZOOM_IN_CURSOR: Qt.CursorShape = Qt.SizeFDiagCursor
@@ -157,7 +160,7 @@ class CursorDef:
     TRANSFORM_UPDOWN: Qt.CursorShape = Qt.SizeVerCursor
     TRANSFORM_LEFTRIGHT: Qt.CursorShape = Qt.SizeHorCursor
     TRANSFORM_ALL: Qt.CursorShape = Qt.SizeAllCursor
-    GRAB_CURSOR: Qt.CursorShape = Qt.OpenHandCursor
+    GRAB_CURSOR: Qt.CursorShape = Qt.DragMoveCursor
     GRABBING_CURSOR: Qt.CursorShape = Qt.ClosedHandCursor
     DRAW_CURSOR: Qt.CursorShape = Qt.CrossCursor
     ERASE_CURSOR: Qt.CursorShape = Qt.CrossCursor
