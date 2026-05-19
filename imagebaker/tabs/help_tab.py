@@ -52,10 +52,10 @@ class HelpTab(QWidget):
               <li><b>Ctrl + C / Ctrl + V</b>: Copy and paste selected layer.</li>
               <li><b>Ctrl + Z / Ctrl + Y</b>: Undo and redo on Baker edits.</li>
               <li><b>Delete</b>: Delete selected layer.</li>
-              <li><b>Ctrl + S</b>: Save current state.</li>
+              <li><b>S</b> or <b>Ctrl + S</b>: Save current state.</li>
               <li><b>Ctrl + D / Ctrl + E</b>: Toggle draw / erase mode.</li>
               <li><b>Mouse Wheel</b> in draw/erase: Change brush size.</li>
-              <li><b>W / S</b>: Move selected layer up / down in stack order.</li>
+              <li><b>W</b>: Move selected layer up in stack order.</li>
               <li><b>H</b>: Toggle visibility of selected layer.</li>
               <li><b>C</b>: Edit selected layer caption.</li>
             </ul>

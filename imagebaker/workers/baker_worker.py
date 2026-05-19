@@ -11,7 +11,7 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap, QPolygonF, QTransform
+from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPolygonF, QTransform
 
 from imagebaker import logger
 from imagebaker.core.defs.defs import Annotation, BakingResult, LayerState
@@ -32,6 +32,8 @@ class BakerWorker(QObject):
         states: dict[int, list["LayerState"]],
         layers: list["BaseLayer"],
         filename: Path,
+        render_cache: dict[tuple[int, int], QImage] | None = None,
+        timeline_total_steps: int | None = None,
     ):
         """
         Worker to bake the images and masks for a given set of states.
@@ -45,14 +47,63 @@ class BakerWorker(QObject):
         self.states = states  # Dictionary of step -> list of states
         self.layers = layers
         self.filename = filename
+        self.render_cache = render_cache or {}
+        self.timeline_total_steps = (
+            None if timeline_total_steps is None else int(timeline_total_steps)
+        )
+        self._fallback_render_cache: dict[tuple[int, int], QImage] = {}
 
         # logger.info(f"Received States: {self.states}")
+
+    @staticmethod
+    def _normalize_rgba_image(image: QImage) -> QImage:
+        if image.format() != QImage.Format_RGBA8888:
+            return image.convertToFormat(QImage.Format_RGBA8888)
+        return image
+
+    def _resolve_render_image(
+        self,
+        layer: "BaseLayer",
+        state: "LayerState",
+        timeline_step: int,
+        total_steps: int,
+    ) -> QImage:
+        key = (int(timeline_step), int(state.layer_id))
+        cached = self.render_cache.get(key)
+        if cached is not None:
+            return self._normalize_rgba_image(cached).copy()
+
+        fallback = self._fallback_render_cache.get(key)
+        if fallback is not None:
+            return fallback
+
+        try:
+            render_pixmap = apply_pixel_plugins(
+                layer=layer,
+                step=timeline_step,
+                total_steps=total_steps,
+                canvas=None,
+            )
+            image = self._normalize_rgba_image(render_pixmap.toImage()).copy()
+        except Exception as error:
+            logger.error(
+                f"Failed to render pixel plugins for layer {layer.layer_name}: {error}"
+            )
+            image = self._normalize_rgba_image(layer.image.toImage()).copy()
+
+        self._fallback_render_cache[key] = image
+        return image
 
     def process(self):
         results = []
         try:
-            total_steps = max(1, len(self.states))
-            for step_index, (step, states) in enumerate(sorted(self.states.items())):
+            if self.timeline_total_steps is None:
+                total_steps = max(1, len(self.states))
+            else:
+                total_steps = max(1, int(self.timeline_total_steps))
+
+            for step, states in sorted(self.states.items()):
+                timeline_step = int(step)
                 logger.info(f"Processing step {step}")
 
                 # Calculate bounding box for all layers in this step
@@ -76,13 +127,12 @@ class BakerWorker(QObject):
                         layer.layer_state = state
                         if update_opacities:
                             layer._apply_edge_opacity()
-                        layer.update()
 
-                        render_pixmap = apply_pixel_plugins(
+                        render_image = self._resolve_render_image(
                             layer=layer,
-                            step=step_index,
+                            state=state,
+                            timeline_step=timeline_step,
                             total_steps=total_steps,
-                            canvas=None,
                         )
 
                         transform = QTransform()
@@ -90,7 +140,7 @@ class BakerWorker(QObject):
                         transform.rotate(layer.rotation)
                         transform.scale(layer.scale_x, layer.scale_y)
 
-                        original_rect = QRectF(QPointF(0, 0), render_pixmap.size())
+                        original_rect = QRectF(QPointF(0, 0), render_image.size())
                         transformed_rect = transform.mapRect(original_rect)
 
                         top_left.setX(min(top_left.x(), transformed_rect.left()))
@@ -123,11 +173,11 @@ class BakerWorker(QObject):
                         layer = self._get_layer(state.layer_id)
 
                         if layer and layer.visible and not layer.image.isNull():
-                            render_pixmap = apply_pixel_plugins(
+                            render_image = self._resolve_render_image(
                                 layer=layer,
-                                step=step_index,
+                                state=state,
+                                timeline_step=timeline_step,
                                 total_steps=total_steps,
-                                canvas=None,
                             )
                             # Draw the layer image with transformations
                             painter.save()
@@ -135,18 +185,8 @@ class BakerWorker(QObject):
                                 painter.translate(layer.position - top_left)
                                 painter.rotate(layer.rotation)
                                 painter.scale(layer.scale_x, layer.scale_y)
-                                pixmap_with_alpha = QPixmap(render_pixmap.size())
-                                pixmap_with_alpha.fill(Qt.transparent)
-
-                                temp_painter = QPainter(pixmap_with_alpha)
-                                try:
-                                    opacity = layer.opacity / 255.0
-                                    temp_painter.setOpacity(opacity)
-                                    temp_painter.drawPixmap(0, 0, render_pixmap)
-                                finally:
-                                    temp_painter.end()
-
-                                painter.drawPixmap(0, 0, pixmap_with_alpha)
+                                painter.setOpacity(layer.opacity / 255.0)
+                                painter.drawImage(QPoint(0, 0), render_image)
                             finally:
                                 painter.restore()
 
@@ -192,7 +232,7 @@ class BakerWorker(QObject):
                                 mask_painter.translate(layer.position - top_left)
                                 mask_painter.rotate(layer.rotation)
                                 mask_painter.scale(layer.scale_x, layer.scale_y)
-                                mask_painter.drawPixmap(QPoint(0, 0), render_pixmap)
+                                mask_painter.drawImage(QPoint(0, 0), render_image)
 
                                 if state.drawing_states:
                                     mask_painter.save()

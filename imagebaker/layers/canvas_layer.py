@@ -16,6 +16,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QBrush,
     QColor,
+    QImage,
     QKeyEvent,
     QMouseEvent,
     QPainter,
@@ -237,6 +238,73 @@ class CanvasLayer(BaseLayer):
             self._plugin_render_cache.pop(next(iter(self._plugin_render_cache)))
         return rendered
 
+    def _build_export_render_cache(
+        self,
+        states: dict[int, list],
+        timeline_total_steps: int | None = None,
+    ) -> dict[tuple[int, int], QImage]:
+        """
+        Pre-render plugin-adjusted layer images for export/predict in the UI thread.
+
+        Returns:
+            Mapping of (timeline_step, layer_id) -> QImage (RGBA8888).
+        """
+        render_cache: dict[tuple[int, int], QImage] = {}
+        if not states or not self.layers:
+            return render_cache
+
+        state_snapshots = {
+            layer.layer_id: layer.layer_state.copy() for layer in self.layers
+        }
+        image_snapshots = {
+            layer.layer_id: layer.image.copy() for layer in self.layers
+        }
+        sorted_items = sorted(states.items())
+        if timeline_total_steps is None:
+            total_steps = max(1, len(sorted_items))
+        else:
+            total_steps = max(1, int(timeline_total_steps))
+
+        try:
+            for step_key, step_states in sorted_items:
+                timeline_step = int(step_key)
+                for state in step_states:
+                    layer = self.get_layer(state.layer_id)
+                    if layer is None or layer.image.isNull():
+                        continue
+
+                    # Keep export plugin renders aligned with per-state edge settings.
+                    update_opacities = (
+                        layer.edge_width != state.edge_width
+                        or layer.edge_opacity != state.edge_opacity
+                    )
+                    layer.layer_state = state
+                    if update_opacities:
+                        layer._apply_edge_opacity()
+
+                    render_pixmap = self._get_layer_render_pixmap(
+                        layer=layer,
+                        step=timeline_step,
+                        total_steps=total_steps,
+                    )
+                    if render_pixmap.isNull():
+                        continue
+
+                    image = render_pixmap.toImage()
+                    if image.format() != QImage.Format_RGBA8888:
+                        image = image.convertToFormat(QImage.Format_RGBA8888)
+                    render_cache[(timeline_step, state.layer_id)] = image.copy()
+        finally:
+            for layer in self.layers:
+                snapshot_state = state_snapshots.get(layer.layer_id)
+                snapshot_image = image_snapshots.get(layer.layer_id)
+                if snapshot_state is not None:
+                    layer.layer_state = snapshot_state
+                if snapshot_image is not None:
+                    layer.image = snapshot_image
+
+        return render_cache
+
     def save_current_state(self, steps: int = 1):
         """Save current state and apply plugins for each generated step."""
         curr_states = {}
@@ -278,7 +346,12 @@ class CanvasLayer(BaseLayer):
             DrawingState(position=d.position, color=d.color, size=d.size)
             for d in self.layer_state.drawing_states
         ]
-        self.messageSignal.emit(f"Saved state {self.current_step}")
+        self.messageSignal.emit(
+            "State saved."
+            + f" Total states: {len(self.states)}"
+            + f" | Steps: {total_steps}"
+            + f" | Current step: {self.current_step}"
+        )
         self.mouse_mode = mode
         self.update()
 
@@ -504,7 +577,6 @@ class CanvasLayer(BaseLayer):
 
         if event.modifiers() == Qt.ControlModifier and event.key() == Qt.Key_S:
             self.save_current_state(steps=1)
-            self.messageSignal.emit("Current state saved.")
             event.accept()
             return
 
@@ -544,7 +616,7 @@ class CanvasLayer(BaseLayer):
             return
 
         if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_S:
-            self._move_selected_layer_down()
+            self.save_current_state(steps=1)
             event.accept()
             return
 
@@ -1594,9 +1666,33 @@ class CanvasLayer(BaseLayer):
             timestamp=datetime.now().strftime("%Y%m%d_%H%M%S"),
         )
         filename = self.config.export_folder / f"{filename}.png"
-        logger.info(f"Exporting baked image to {filename}")
-        self.states = {0: self._build_states_for_step(step=0, total_steps=1)}
-        logger.debug(f"Exporting states: {self.states}")
+        logger.info(f"Exporting current baked image to {filename}")
+
+        if self.states:
+            step_key = (
+                int(self.current_step)
+                if int(self.current_step) in self.states
+                else self._step_key_for_index(self._current_step_index)
+            )
+            if step_key is None:
+                step_key = min(self.states.keys())
+            export_states = {int(step_key): self.states[int(step_key)]}
+            timeline_total_steps = max(1, len(self.states))
+            cache_source_states = {
+                int(k): self.states[int(k)]
+                for k in sorted(self.states.keys())
+                if int(k) <= int(step_key)
+            }
+            if not cache_source_states:
+                cache_source_states = export_states
+            self.messageSignal.emit(f"Exporting current timeline step {step_key}.")
+        else:
+            export_states = {0: self._build_states_for_step(step=0, total_steps=1)}
+            timeline_total_steps = 1
+            cache_source_states = export_states
+            self.messageSignal.emit("No saved states found. Exporting current live state.")
+
+        logger.debug(f"Exporting current state payload: {list(export_states.keys())}")
 
         self.loading_dialog = QProgressDialog(
             "Baking Please wait...", "Cancel", 0, 0, self.parentWidget()
@@ -1612,10 +1708,16 @@ class CanvasLayer(BaseLayer):
 
         # Setup worker thread
         self.worker_thread = QThread()
+        export_render_cache = self._build_export_render_cache(
+            cache_source_states,
+            timeline_total_steps=timeline_total_steps,
+        )
         self.worker = BakerWorker(
             layers=self.layers,
-            states=self.states,
+            states=export_states,
             filename=filename,
+            render_cache=export_render_cache,
+            timeline_total_steps=timeline_total_steps,
         )
         self.worker.moveToThread(self.worker_thread)
 
@@ -1786,11 +1888,12 @@ class CanvasLayer(BaseLayer):
 
     def export_baked_states(self, export_to_annotation_tab=False):
         """Export all the states stored in self.states."""
+        export_states = self.states
         if len(self.states) == 0:
             msg = "No states to export. Creating a single image."
             logger.warning(msg)
             self.messageSignal.emit(msg)
-            self.states = {0: self._build_states_for_step(step=0, total_steps=1)}
+            export_states = {0: self._build_states_for_step(step=0, total_steps=1)}
 
         filename = self.config.filename_format.format(
             project_name=self.config.project_name,
@@ -1810,8 +1913,17 @@ class CanvasLayer(BaseLayer):
 
         # Setup worker thread
         self.worker_thread = QThread()
+        timeline_total_steps = max(1, len(self.states)) if self.states else 1
+        export_render_cache = self._build_export_render_cache(
+            export_states,
+            timeline_total_steps=timeline_total_steps,
+        )
         self.worker = BakerWorker(
-            states=self.states, layers=self.layers, filename=filename
+            states=export_states,
+            layers=self.layers,
+            filename=filename,
+            render_cache=export_render_cache,
+            timeline_total_steps=timeline_total_steps,
         )
         self.worker.moveToThread(self.worker_thread)
 

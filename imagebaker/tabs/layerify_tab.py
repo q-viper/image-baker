@@ -236,9 +236,42 @@ class LayerifyTab(QWidget):
             return Path(image_entry.data.file_path)
         return Path(image_entry.data)
 
+    def _find_image_entry_index(self, image_entry: ImageEntry) -> int:
+        """
+        Resolve an image entry index robustly.
+
+        Qt list item payloads can occasionally come back as equal-value objects
+        that do not share identity with the original list object.
+        """
+        for idx, entry in enumerate(self.image_entries):
+            if entry is image_entry:
+                return idx
+
+        for idx, entry in enumerate(self.image_entries):
+            if entry == image_entry:
+                return idx
+
+        target_path = str(self._entry_file_path(image_entry))
+        target_kind = bool(getattr(image_entry, "is_baked_result", False))
+        for idx, entry in enumerate(self.image_entries):
+            if bool(entry.is_baked_result) != target_kind:
+                continue
+            if str(self._entry_file_path(entry)) == target_path:
+                return idx
+
+        return -1
+
     def on_image_selected(self, image_entry: ImageEntry):
         """Handle image selection from the image list panel."""
         logger.info(f"Image selected: {image_entry}")
+
+        # Persist current layer before remapping the visible slot.
+        if (
+            self.layer is not None
+            and self.layer.file_path
+            and Path(self.layer.file_path) != Path("Runtime")
+        ):
+            self.save_layer_annotations(self.layer, delete_if_empty=False)
 
         # Hide all layers first
         for _idx, layer in enumerate(self.annotable_layers):
@@ -250,15 +283,11 @@ class LayerifyTab(QWidget):
         # Render selected entry into a deterministic visible slot to avoid
         # page-index/modulo remapping bugs.
         selected_layer = self.annotable_layers[0]
-        # Resolve by object identity to avoid wrong matches when equal-value
-        # entries (same path) exist in the list.
-        self.curr_image_idx = next(
-            (idx for idx, entry in enumerate(self.image_entries) if entry is image_entry),
-            -1,
-        )
+        self.curr_image_idx = self._find_image_entry_index(image_entry)
         if self.curr_image_idx < 0:
-            logger.warning("Selected image entry not found in image_entries.")
-            return
+            # Still continue using the selected entry path so switching works.
+            logger.warning("Selected image entry index not found, using direct entry path.")
+            self.curr_image_idx = 0
         selected_layer.setVisible(True)
 
         selected_path = self._entry_file_path(image_entry)
@@ -312,6 +341,7 @@ class LayerifyTab(QWidget):
 
                 else:
                     layer.setVisible(False)
+                    layer.file_path = Path("Runtime")
 
             self.messageSignal.emit(f"Showing image 1/{len(self.image_entries)}")
         else:
@@ -331,10 +361,18 @@ class LayerifyTab(QWidget):
     ):
         """Save annotations for a specific layer"""
         file_path = layer.file_path
+        if not file_path or Path(file_path) == Path("Runtime"):
+            return
         if save_dir is None:
             # Save to the cache directory
             save_dir = self.config.cache_dir
         save_dir = self._cache_path_for_file(file_path, save_dir)
+
+        # Keep annotation metadata aligned to the owning image.
+        for index, annotation in enumerate(layer.annotations):
+            annotation.annotation_id = index
+            annotation.selected = False
+            annotation.file_path = Path(file_path)
 
         # if there are annotations
         if len(layer.annotations) > 0:
@@ -353,6 +391,111 @@ class LayerifyTab(QWidget):
         digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:12]
         safe_name = Path(file_path).name
         return base_dir / f"{safe_name}.{digest}.json"
+
+    def cleanup_stale_annotation_cache(self) -> tuple[int, int]:
+        """
+        Remove stale/orphan cache files and migrate legacy cache names.
+
+        Returns:
+            tuple[int, int]: (removed_count, migrated_count)
+        """
+        cache_dir = self.config.cache_dir
+        if not cache_dir.exists():
+            return 0, 0
+
+        runtime_path = Path("Runtime")
+        expected_cache_paths: set[Path] = set()
+
+        for image_entry in self.image_entries:
+            try:
+                expected_cache_paths.add(
+                    self._cache_path_for_file(self._entry_file_path(image_entry)).resolve()
+                )
+            except Exception:
+                continue
+
+        for layer in self.annotable_layers:
+            layer_path = Path(getattr(layer, "file_path", runtime_path))
+            if layer_path == runtime_path:
+                continue
+            expected_cache_paths.add(self._cache_path_for_file(layer_path).resolve())
+
+        removed = 0
+        migrated = 0
+
+        for cache_file in cache_dir.glob("*.json"):
+            cache_file = cache_file.resolve()
+            if cache_file.name == "all_annotations.json":
+                continue
+            if cache_file in expected_cache_paths:
+                continue
+
+            try:
+                annotations = Annotation.load_from_json(cache_file)
+            except Exception:
+                # Corrupted or invalid JSON cache file.
+                try:
+                    cache_file.unlink()
+                    removed += 1
+                except Exception:
+                    pass
+                continue
+
+            if not annotations:
+                try:
+                    cache_file.unlink()
+                    removed += 1
+                except Exception:
+                    pass
+                continue
+
+            ann_paths = []
+            for annotation in annotations:
+                ann_path = Path(getattr(annotation, "file_path", runtime_path))
+                if ann_path != runtime_path:
+                    ann_paths.append(ann_path)
+
+            if not ann_paths:
+                try:
+                    cache_file.unlink()
+                    removed += 1
+                except Exception:
+                    pass
+                continue
+
+            existing_paths = [path for path in ann_paths if path.exists()]
+            if not existing_paths:
+                try:
+                    cache_file.unlink()
+                    removed += 1
+                except Exception:
+                    pass
+                continue
+
+            # Migrate legacy per-image cache filenames to current hashed format.
+            unique_paths = set(existing_paths)
+            if len(unique_paths) == 1:
+                source_path = next(iter(unique_paths))
+                target_cache = self._cache_path_for_file(source_path).resolve()
+                if target_cache != cache_file:
+                    for idx, annotation in enumerate(annotations):
+                        annotation.annotation_id = idx
+                        annotation.selected = False
+                        annotation.file_path = source_path
+                    if not target_cache.exists():
+                        Annotation.save_as_json(annotations, target_cache)
+                    try:
+                        cache_file.unlink()
+                        removed += 1
+                        migrated += 1
+                    except Exception:
+                        pass
+
+        if removed > 0:
+            logger.info(
+                f"Cache cleanup complete. Removed {removed} stale cache file(s), migrated {migrated}."
+            )
+        return removed, migrated
 
     def get_all_annotations(self) -> list[Annotation]:
         for layer in self.annotable_layers:
@@ -427,9 +570,10 @@ class LayerifyTab(QWidget):
 
     def update_active_entries(self, image_entries: list[ImageEntry]):
         """Update the active entries in the image list panel."""
-        # Persist only the actively edited layer before remapping page slots.
-        if self.layer is not None:
-            self.save_layer_annotations(self.layer, delete_if_empty=False)
+        # Persist all currently mapped layers before remapping page slots.
+        for layer in self.annotable_layers:
+            if layer.file_path:
+                self.save_layer_annotations(layer, delete_if_empty=False)
         self.curr_image_idx = 0
         page_start = self.image_list_panel.current_page * self.image_list_panel.images_per_page
         for i, layer in enumerate(self.annotable_layers):
@@ -457,6 +601,7 @@ class LayerifyTab(QWidget):
                     self.annotation_list.update_list()
             else:
                 layer.setVisible(False)
+                layer.file_path = Path("Runtime")
         logger.info("Updated active entries in image list panel.")
 
     def clear_annotations(self):

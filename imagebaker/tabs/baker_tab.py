@@ -97,6 +97,7 @@ class BakerTab(QWidget):
         # Connections
         self.layer_settings.messageSignal.connect(self.messageSignal.emit)
         self.layer_settings.beforeLayerEdit.connect(self.capture_undo_state)
+        self.current_canvas.messageSignal.connect(self.messageSignal.emit)
         self.current_canvas.bakingResult.connect(self.bakingResult.emit)
         self.current_canvas.layersChanged.connect(self.update_list)
         self.current_canvas.layerRemoved.connect(self.update_list)
@@ -250,6 +251,7 @@ class BakerTab(QWidget):
         # already added to the list
         # self.canvases.append(new_canvas)  # Add to the deque
 
+        self.current_canvas.messageSignal.connect(self.messageSignal.emit)
         self.current_canvas.bakingResult.connect(self.bakingResult.emit)
         self.current_canvas.layersChanged.connect(self.update_list)
         self.current_canvas.layerRemoved.connect(self.update_list)
@@ -431,12 +433,8 @@ class BakerTab(QWidget):
         logger.info(f"Saving current state for {self.steps_spinbox.value()}...")
 
         self.current_canvas.save_current_state(steps=self.steps_spinbox.value())
-        self.messageSignal.emit(
-            f"Current state saved. Total states: {len(self.current_canvas.states)}"
-        )
 
-        self.steps_spinbox.setValue(1)
-        self.steps_spinbox.update()
+        self._reset_steps_input()
 
         total_states = len(self.current_canvas.states)
         if total_states > 0:
@@ -449,6 +447,11 @@ class BakerTab(QWidget):
             self.timeline_slider.setMaximum(0)
             self.timeline_slider.setEnabled(False)
         self.timeline_slider.update()
+
+    def _reset_steps_input(self):
+        """Reset steps control back to 1 after saving a state."""
+        self.steps_spinbox.setValue(1)
+        self.steps_spinbox.update()
 
     def clear_states(self):
         """Clear all saved states and disable the timeline slider."""
@@ -692,6 +695,8 @@ class BakerTab(QWidget):
         )
         if handled_by_canvas and self.current_canvas is not None:
             self.current_canvas.handle_key_press(event)
+            if event.isAccepted() and event.key() == Qt.Key_S:
+                self._reset_steps_input()
             self.current_canvas.update()
             self.layer_list.update_list()
             self.layer_settings.update_sliders()

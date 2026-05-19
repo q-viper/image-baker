@@ -14,7 +14,22 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/q-viper/Image-Baker",
     license="MIT",
-    packages=setuptools.find_packages(exclude=["docs", "docs.*", "site", "site.*", "assets", "assets.*", "examples", "examples.*", "tests", "tests.*", "experiments", "experiments.*"]),
+    packages=setuptools.find_packages(
+        exclude=[
+            "docs",
+            "docs.*",
+            "site",
+            "site.*",
+            "assets",
+            "assets.*",
+            "examples",
+            "examples.*",
+            "tests",
+            "tests.*",
+            "experiments",
+            "experiments.*",
+        ]
+    ),
     python_requires=">=3.10",
     classifiers=[
         "Programming Language :: Python :: 3",
@@ -25,10 +40,11 @@ setuptools.setup(
         "numpy>=1.24.0",
         "opencv-python>=4.8.0",
         "pillow>=10.0.0",
-        "pydantic>=2.11.1",
         "typer>=0.9.0",
         "PySide6==6.8.3",
         "loguru",
+        "smokesim>=0.0.33",
+        "pydantic>=2.11.1",
     ],
     entry_points={
         "console_scripts": [

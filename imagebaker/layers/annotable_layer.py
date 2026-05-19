@@ -303,6 +303,7 @@ class AnnotableLayer(BaseLayer):
         painter.setRenderHints(
             QPainter.Antialiasing | QPainter.SmoothPixmapTransform
         )
+        self.label_rects.clear()
 
         if not self.image.isNull():
             painter.save()
@@ -471,12 +472,16 @@ class AnnotableLayer(BaseLayer):
         )
 
         # Draw labels only for completed, non-active annotations.
-        if annotation.is_complete and annotation.label and not is_temp and not is_active_annotation:
-            # painter.save()
+        if (
+            annotation.is_complete
+            and annotation.label
+            and not is_temp
+            and not is_active_annotation
+        ):
             label_pos = self.get_label_position(annotation)
             text = annotation.label
 
-            # Convert to widget coordinates
+            # Convert to widget coordinates because we draw labels in screen space.
             widget_pos = QPointF(
                 label_pos.x() * self.scale + self.offset.x(),
                 label_pos.y() * self.scale + self.offset.y(),
@@ -485,85 +490,70 @@ class AnnotableLayer(BaseLayer):
             if annotation.points:
                 widget_pos += QPointF(10, 10)
 
-            # Set up font
-            font = painter.font()
-            font.setPixelSize(
-                self.config.normal_draw_config.label_font_size * self.scale
-            )  # Fixed screen size
-            painter.setFont(font)
-
-            # Calculate text size
-            metrics = painter.fontMetrics()
-            text_width = metrics.horizontalAdvance(text)
-            text_height = metrics.height()
-
-            # Draw background
-            bg_rect = QRectF(
-                widget_pos.x() - text_width / 2 - 2,
-                widget_pos.y() - text_height / 2 - 2,
-                text_width + 4,
-                text_height + 4,
+            zoom = max(0.1, float(self.scale))
+            label_px = int(
+                round(self.config.normal_draw_config.label_font_size * zoom)
             )
-            painter.resetTransform()
-            painter.setBrush(self.config.normal_draw_config.label_font_background_color)
-            painter.setPen(Qt.NoPen)
-            painter.drawRect(bg_rect)
+            label_px = max(9, min(48, label_px))
 
-            # Draw text
+            painter.resetTransform()
+
+            label_font = painter.font()
+            label_font.setPixelSize(label_px)
+            label_font.setItalic(False)
+            label_font.setWeight(QFont.DemiBold)
+            painter.setFont(label_font)
+
+            label_metrics = painter.fontMetrics()
+            label_width = label_metrics.horizontalAdvance(text)
+            label_height = label_metrics.height()
+
+            bg_rect = QRectF(
+                widget_pos.x() - label_width / 2 - 4,
+                widget_pos.y() - label_height / 2 - 3,
+                label_width + 8,
+                label_height + 6,
+            )
+            self.label_rects.append((bg_rect, annotation))
+
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(self.config.normal_draw_config.label_font_background_color)
+            painter.drawRoundedRect(bg_rect, 3, 3)
+
             painter.setPen(Qt.white)
             painter.drawText(bg_rect, Qt.AlignCenter, text)
 
-            # now if the annotations has caption,
-            # draw the caption below the label in itallic
-            # just below the label, in a font lighter than a label
-
             if annotation.caption:
-                caption_font = painter.font()
-                # Draw a background rectangle for the caption to ensure visibility
                 caption_text = annotation.caption
-                caption_font.setItalic(True)
-                caption_font.setPixelSize(
-                    self.config.selected_draw_config.label_font_size * self.scale + 2
+                caption_px = int(
+                    round(self.config.selected_draw_config.label_font_size * zoom)
                 )
+                caption_px = max(8, min(40, caption_px))
+
+                caption_font = painter.font()
+                caption_font.setItalic(True)
+                caption_font.setPixelSize(caption_px)
                 caption_font.setWeight(QFont.Light)
                 painter.setFont(caption_font)
-                metrics = painter.fontMetrics()
-                text_width = metrics.horizontalAdvance(caption_text)
-                text_height = metrics.height()
-                # Draw background rectangle for caption
+
+                caption_metrics = painter.fontMetrics()
+                caption_width = caption_metrics.horizontalAdvance(caption_text)
+                caption_height = caption_metrics.height()
                 caption_rect = QRectF(
-                    widget_pos.x() - text_width / 2 - 2,
-                    widget_pos.y() + text_height / 2 - 2,
-                    text_width + 4,
-                    text_height + 4,
+                    widget_pos.x() - caption_width / 2 - 4,
+                    bg_rect.bottom() + 2,
+                    caption_width + 8,
+                    caption_height + 4,
                 )
+
                 painter.setPen(Qt.NoPen)
                 painter.setBrush(
                     self.config.normal_draw_config.label_font_background_color
                 )
-                painter.drawRect(caption_rect)
-                # Draw caption text
+                painter.drawRoundedRect(caption_rect, 3, 3)
+
                 painter.setPen(Qt.white)
                 painter.drawText(caption_rect, Qt.AlignCenter, caption_text)
-                caption_font.setItalic(True)
-                caption_font.setPixelSize(
-                    self.config.selected_draw_config.label_font_size * self.scale + 2
-                )
-                caption_font.setWeight(QFont.Light)
-                painter.setFont(caption_font)
-                metrics = painter.fontMetrics()
-                text_width = metrics.horizontalAdvance(annotation.caption)
-                text_height = metrics.height()
-                painter.setPen(Qt.white)
-                painter.setBrush(Qt.gray)
-
-                caption_rect = QRectF(
-                    widget_pos.x() - text_width / 2 - 2,
-                    widget_pos.y() + text_height / 2 - 2,
-                    text_width + 4,
-                    text_height + 4,
-                )
-                painter.drawText(caption_rect, Qt.AlignCenter, annotation.caption)
 
         painter.restore()
 

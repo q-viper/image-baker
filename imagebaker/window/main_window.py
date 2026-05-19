@@ -512,7 +512,8 @@ class MainWindow(QMainWindow):
         else:
             # save the annotations to disk
             for layer in self.layerify_tab.annotable_layers:
-                self.layerify_tab.save_layer_annotations(layer)
+                self.layerify_tab.save_layer_annotations(layer, delete_if_empty=False)
+            self.layerify_tab.cleanup_stale_annotation_cache()
 
             for canvas in self.baker_tab.canvases:
                 self.baker_tab.save_canvas_to_cache(canvas)
