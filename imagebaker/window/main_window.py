@@ -37,7 +37,6 @@ class MainWindow(QMainWindow):
         """Initialize the main window and set up tabs."""
         try:
             self.setWindowTitle(f"Image Baker v{__version__}")
-            self.setGeometry(100, 100, 1200, 800)
 
             self.status_bar = self.statusBar()
             self.status_bar.showMessage("Ready")
@@ -70,6 +69,7 @@ class MainWindow(QMainWindow):
             # Handle initial tab state
             self.handle_tab_change(0)
             self.apply_theme(self.theme_mode)
+            QTimer.singleShot(0, self._fit_to_screen)
 
         except Exception as e:
             logger.error(f"MainWindow initialization error: {e}")
@@ -77,6 +77,20 @@ class MainWindow(QMainWindow):
 
             traceback.print_exc()
             QMessageBox.critical(self, "Initialization Error", str(e))
+
+    def _fit_to_screen(self):
+        """Size the initial window in logical pixels, leaving room for decorations."""
+        screen = self.screen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        self.resize(
+            min(1200, int(available.width() * 0.9)),
+            min(800, int(available.height() * 0.9)),
+        )
+        frame = self.frameGeometry()
+        frame.moveCenter(available.center())
+        self.move(frame.topLeft())
 
     def _connect_final_signals(self):
         """Connect signals that might require fully initialized objects"""

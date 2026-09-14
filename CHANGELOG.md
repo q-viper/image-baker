@@ -1,3 +1,12 @@
+## 0.0.63 — September 14 2026
+
+### Fixed
+* Size the initial application window to the available desktop area.
+* Keep Layerify and Baker tools accessible with horizontally scrollable toolbars.
+* Allow layer settings to scroll on smaller screens.
+* Require compatible setuptools and setuptools-scm versions for package builds.
+* Stop tracking the generated version file to avoid build-induced version changes.
+
 ## May 19 2026
 
 ## Added

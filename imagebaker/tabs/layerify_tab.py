@@ -45,6 +45,7 @@ from imagebaker.layers.annotable_layer import AnnotableLayer
 from imagebaker.list_views import AnnotationList
 from imagebaker.list_views.image_list import ImageListPanel
 from imagebaker.utils.image import qpixmap_to_numpy
+from imagebaker.utils.scrollable_toolbar import ScrollableToolbar
 from imagebaker.workers import ModelPredictionWorker
 
 
@@ -159,7 +160,7 @@ class LayerifyTab(QWidget):
 
         # Create a dock widget for the toolbar
         self.toolbar_dock = QDockWidget("Tools", self)
-        self.toolbar_dock.setWidget(self.toolbar)
+        self.toolbar_dock.setWidget(ScrollableToolbar(self.toolbar))
         self.toolbar_dock.setFeatures(
             QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable
         )

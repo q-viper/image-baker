@@ -25,6 +25,7 @@ from imagebaker.layers.canvas_layer import CanvasLayer
 from imagebaker.list_views import LayerList, LayerSettings
 from imagebaker.list_views.canvas_list import CanvasList
 from imagebaker.plugins.discovery import discover_plugin_classes
+from imagebaker.utils.scrollable_toolbar import ScrollableToolbar
 
 
 class BakerTab(QWidget):
@@ -88,7 +89,7 @@ class BakerTab(QWidget):
 
         # Create a dock widget for the toolbar
         self.toolbar_dock = QDockWidget("Tools", self)
-        self.toolbar_dock.setWidget(self.toolbar)
+        self.toolbar_dock.setWidget(ScrollableToolbar(self.toolbar))
         self.toolbar_dock.setFeatures(
             QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable
         )

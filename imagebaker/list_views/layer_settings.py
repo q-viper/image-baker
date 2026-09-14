@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QScrollArea,
     QSizePolicy,
     QSlider,
     QVBoxLayout,
@@ -47,7 +48,10 @@ class LayerSettings(QDockWidget):
         """Initialize the UI elements."""
         logger.info("Initializing LayerSettings")
         self.widget = QWidget()
-        self.setWidget(self.widget)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self.widget)
+        self.setWidget(scroll)
         self.main_layout = QVBoxLayout(self.widget)
         self.main_layout.setContentsMargins(10, 10, 10, 10)  # Add some padding
         self.main_layout.setSpacing(10)
