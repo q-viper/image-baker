@@ -42,6 +42,15 @@ This project is also available on the PyPI server.
 pip install imagebaker
 ```
 
+SmokeSim is optional. Install the additional plugins with:
+
+```bash
+pip install "imagebaker[plugins]"
+```
+
+Without the `plugins` extra, ImageBaker runs normally and simply omits the
+SmokeSim plugin.
+
 #### Developing
 Please, clone this repository and install it locally:
 
@@ -52,6 +61,12 @@ cd image-baker
 python -m venv .venv       # create a virtual environment
 .venv\Scripts\activate     # activate the virtual environment
 pip install -e .
+```
+
+To develop with the optional plugins:
+
+```powershell
+pip install -e ".[plugins]"
 ```
 
 ### Usage

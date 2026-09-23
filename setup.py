@@ -43,7 +43,6 @@ setuptools.setup(
         "typer>=0.9.0",
         "PySide6==6.8.3",
         "loguru",
-        "smokesim>=0.0.33",
         "pydantic>=2.11.1",
     ],
     entry_points={
@@ -52,6 +51,11 @@ setuptools.setup(
         ],
     },
     extras_require={
+        "plugins": [
+            "smokesim==0.0.33",
+            "numpy>=1.24.0,<2",
+            "opencv-python>=4.8.0,<4.10",
+        ],
         "docs": [
             "mkdocs>=1.4",
             "mkdocs-material>=9.0",

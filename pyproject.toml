@@ -33,10 +33,14 @@ dependencies = [
     "pydantic>=2.11.1",
     "typer>=0.9.0",
     "loguru>=0.7.0",
-    "smokesim>=0.0.32",
 ]
 
 [project.optional-dependencies]
+plugins = [
+    "smokesim==0.0.33",
+    "numpy>=1.24.0,<2",
+    "opencv-python>=4.8.0,<4.10",
+]
 dev = [
     "ruff>=0.1.0",
     "pytest>=7.0.0",
