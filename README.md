@@ -1,4 +1,7 @@
 # Image-Baker
+
+**ImageBaker currently runs only on Windows machines. Linux and macOS are not supported.**
+
 ![Dependabot Status](https://img.shields.io/badge/dependabot-active-brightgreen)
 ![GitHub License](https://img.shields.io/github/license/q-viper/image-baker)
 ![commit activity](https://img.shields.io/github/commit-activity/w/q-viper/SmokeSim/master)
@@ -48,12 +51,6 @@ git clone https://github.com/q-viper/image-baker.git
 cd image-baker
 python -m venv .venv       # create a virtual environment
 .venv\Scripts\activate     # activate the virtual environment
-pip install -e .
-```
-**For Linux/macOS users:**
-```bash
-git clone https://github.com/q-viper/image-baker.git 
-cd image-baker
 pip install -e .
 ```
 
