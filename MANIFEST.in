@@ -8,6 +8,7 @@ include mkdocs.yml
 # Include package data
 recursive-include imagebaker *.py
 recursive-include imagebaker *.json
+recursive-include imagebaker/web/static *.html *.css *.js
 
 # Exclude documentation and assets
 prune docs

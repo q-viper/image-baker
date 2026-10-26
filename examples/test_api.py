@@ -2,11 +2,19 @@
 Simple test script to verify ImageBaker API functionality.
 """
 
+import os
 import sys
 from pathlib import Path
 
 # Add parent to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+if (
+    sys.platform != "win32"
+    and not os.environ.get("DISPLAY")
+    and not os.environ.get("WAYLAND_DISPLAY")
+):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 # Initialize Qt application for testing
 from PySide6.QtWidgets import QApplication
@@ -111,7 +119,7 @@ def test_baker_basic():
         img2 = np.random.randint(0, 255, (80, 80, 3), dtype=np.uint8)
 
         # Add layers
-        layer1 = baker.add_layer_from_array(img1, "layer1")
+        baker.add_layer_from_array(img1, "layer1")
         layer2 = baker.add_layer_from_array(img2, "layer2")
 
         print(f"[OK] Added {baker.get_layer_count()} layers")

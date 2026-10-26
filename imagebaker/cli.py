@@ -4,6 +4,7 @@ ImageBaker CLI
 Command-line interface for ImageBaker operations.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -18,6 +19,12 @@ def ensure_qapp():
     """Ensure QApplication is initialized."""
     global _app
     if _app is None:
+        if (
+            sys.platform != "win32"
+            and not os.environ.get("DISPLAY")
+            and not os.environ.get("WAYLAND_DISPLAY")
+        ):
+            os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         _app = QApplication.instance() or QApplication(sys.argv)
     return _app
 
@@ -82,6 +89,45 @@ def gui(
         models_file=models_file or "loaded_models.py",
         project_dir=project_dir,
         configs_file=configs_file or "imagebaker/core/configs.py"
+    )
+
+
+@app.command()
+def web(
+    host: str = typer.Option(
+        "127.0.0.1", "--host", "-h", help="Host interface to bind the web server to."
+    ),
+    port: int = typer.Option(
+        8765, "--port", "-p", help="Port number to bind the web server to."
+    ),
+    models_file: str | None = typer.Option(
+        None, help="Path to Python file defining LOADED_MODELS."
+    ),
+    project_dir: str = typer.Option(
+        ".", help="The project directory to use for the application."
+    ),
+    configs_file: str | None = typer.Option(
+        None,
+        help="Python file with LayerConfig and CanvasConfig subclasses.",
+    ),
+    open_browser: bool = typer.Option(
+        True,
+        "--open-browser/--no-open-browser",
+        help="Automatically open the web application in the default browser.",
+    ),
+):
+    """
+    Launch the standalone cross-platform ImageBaker web application.
+    """
+    from imagebaker.web.server import run_web_server
+
+    run_web_server(
+        host=host,
+        port=port,
+        models_file=models_file or "loaded_models.py",
+        project_dir=project_dir,
+        configs_file=configs_file or "imagebaker/core/configs.py",
+        open_browser=open_browser,
     )
 
 

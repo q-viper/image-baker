@@ -5,18 +5,26 @@ This script demonstrates how to use ImageBaker programmatically
 without the GUI.
 """
 
+import os
 import sys
 from pathlib import Path
 
 # Add parent directory to path for development
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+if (
+    sys.platform != "win32"
+    and not os.environ.get("DISPLAY")
+    and not os.environ.get("WAYLAND_DISPLAY")
+):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 # Initialize Qt application for headless operation
 from PySide6.QtWidgets import QApplication
 
 app = QApplication.instance() or QApplication(sys.argv)
 
-from imagebaker import AnnotationType, ImageBaker, create_annotation
+from imagebaker import AnnotationType, ImageBaker, create_annotation  # noqa: E402
 
 
 def main():
@@ -41,7 +49,7 @@ def main():
         return
 
     # Add first layer as background
-    layer1 = baker.add_layer_from_file(
+    baker.add_layer_from_file(
         images[0],
         layer_name="Background",
         opacity=1.0

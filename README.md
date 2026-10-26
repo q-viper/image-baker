@@ -84,6 +84,16 @@ imagebaker gui
 imagebaker gui --models-file examples/loaded_models.py
 ```
 
+#### 🌐 Web Mode (Cross-Platform: Linux, macOS, Windows)
+Launch the standalone browser-based application with full feature parity:
+```bash
+# Launch web server and open in default browser
+imagebaker web
+
+# Specify host, port, project directory, and models file
+imagebaker web --host 127.0.0.1 --port 8765 --project-dir . --models-file examples/loaded_models.py
+```
+
 #### ⌨️ CLI Mode
 Automate image composition from the command line:
 ```bash

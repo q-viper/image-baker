@@ -50,6 +50,15 @@ setuptools.setup(
             "imagebaker=imagebaker.cli:app",
         ],
     },
+    include_package_data=True,
+    package_data={
+        "imagebaker": [
+            "*.json",
+            "web/static/*.html",
+            "web/static/*.css",
+            "web/static/*.js",
+        ],
+    },
     extras_require={
         "plugins": [
             "smokesim==0.0.33",

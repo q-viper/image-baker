@@ -72,7 +72,7 @@ exclude = ["docs*", "site*", "assets*", "examples*", "tests*", "experiments*", "
 write_to = "imagebaker/_version.py"
 
 [tool.setuptools.package-data]
-imagebaker = ["*.json"]
+imagebaker = ["*.json", "web/static/*.html", "web/static/*.css", "web/static/*.js"]
 
 [tool.ruff]
 line-length = 100

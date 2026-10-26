@@ -136,7 +136,7 @@ def get_dummy_prediction_result(result_type: ModelType) -> PredictionResult:
             class_name="dummy",
             class_id=0,
             score=0.99,
-            mask=[[0, 0], [0, 100], [100, 100], [100, 0]],
+            mask=np.array([[0, 0], [0, 100], [100, 100], [100, 0]]),
         )
 
     elif result_type == ModelType.CLASSIFICATION:
@@ -147,5 +147,5 @@ def get_dummy_prediction_result(result_type: ModelType) -> PredictionResult:
             prompt="dummy",
             class_id=0,
             score=0.99,
-            mask=[[0, 0], [0, 100], [100, 100], [100, 0]],
+            mask=np.array([[0, 0], [0, 100], [100, 100], [100, 0]]),
         )

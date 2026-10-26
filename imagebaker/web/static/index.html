@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ImageBaker</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body class="theme-dark">
+  <div id="app-shell">
+    <!-- Top Tab Bar (matching MainWindow QTabBar + Top-Right Controls & Theme Button) -->
+    <header id="top-tab-bar">
+      <div class="header-left">
+        <div class="brand-badge">
+          <span class="brand-dot"></span>
+          <span>ImageBaker</span>
+        </div>
+        <div class="tab-buttons">
+          <button class="tab-btn active" data-tab="Layerify" id="tab-btn-layerify">Layerify</button>
+          <button class="tab-btn" data-tab="Baker" id="tab-btn-baker">Baker</button>
+          <button class="tab-btn" data-tab="Help" id="tab-btn-help">Help</button>
+        </div>
+      </div>
+
+      <!-- Center Quick Navigation Bar -->
+      <div class="header-center">
+        <button class="btn btn-sm" id="btn-header-prev" title="Previous Image / Canvas ([)">◀</button>
+        <span class="header-context-label" id="header-context-label">No Image Loaded</span>
+        <button class="btn btn-sm" id="btn-header-next" title="Next Image / Canvas (])">▶</button>
+      </div>
+
+      <!-- Top-Right Utilities & Theme Toggle -->
+      <div class="header-right">
+        <div class="zoom-group" title="Zoom Controls (Ctrl+Scroll or +/-)">
+          <button class="zoom-btn" id="btn-zoom-out" title="Zoom Out (-)">−</button>
+          <button class="zoom-readout" id="btn-zoom-reset" title="Reset Zoom to 100% (0)">100%</button>
+          <button class="zoom-btn" id="btn-zoom-in" title="Zoom In (+)">+</button>
+          <button class="zoom-btn" id="btn-zoom-fit" title="Fit to View (F)">Fit</button>
+        </div>
+        <button class="btn btn-sm toggle-btn active" id="btn-top-grid" title="Toggle Gridlines (G)">Grid: On</button>
+        <button class="btn btn-sm btn-top-theme" id="btn-top-theme" title="Switch between light and dark theme">
+          <span id="top-theme-icon">☀️</span>
+          <span id="top-theme-text">Theme: Dark</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Dock Workspace -->
+    <main id="workspace">
+      <!-- ==================== LAYERIFY VIEW ==================== -->
+      <section id="view-layerify" class="tab-view active">
+        <div class="dock-upper">
+          <!-- Left Dock: Image List -->
+          <aside class="dock-widget dock-left" id="dock-image-list">
+            <div class="dock-title">
+              <span>Image List</span>
+              <span class="dock-badge" id="badge-image-total">0</span>
+            </div>
+            <div class="dock-content list-panel">
+              <div class="dock-top-action row-gap">
+                <button class="btn flex-1" id="btn-select-folder-left" title="Select a folder containing images to annotate.">📁 Folder</button>
+                <button class="btn flex-1" id="btn-upload-images-left" title="Upload image files from your computer.">🖼️ Upload</button>
+              </div>
+              <div id="image-list-items" class="scroll-list"></div>
+              <div class="pagination-footer">
+                <div class="pagination-btns">
+                  <button id="img-prev-btn" class="btn">Prev</button>
+                  <button id="img-next-btn" class="btn">Next</button>
+                </div>
+                <div id="img-page-info" class="page-info">No items</div>
+              </div>
+            </div>
+          </aside>
+
+          <!-- Center Area: Label Studio Bar + Left Tool Strip + AnnotableLayer Canvas -->
+          <div class="center-studio-column">
+            <!-- Label Studio-Style Interactive Label Chips Bar -->
+            <div class="ls-label-bar" id="ls-label-bar">
+              <div class="ls-label-bar-left">
+                <span class="ls-bar-tag">Labels</span>
+                <div class="ls-label-chips" id="ls-label-chips"></div>
+              </div>
+              <div class="ls-label-bar-right">
+                <button class="btn btn-sm" id="btn-quick-add-label" title="Add a new label (+)">+ Label</button>
+                <button class="btn btn-sm" id="btn-quick-label-color" title="Change color of selected label">🎨</button>
+                <button class="btn btn-sm" id="btn-quick-manage-label" title="Manage / Rename / Delete labels">⚙️</button>
+              </div>
+            </div>
+
+            <div class="center-stage-row">
+              <!-- Label Studio-Style Left Vertical Tool Strip -->
+              <aside class="ls-tool-strip" aria-label="Annotation Tools">
+                <button class="ls-tool-btn mode-btn" data-mode="Idle" id="strip-mode-idle" title="Select / Move / Resize Mode (V or Esc or Right-Click)">
+                  <span class="ls-tool-icon">↖</span>
+                  <span class="ls-tool-label">Select</span>
+                  <kbd class="ls-tool-kbd">V</kbd>
+                </button>
+                <button class="ls-tool-btn mode-btn active" data-mode="Rectangle" id="strip-mode-rectangle" title="Rectangle Mode (E)">
+                  <span class="ls-tool-icon">🔳</span>
+                  <span class="ls-tool-label">Rect</span>
+                  <kbd class="ls-tool-kbd">E</kbd>
+                </button>
+                <button class="ls-tool-btn mode-btn" data-mode="Polygon" id="strip-mode-polygon" title="Polygon Mode (W) — Enter, Double-Click, or click 1st point to close">
+                  <span class="ls-tool-icon">🔷</span>
+                  <span class="ls-tool-label">Poly</span>
+                  <kbd class="ls-tool-kbd">W</kbd>
+                </button>
+                <button class="ls-tool-btn mode-btn" data-mode="Point" id="strip-mode-point" title="Point Mode (Q)">
+                  <span class="ls-tool-icon">📍</span>
+                  <span class="ls-tool-label">Point</span>
+                  <kbd class="ls-tool-kbd">Q</kbd>
+                </button>
+                <button class="ls-tool-btn mode-btn" data-mode="Brush" id="strip-mode-brush" title="Brush Segmentation Mask Mode (B)">
+                  <span class="ls-tool-icon">🖌️</span>
+                  <span class="ls-tool-label">Brush</span>
+                  <kbd class="ls-tool-kbd">B</kbd>
+                </button>
+                <button class="ls-tool-btn mode-btn" data-mode="Pan" id="strip-mode-pan" title="Pan Canvas (Hold Space or Ctrl + Drag)">
+                  <span class="ls-tool-icon">✋</span>
+                  <span class="ls-tool-label">Pan</span>
+                  <kbd class="ls-tool-kbd">␣</kbd>
+                </button>
+
+                <div class="ls-tool-sep"></div>
+
+                <button class="ls-tool-btn" id="strip-btn-undo" title="Undo Annotation (Ctrl+Z)">
+                  <span class="ls-tool-icon">↶</span>
+                  <span class="ls-tool-label">Undo</span>
+                </button>
+                <button class="ls-tool-btn" id="strip-btn-redo" title="Redo Annotation (Ctrl+Y)">
+                  <span class="ls-tool-icon">↷</span>
+                  <span class="ls-tool-label">Redo</span>
+                </button>
+                <button class="ls-tool-btn" id="strip-btn-caption" title="Edit Selected Region Caption / Label (C)">
+                  <span class="ls-tool-icon">💬</span>
+                  <span class="ls-tool-label">Caption</span>
+                  <kbd class="ls-tool-kbd">C</kbd>
+                </button>
+                <button class="ls-tool-btn" id="strip-btn-vis" title="Toggle Selected Region Visibility (H)">
+                  <span class="ls-tool-icon">👀</span>
+                  <span class="ls-tool-label">Hide</span>
+                  <kbd class="ls-tool-kbd">H</kbd>
+                </button>
+                <button class="ls-tool-btn" id="strip-btn-layerify" title="Layerify Selected or All Regions (L)">
+                  <span class="ls-tool-icon">🧅</span>
+                  <span class="ls-tool-label">Layerify</span>
+                  <kbd class="ls-tool-kbd">L</kbd>
+                </button>
+                <button class="ls-tool-btn ls-tool-danger" id="strip-btn-delete" title="Delete Selected Region (Delete)">
+                  <span class="ls-tool-icon">🗑️</span>
+                  <span class="ls-tool-label">Delete</span>
+                </button>
+              </aside>
+
+              <!-- Canvas Container -->
+              <div class="center-canvas-container" id="layerify-canvas-wrap">
+                <canvas id="layerify-canvas" tabindex="0"></canvas>
+
+                <!-- Floating Mode & Context HUD -->
+                <div class="canvas-hud-bar" id="layerify-hud-bar">
+                  <span class="hud-mode-pill" id="hud-mode-pill">Mode: Rectangle (E)</span>
+                  <span class="hud-mode-hint" id="hud-mode-hint">Drag to draw rectangle • Click any region to select/move/resize</span>
+                  <div class="hud-brush-wrap hidden" id="hud-brush-wrap">
+                    <label for="input-lyr-brush-size">Brush:</label>
+                    <input type="range" id="input-lyr-brush-size" min="3" max="80" value="18" />
+                    <span id="val-lyr-brush-size">18px</span>
+                  </div>
+                  <button class="btn btn-sm btn-primary hidden" id="btn-finish-polygon" title="Finish Polygon (Enter)">
+                    ✓ Finish Polygon (Enter)
+                  </button>
+                </div>
+
+                <div class="canvas-coords-pill" id="layerify-coords-pill">X: 0, Y: 0</div>
+                <div id="layerify-toast" class="canvas-toast hidden"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Docks: Annotations & Layers (stacked vertically like MainWindow right dock area) -->
+          <aside class="dock-right-stack">
+            <!-- Annotations / Regions Dock -->
+            <div class="dock-widget dock-half" id="dock-annotation-list">
+              <div class="dock-title">
+                <span>Regions / Annotations</span>
+                <div class="dock-title-actions">
+                  <span class="dock-badge" id="badge-ann-total">0</span>
+                  <button class="icon-btn-sm" id="btn-select-all-anns" title="Select / Deselect All (Ctrl+A)">☑</button>
+                  <button class="icon-btn-sm" id="btn-toggle-all-anns-vis" title="Show / Hide All Annotations">👀</button>
+                </div>
+              </div>
+              <div class="dock-content list-panel">
+                <!-- Selected Region Inspector Banner -->
+                <div class="selected-region-inspector hidden" id="selected-region-inspector">
+                  <div class="inspector-top">
+                    <strong id="inspector-region-name">Region #1</strong>
+                    <div class="inspector-actions">
+                      <button class="btn btn-xs" id="btn-insp-caption" title="Edit Caption / Label (C)">💬 Caption</button>
+                      <button class="btn btn-xs" id="btn-insp-bake" title="Bake Layer from Selected (L)">🖨 Bake</button>
+                    </div>
+                  </div>
+                  <div class="inspector-sub" id="inspector-region-sub"></div>
+                </div>
+                <div id="annotation-list-items" class="scroll-list"></div>
+              </div>
+            </div>
+
+            <!-- Shared Layers Dock (visible in Layerify just like MainWindow) -->
+            <div class="dock-widget dock-half" id="dock-layerify-layers">
+              <div class="dock-title">
+                <span>Layers</span>
+                <span class="dock-badge" id="badge-lyr-layers-total">0</span>
+              </div>
+              <div class="dock-content list-panel">
+                <div id="layerify-layer-list-items" class="scroll-list"></div>
+                <div class="dock-bottom-action row-gap">
+                  <button class="btn flex-1" id="btn-group-layers-layerify" title="Merge selected layers into a single layer.">Group Layers</button>
+                  <button class="btn btn-primary flex-1" id="btn-goto-baker" title="Switch to Baker Tab to compose and bake layers.">Open Baker →</button>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <!-- Bottom Dock: Layerify Tools (Full Windows LayerifyTab Parity) -->
+        <footer class="dock-widget dock-bottom" id="dock-layerify-tools">
+          <div class="dock-title">Tools</div>
+          <div class="dock-content tools-toolbar">
+            <button class="btn" id="btn-select-folder" title="Select a folder containing images to annotate.">Select Folder</button>
+            <button class="btn" id="btn-upload-images" title="Upload image files from your computer.">Upload Images</button>
+            <button class="btn mode-btn" id="btn-mode-point" data-mode="Point" title="Switch to Point annotation mode (Q).">📍Point (Q)</button>
+            <button class="btn mode-btn" id="btn-mode-polygon" data-mode="Polygon" title="Switch to Polygon annotation mode (W).">🔷Polygon (W)</button>
+            <button class="btn mode-btn active" id="btn-mode-rectangle" data-mode="Rectangle" title="Switch to Rectangle annotation mode (E).">🔳Rectangle (E)</button>
+            <button class="btn mode-btn" id="btn-mode-brush" data-mode="Brush" title="Switch to Brush Mask annotation mode (B).">🖌️Brush (B)</button>
+            <button class="btn mode-btn" id="btn-mode-idle" data-mode="Idle" title="Switch to Select / Idle mode (V or Esc).">⏳Select (V)</button>
+            <button class="btn" id="btn-save-annotations" title="Save current annotations to file.">💾Annotations</button>
+            <button class="btn" id="btn-load-annotations" title="Load annotations from file.">📂Annotations</button>
+            <button class="btn btn-primary" id="btn-predict" title="Run model prediction on the current image (P).">🔮Predict (P)</button>
+            <button class="btn" id="btn-label-color" title="Choose a color for the selected label.">🎨Color</button>
+            <input type="color" id="input-label-color-picker" class="hidden-color-input" value="#ff8000" />
+            <button class="btn" id="btn-layerify-all" title="Create layers from selected or all current annotations (L).">🧅Layerify (L)</button>
+            <button class="btn" id="btn-add-label" title="Add a new label to the label list.">🏷️Add Label</button>
+            <button class="btn" id="btn-clear-annotations" title="Clear all annotations from the current image.">🗑️Clear</button>
+            <button class="btn toggle-btn active hidden" id="btn-layerify-grid" title="Show or hide canvas gridlines.">Grid: On</button>
+            <button class="btn hidden" id="btn-layerify-theme" title="Switch between light and dark theme.">Theme: Dark</button>
+            <select id="select-label" class="combo-box" title="Select a label for annotation (or press 0-9)."></select>
+            <button class="btn" id="btn-manage-label" title="Edit, delete, or clean up labels.">Manage Label</button>
+            <select id="select-model" class="combo-box" title="Select a model for prediction."></select>
+          </div>
+        </footer>
+      </section>
+
+      <!-- ==================== BAKER VIEW ==================== -->
+      <section id="view-baker" class="tab-view">
+        <div class="dock-upper">
+          <!-- Left Dock: Canvas List -->
+          <aside class="dock-widget dock-left" id="dock-canvas-list">
+            <div class="dock-title">Canvas List</div>
+            <div class="dock-content list-panel">
+              <div class="dock-top-action">
+                <button class="btn w-full" id="btn-create-canvas" title="Create a new compositing canvas.">Create New Canvas</button>
+                <button class="btn w-full mt-4" id="btn-add-blank-layer" title="Add a blank drawable layer to the current canvas.">Add Blank Layer</button>
+              </div>
+              <div id="canvas-list-items" class="scroll-list"></div>
+              <div class="pagination-footer">
+                <div class="pagination-btns">
+                  <button id="canvas-prev-btn" class="btn">Prev</button>
+                  <button id="canvas-next-btn" class="btn">Next</button>
+                </div>
+                <div id="canvas-page-info" class="page-info">Showing 0 of 0</div>
+              </div>
+            </div>
+          </aside>
+
+          <!-- Center Area: CanvasLayer Canvas -->
+          <div class="center-canvas-container" id="baker-canvas-wrap">
+            <canvas id="baker-canvas" tabindex="0"></canvas>
+            <div class="canvas-coords-pill" id="baker-coords-pill">X: 0, Y: 0</div>
+            <div id="baker-toast" class="canvas-toast hidden"></div>
+          </div>
+
+          <!-- Right Docks: Layers & BaseLayer Settings -->
+          <aside class="dock-right-stack">
+            <!-- Layers Dock -->
+            <div class="dock-widget dock-half" id="dock-baker-layers">
+              <div class="dock-title">
+                <span>Layers</span>
+                <span class="dock-badge" id="badge-bkr-layers-total">0</span>
+              </div>
+              <div class="dock-content list-panel">
+                <div id="baker-layer-list-items" class="scroll-list"></div>
+                <div class="dock-bottom-action">
+                  <button class="btn w-full" id="btn-group-layers-baker" title="Merge selected layers into a single layer.">Group Layers</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- BaseLayer Settings Dock -->
+            <div class="dock-widget dock-half" id="dock-layer-settings">
+              <div class="dock-title">BaseLayer Settings</div>
+              <div class="dock-content settings-panel">
+                <div class="selected-layer-banner" id="selected-layer-banner">No BaseLayer Selected</div>
+
+                <div class="setting-row">
+                  <div class="setting-header">
+                    <span>Opacity: <strong id="val-opacity">255</strong></span>
+                  </div>
+                  <input type="range" id="slider-opacity" min="0" max="255" value="255" />
+                </div>
+
+                <div class="setting-row">
+                  <div class="setting-header">
+                    <span>X: <strong id="val-xpos">0</strong></span>
+                  </div>
+                  <input type="range" id="slider-xpos" min="-2000" max="2000" value="0" />
+                </div>
+
+                <div class="setting-row">
+                  <div class="setting-header">
+                    <span>Y: <strong id="val-ypos">0</strong></span>
+                  </div>
+                  <input type="range" id="slider-ypos" min="-2000" max="2000" value="0" />
+                </div>
+
+                <div class="setting-row">
+                  <div class="setting-header">
+                    <span>Scale X: <strong id="val-scalex">1.00</strong></span>
+                  </div>
+                  <input type="range" id="slider-scalex" min="10" max="500" value="100" />
+                </div>
+
+                <div class="setting-row">
+                  <div class="setting-header">
+                    <span>Scale Y: <strong id="val-scaley">1.00</strong></span>
+                  </div>
+                  <input type="range" id="slider-scaley" min="10" max="500" value="100" />
+                </div>
+
+                <div class="setting-row">
+                  <div class="setting-header">
+                    <span>Rotation: <strong id="val-rotation">0</strong>°</span>
+                  </div>
+                  <input type="range" id="slider-rotation" min="-180" max="180" value="0" />
+                </div>
+
+                <div class="setting-row">
+                  <div class="setting-header">
+                    <span>Edge Opacity: <strong id="val-edge-opacity">255</strong></span>
+                  </div>
+                  <input type="range" id="slider-edge-opacity" min="0" max="255" value="255" />
+                </div>
+
+                <div class="setting-row">
+                  <div class="setting-header">
+                    <span>Edge Width: <strong id="val-edge-width">0</strong></span>
+                  </div>
+                  <input type="range" id="slider-edge-width" min="0" max="50" value="0" />
+                </div>
+
+                <div class="setting-row">
+                  <div class="setting-header">
+                    <span>Caption:</span>
+                  </div>
+                  <input type="text" id="input-layer-caption" class="text-input" placeholder="Enter caption for this layer" />
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <!-- Bottom Dock: Baker Tools -->
+        <footer class="dock-widget dock-bottom" id="dock-baker-tools">
+          <div class="dock-title">Tools</div>
+          <div class="dock-content tools-toolbar">
+            <label class="inline-spin-label" for="input-bake-steps">Steps:</label>
+            <input type="number" id="input-bake-steps" class="spin-box" min="1" max="100" value="1" title="Number of states to interpolate on Save State or generate on Randomize States." />
+            <button class="btn" id="btn-export-current-state" title="Export only the currently visible canvas state and transfer it to Layerify.">Export Current State</button>
+            <button class="btn btn-primary" id="btn-save-state" title="Save the current transform/visibility of all layers as a timeline state (Ctrl+S).">Save State</button>
+            <button class="btn" id="btn-randomize-states" title="Run enabled plugins for N steps and append generated states to the timeline.">Randomize States</button>
+            <button class="btn" id="btn-group-layers-tool" title="Merge selected layers into a single layer (Ctrl+G).">Group Layers</button>
+            <button class="btn" id="btn-convert-ann-type" title="Convert selected layer annotation geometry between rectangle and polygon.">Convert Ann Type</button>
+            <button class="btn" id="btn-predict-state" title="Bake the current canvas state and send it to Layerify for model prediction.">Predict State</button>
+            <button class="btn toggle-btn" id="btn-play-states" title="Play or pause saved timeline states.">Play States</button>
+            <div class="timeline-slider-wrap" title="Scrub through saved states.">
+              <input type="range" id="slider-state-timeline" min="0" max="0" value="0" disabled />
+              <span id="label-state-step" class="timeline-step-badge">0 / 0</span>
+            </div>
+            <button class="btn" id="btn-clear-states" title="Clear all saved states from the current canvas timeline.">Clear States</button>
+            <button class="btn" id="btn-annotate-states" title="Bake saved states and send them to Layerify for annotation.">Annotate States</button>
+            <button class="btn" id="btn-export-states" title="Bake and export all saved timeline states to disk.">Export States</button>
+
+            <!-- Plugin Options Dropdown -->
+            <div class="dropdown-wrap" id="plugin-dropdown-wrap">
+              <button class="btn" id="btn-plugin-options" title="Configure plugins applied during state generation.">Plugin Options ▾</button>
+              <div class="dropdown-menu hidden" id="menu-plugin-options">
+                <button class="dropdown-item" id="btn-reload-plugins">Reload Plugins</button>
+                <div class="dropdown-sep"></div>
+                <div id="plugin-checkbox-list"></div>
+                <div class="dropdown-sep"></div>
+                <button class="dropdown-item" id="btn-clear-plugins">Clear Plugin Selection</button>
+              </div>
+            </div>
+
+            <button class="btn toggle-btn" id="btn-draw-mode" title="Toggle drawing mode on the selected layer (Ctrl+D).">Draw</button>
+            <button class="btn toggle-btn" id="btn-erase-mode" title="Toggle erase mode on the selected layer (Ctrl+E).">Erase</button>
+            <button class="btn" id="btn-brush-color" title="Select drawing color.">Color</button>
+            <input type="color" id="input-brush-color-picker" class="hidden-color-input" value="#ff0000" />
+            <button class="btn toggle-btn active hidden" id="btn-baker-grid" title="Show or hide canvas gridlines.">Grid: On</button>
+            <button class="btn hidden" id="btn-baker-theme" title="Switch between light and dark theme.">Theme: Dark</button>
+          </div>
+        </footer>
+      </section>
+
+      <!-- ==================== HELP VIEW ==================== -->
+      <section id="view-help" class="tab-view">
+        <div class="help-container">
+          <div class="help-card">
+            <h2>General & Navigation</h2>
+            <ul>
+              <li><strong>Theme & Grid (Top Right)</strong>: Toggle Dark/Light theme and canvas gridlines from the top-right header</li>
+              <li><strong>Mouse Wheel</strong>: Zoom in/out around cursor</li>
+              <li><strong>Space + Drag</strong> or <strong>Ctrl + Left Drag</strong> or <strong>Middle Mouse Drag</strong>: Pan canvas</li>
+              <li><strong>[ / ]</strong>: Switch to Previous / Next image (Layerify) or canvas (Baker)</li>
+              <li><strong>F</strong>: Fit image to viewport</li>
+            </ul>
+
+            <h2>Layerify (Annotation Studio — Windows + Label Studio Shortcuts)</h2>
+            <ul>
+              <li><strong>E</strong>: Rectangle drawing mode (default startup mode)</li>
+              <li><strong>W</strong>: Polygon drawing mode (click 1st vertex, press <strong>Enter</strong>, or <strong>Double-Click</strong> to finish)</li>
+              <li><strong>Q</strong>: Point annotation mode</li>
+              <li><strong>B</strong>: Brush segmentation mask mode (<strong>Alt + Wheel</strong> or slider adjusts brush size)</li>
+              <li><strong>V</strong> / <strong>Escape</strong> / <strong>Right-Click</strong>: Select / Idle mode</li>
+              <li><strong>0 – 9</strong>: Select label by index (and immediately relabel any selected annotation!)</li>
+              <li><strong>Click / Drag Any Region</strong>: Select, move, or drag handles in any mode</li>
+              <li><strong>Arrow Keys</strong>: Nudge selected annotation by 1px (<strong>Shift + Arrows</strong> = 10px)</li>
+              <li><strong>L</strong>: Layerify selected annotation(s) (or all visible annotations) into Baker layers</li>
+              <li><strong>P</strong>: Run AI model prediction on current image / prompt points</li>
+              <li><strong>C</strong>: Edit caption & label of selected annotation</li>
+              <li><strong>H</strong>: Toggle visibility of selected annotation</li>
+              <li><strong>Delete / Backspace</strong>: Delete selected annotation(s) (or undo last polygon point)</li>
+              <li><strong>Ctrl + Z / Ctrl + Y</strong>: Undo / Redo annotation change</li>
+              <li><strong>Ctrl + C / Ctrl + V</strong>: Copy / Paste selected annotation</li>
+              <li><strong>Ctrl + A</strong>: Select all annotations</li>
+              <li><strong>Double-Click Polygon Vertex / Edge</strong>: Remove vertex / insert new vertex</li>
+              <li><strong>Double-Click Label Pill</strong>: Edit annotation label & caption</li>
+            </ul>
+
+            <h2>Baker (Compositing & Dataset Synthesis Shortcuts)</h2>
+            <ul>
+              <li><strong>Ctrl + Click</strong>: Multi-select layers</li>
+              <li><strong>Arrow Keys</strong>: Move selected layer(s) (<strong>Shift + Arrows</strong> = 20px)</li>
+              <li><strong>Ctrl + Up / Down</strong> or <strong>W / S</strong>: Reorder selected layer Z-order</li>
+              <li><strong>R / Shift + R</strong>: Rotate selected layer (+5° / -5°)</li>
+              <li><strong>Ctrl + G</strong>: Group selected layers</li>
+              <li><strong>Ctrl + S</strong>: Save current state to timeline</li>
+              <li><strong>Ctrl + N</strong>: Add blank drawable layer</li>
+              <li><strong>Ctrl + D / Ctrl + E</strong>: Toggle Draw / Erase brush mode on selected layer</li>
+              <li><strong>Mouse Wheel (in Draw/Erase mode)</strong>: Adjust brush size</li>
+              <li><strong>Delete / Backspace</strong>: Delete selected layer(s)</li>
+              <li><strong>Ctrl + C / Ctrl + V</strong>: Copy / Paste layer</li>
+              <li><strong>Ctrl + Z / Ctrl + Y</strong>: Undo / Redo layer state</li>
+              <li><strong>H / C</strong>: Toggle visibility / edit caption for selected layer</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Bottom Status Bar (matching MainWindow QStatusBar) -->
+    <footer id="status-bar">
+      <span id="status-bar-text">Ready</span>
+    </footer>
+  </div>
+
+  <!-- ==================== MODALS ==================== -->
+  <div id="modal-backdrop" class="modal-backdrop hidden">
+    <!-- Folder Browser Modal -->
+    <div id="modal-folder-browser" class="modal-dialog modal-dialog-lg hidden">
+      <div class="modal-header">
+        <h3>Select Image Folder</h3>
+        <button class="modal-close" data-close-modal>&times;</button>
+      </div>
+      <div class="modal-body">
+        <!-- Native OS Folder Picker Banner -->
+        <div class="native-folder-banner">
+          <div class="native-folder-text">
+            <strong>Choose Local Folder from Your Computer</strong>
+            <span>Use your system's native folder picker, or browse server directories below.</span>
+          </div>
+          <button class="btn btn-primary" id="btn-pick-local-folder">📁 Choose Local Folder (OS Dialog)</button>
+        </div>
+
+        <!-- Quick Jump Path Pills -->
+        <div class="quick-paths-bar" id="folder-quick-paths"></div>
+
+        <div class="field-group">
+          <label for="input-folder-path">Folder Path (press Enter to browse):</label>
+          <div class="row-gap">
+            <input type="text" id="input-folder-path" class="text-input flex-1" placeholder="/path/to/images" />
+            <button class="btn" id="btn-browse-go">Browse</button>
+          </div>
+        </div>
+        <div class="folder-browser-meta" id="folder-image-count-info"></div>
+        <div class="folder-list" id="folder-browser-list"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close-modal>Cancel</button>
+        <button class="btn btn-primary" id="btn-confirm-select-folder">✓ Load This Folder</button>
+      </div>
+    </div>
+
+    <!-- Save / Load Annotations Scope Modal -->
+    <div id="modal-annotations-io" class="modal-dialog hidden">
+      <div class="modal-header">
+        <h3 id="modal-ann-io-title">Save Annotations</h3>
+        <button class="modal-close" data-close-modal>&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="modal-ann-io-desc">Do you want to save annotations for all layers or just the current layer?</p>
+        <div class="field-group" id="group-ann-file-path">
+          <label for="input-ann-file-path">File Path (in project or absolute):</label>
+          <input type="text" id="input-ann-file-path" class="text-input w-full" value="annotations.json" />
+        </div>
+        <div class="field-group hidden" id="group-ann-file-upload">
+          <label for="input-ann-upload-json">Or Upload a Local JSON File:</label>
+          <input type="file" id="input-ann-upload-json" accept=".json,application/json" class="text-input w-full" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close-modal>Cancel</button>
+        <button class="btn" id="btn-ann-io-single">Just This Layer</button>
+        <button class="btn btn-primary" id="btn-ann-io-all">All Layers</button>
+      </div>
+    </div>
+
+    <!-- Manage Label Modal -->
+    <div id="modal-manage-label" class="modal-dialog hidden">
+      <div class="modal-header">
+        <h3>Manage Labels</h3>
+        <button class="modal-close" data-close-modal>&times;</button>
+      </div>
+      <div class="modal-body">
+        <p>Current Label: <strong id="manage-label-current-name"></strong></p>
+        <div class="field-group">
+          <label for="input-rename-label">Rename to:</label>
+          <div class="row-gap">
+            <input type="text" id="input-rename-label" class="text-input flex-1" />
+            <button class="btn" id="btn-do-rename-label">Rename</button>
+          </div>
+        </div>
+        <div class="modal-action-stack">
+          <button class="btn" id="btn-do-delete-label">Delete Current Label</button>
+          <button class="btn" id="btn-do-cleanup-labels">Remove Unused Default Labels</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close-modal>Close</button>
+      </div>
+    </div>
+
+    <!-- Add New Label Modal (Replaces window.prompt) -->
+    <div id="modal-add-label" class="modal-dialog hidden">
+      <div class="modal-header">
+        <h3>Add New Label</h3>
+        <button class="modal-close" data-close-modal>&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="field-group">
+          <label for="input-new-label-name">Label Name:</label>
+          <input type="text" id="input-new-label-name" class="text-input w-full" placeholder="e.g., Car, Person, Defect..." />
+        </div>
+        <div class="field-group">
+          <label for="input-new-label-color">Label Color:</label>
+          <input type="color" id="input-new-label-color" class="color-input-full" value="#3b82f6" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close-modal>Cancel</button>
+        <button class="btn btn-primary" id="btn-confirm-add-label">Add Label</button>
+      </div>
+    </div>
+
+    <!-- Edit Region Label & Caption Modal (Replaces window.prompt) -->
+    <div id="modal-edit-caption" class="modal-dialog hidden">
+      <div class="modal-header">
+        <h3 id="modal-edit-caption-title">Edit Annotation Details</h3>
+        <button class="modal-close" data-close-modal>&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="field-group" id="group-edit-region-label">
+          <label for="input-edit-region-label">Label:</label>
+          <div class="row-gap">
+            <select id="select-edit-region-label" class="combo-box flex-1"></select>
+            <input type="text" id="input-edit-region-label" class="text-input flex-1" placeholder="Or type custom label..." />
+          </div>
+        </div>
+        <div class="field-group">
+          <label for="input-edit-region-caption">Caption / Notes:</label>
+          <input type="text" id="input-edit-region-caption" class="text-input w-full" placeholder="Enter caption for this item..." />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close-modal>Cancel</button>
+        <button class="btn btn-primary" id="btn-confirm-edit-caption">Save Changes</button>
+      </div>
+    </div>
+
+    <!-- Create Canvas Modal (Replaces window.prompt) -->
+    <div id="modal-create-canvas" class="modal-dialog hidden">
+      <div class="modal-header">
+        <h3>Create New Canvas</h3>
+        <button class="modal-close" data-close-modal>&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="field-group">
+          <label for="input-create-canvas-name">Canvas Name:</label>
+          <input type="text" id="input-create-canvas-name" class="text-input w-full" placeholder="Canvas_1" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close-modal>Cancel</button>
+        <button class="btn btn-primary" id="btn-confirm-create-canvas">Create Canvas</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden File Inputs for Uploading Local Images or Local Folders -->
+  <input type="file" id="hidden-image-upload-input" multiple accept=".png,.jpg,.jpeg,.bmp,.tiff,.tif,.webp" class="hidden" />
+  <input type="file" id="hidden-folder-upload-input" webkitdirectory directory multiple class="hidden" />
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

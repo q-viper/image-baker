@@ -1,0 +1,444 @@
+"""Tests for the standalone cross-platform ImageBaker web application."""
+
+from __future__ import annotations
+
+import json
+import sys
+import threading
+import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import cv2
+import numpy as np
+from typer.testing import CliRunner
+
+from imagebaker.cli import app
+from imagebaker.web.engine import WebAppEngine
+from imagebaker.web.server import create_http_server
+
+
+def _create_sample_image(path: Path, width: int = 120, height: int = 90) -> Path:
+    img = np.zeros((height, width, 3), dtype=np.uint8)
+    img[:, :] = (40, 120, 200)
+    cv2.rectangle(img, (15, 15), (80, 65), (20, 220, 80), -1)
+    cv2.imwrite(str(path), img)
+    return path
+
+
+def _create_dummy_models_file(path: Path) -> Path:
+    code = """
+from imagebaker.core.defs import PredictionResult
+from imagebaker.models.base_model import (
+    BaseDetectionModel,
+    DefaultModelConfig,
+    ModelType,
+)
+
+class DummyDetector(BaseDetectionModel):
+    def __init__(self, config: DefaultModelConfig):
+        super().__init__(config)
+
+    def predict_boxes(self, image):
+        return [
+            PredictionResult(
+                class_name="detected_obj",
+                class_id=0,
+                score=0.95,
+                rectangle=[15, 15, 50, 40],
+            )
+        ]
+
+LOADED_MODELS = {
+    "DummyDetectionModel": DummyDetector(
+        DefaultModelConfig(model_type=ModelType.DETECTION, return_annotated_image=False)
+    ),
+}
+"""
+    path.write_text(code.strip(), encoding="utf-8")
+    return path
+
+
+def test_cli_web_help():
+    runner = CliRunner()
+    result = runner.invoke(app, ["web", "--help"])
+    assert result.exit_code == 0
+    assert "Launch the standalone cross-platform ImageBaker web application" in result.output
+    assert "--host" in result.output
+    assert "--port" in result.output
+
+
+def test_web_engine_end_to_end(tmp_path: Path):
+    img_dir = tmp_path / "images"
+    img_dir.mkdir()
+    _create_sample_image(img_dir / "sample1.png", 120, 90)
+    _create_sample_image(img_dir / "sample2.png", 100, 80)
+    models_file = _create_dummy_models_file(tmp_path / "dummy_models.py")
+
+    engine = WebAppEngine(
+        models_file=str(models_file),
+        project_dir=str(tmp_path),
+        configs_file=None,
+    )
+
+    # 1. Select folder & check loaded images
+    ok, _msg = engine.select_folder(str(img_dir))
+    assert ok is True
+    state = engine.get_state()
+    assert len(state["layerify"]["images"]) == 2
+    assert state["layerify"]["current_image_index"] == 0
+
+    # 2. Add annotations, undo/redo, copy/paste
+    anns = [
+        {
+            "annotation_id": 1,
+            "label": "BoxObj",
+            "rectangle": [10, 10, 60, 50],
+            "polygon": [],
+            "points": [],
+            "selected": True,
+            "visible": True,
+            "color": [255, 0, 0],
+            "caption": "first box",
+        },
+        {
+            "annotation_id": 2,
+            "label": "PolyObj",
+            "rectangle": None,
+            "polygon": [[20, 20], [70, 20], [70, 60], [20, 60]],
+            "points": [],
+            "selected": False,
+            "visible": True,
+            "color": [0, 255, 0],
+            "caption": "",
+        },
+    ]
+    engine.update_annotations(anns, push_undo=True, message="Added 2 annotations")
+    assert len(engine.get_state()["layerify"]["annotations"]) == 2
+
+    ok, _ = engine.copy_annotations()
+    assert ok is True
+    ok, _ = engine.paste_annotations()
+    assert ok is True
+    assert len(engine.get_state()["layerify"]["annotations"]) == 3
+
+    ok, _ = engine.undo_annotation()
+    assert ok is True
+    assert len(engine.get_state()["layerify"]["annotations"]) == 2
+    ok, _ = engine.redo_annotation()
+    assert ok is True
+    assert len(engine.get_state()["layerify"]["annotations"]) == 3
+
+    # 3. Save & Load annotations
+    save_file = tmp_path / "saved_anns.json"
+    save_res = engine.export_annotations_json(all_layers=True, file_path=str(save_file))
+    assert save_res["ok"] is True
+    assert save_file.exists()
+
+    ok, _ = engine.clear_all_annotations_and_layers()
+    assert ok is True
+    assert len(engine.get_state()["layerify"]["annotations"]) == 0
+
+    ok, _ = engine.import_annotations_json(all_layers=True, file_path=str(save_file))
+    assert ok is True
+    assert len(engine.get_state()["layerify"]["annotations"]) == 3
+
+    # 4. Label management
+    ok, _ = engine.manage_labels({"action": "add", "label": "CustomLabel", "color": [12, 34, 56]})
+    assert ok is True
+    ok, _ = engine.manage_labels(
+        {"action": "rename", "old_label": "CustomLabel", "new_label": "RenamedLabel"}
+    )
+    assert ok is True
+    labels = {item["name"] for item in engine.get_state()["layerify"]["labels"]}
+    assert "RenamedLabel" in labels
+    ok, _ = engine.manage_labels({"action": "delete", "label": "RenamedLabel"})
+    assert ok is True
+
+    # 5. Model prediction
+    engine.current_model_name = "DummyDetectionModel"
+    ok, _ = engine.run_prediction()
+    assert ok is True
+    cur_anns = engine.get_state()["layerify"]["annotations"]
+    assert len(cur_anns) >= 4
+    for a in cur_anns:
+        a["visible"] = True
+    engine.update_annotations(cur_anns, push_undo=False)
+
+    # 6. Layerify annotations into Baker canvas
+    ok, _ = engine.layerify_annotations()
+    assert ok is True
+    bkr_layers = engine.get_state()["baker"]["layers"]
+    assert len(bkr_layers) >= 2
+
+    # 7. Baker layer operations: select, reorder, convert annotation type, group
+    bkr_layers[0]["selected"] = True
+    engine.update_baker_layers(bkr_layers, push_undo=False)
+    ok, _ = engine.reorder_baker_layers({"direction": "up"})
+    assert ok is True
+    ok, _ = engine.baker_layer_action({"action": "convert_ann_type"})
+    assert ok is True
+
+    # Select first two layers and group them
+    updated_layers = engine.get_state()["baker"]["layers"]
+    for i, lyr in enumerate(updated_layers):
+        lyr["selected"] = i < 2
+    engine.update_baker_layers(updated_layers, push_undo=True)
+    ok, _ = engine.baker_layer_action({"action": "group"})
+    assert ok is True
+
+    # 8. States & Plugins & Baking Export
+    ok, _ = engine.manage_states({"action": "save", "steps": 1})
+    assert ok is True
+    ok, _ = engine.manage_states({"action": "randomize", "steps": 2})
+    assert ok is True
+    assert engine.get_state()["baker"]["num_states"] == 2
+
+    ok, _ = engine.manage_states({"action": "seek", "step": 1})
+    assert ok is True
+
+    exp_cur = engine.bake_and_export(mode="current_local")
+    assert exp_cur["ok"] is True
+    assert len(exp_cur["exported_files"]) == 1
+    assert Path(exp_cur["exported_files"][0]).exists()
+
+    exp_states = engine.bake_and_export(mode="states_local")
+    assert exp_states["ok"] is True
+    assert len(exp_states["exported_files"]) == 2
+
+
+def test_http_server_endpoints(tmp_path: Path):
+    img_dir = tmp_path / "imgs"
+    img_dir.mkdir()
+    _create_sample_image(img_dir / "test.png", 80, 60)
+
+    engine = WebAppEngine(
+        models_file=None,
+        project_dir=str(tmp_path),
+        configs_file=None,
+    )
+    engine.select_folder(str(img_dir))
+
+    server, port = create_http_server(engine, host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    base_url = f"http://127.0.0.1:{port}"
+    try:
+        # GET /
+        with urllib.request.urlopen(f"{base_url}/") as resp:
+            html = resp.read().decode("utf-8")
+            assert resp.status == 200
+            assert "ImageBaker" in html
+            assert "btn-top-theme" in html
+            assert "ls-label-bar" in html
+            assert "strip-mode-rectangle" in html
+
+        # GET /api/layerify/browse-folders (verify images list & quick_paths)
+        from urllib.parse import quote
+
+        with urllib.request.urlopen(
+            f"{base_url}/api/layerify/browse-folders?path={quote(str(img_dir))}"
+        ) as resp:
+            browse_data = json.loads(resp.read().decode("utf-8"))
+            assert browse_data["ok"] is True
+            assert browse_data["image_count"] == 1
+            assert len(browse_data["images"]) == 1
+            assert browse_data["images"][0]["name"] == "test.png"
+            assert isinstance(browse_data["quick_paths"], list)
+            assert len(browse_data["quick_paths"]) >= 1
+
+        # GET /static/app.js
+        with urllib.request.urlopen(f"{base_url}/static/app.js") as resp:
+            js = resp.read().decode("utf-8")
+            assert resp.status == 200
+            assert "applyServerState" in js
+
+        # GET /api/state
+        with urllib.request.urlopen(f"{base_url}/api/state") as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            assert payload["ok"] is True
+            assert len(payload["state"]["layerify"]["images"]) == 1
+
+        # GET /api/layerify/image?index=0
+        with urllib.request.urlopen(f"{base_url}/api/layerify/image?index=0") as resp:
+            img_bytes = resp.read()
+            assert resp.status == 200
+            assert img_bytes[:8] == b"\x89PNG\r\n\x1a\n"
+
+        # POST /api/baker/layers/add-blank
+        req = urllib.request.Request(
+            f"{base_url}/api/baker/layers/add-blank",
+            data=json.dumps({"width": 64, "height": 64, "label": "BlankTest"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            assert payload["ok"] is True
+            assert len(payload["state"]["baker"]["layers"]) == 1
+
+        # GET /api/baker/layer-image
+        cid = payload["state"]["baker"]["current_canvas_id"]
+        lid = payload["state"]["baker"]["layers"][0]["layer_id"]
+        with urllib.request.urlopen(
+            f"{base_url}/api/baker/layer-image?canvas_id={cid}&layer_id={lid}"
+        ) as resp:
+            layer_png = resp.read()
+            assert resp.status == 200
+            assert layer_png[:8] == b"\x89PNG\r\n\x1a\n"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_edge_cases_and_formats(tmp_path: Path):
+    """Test multi-format images (TIFF/BMP), brush mask baking, predict_state, and all built-in plugins."""
+    img_dir = tmp_path / "multi_format"
+    img_dir.mkdir()
+    _create_sample_image(img_dir / "scene.tiff", 100, 80)
+    _create_sample_image(img_dir / "scene.bmp", 100, 80)
+
+    # Create models file with binary mask segmentation + classification + detection
+    models_code = """
+import numpy as np
+from imagebaker.core.defs import PredictionResult
+from imagebaker.models.base_model import (
+    BaseClassificationModel,
+    BaseDetectionModel,
+    BaseSegmentationModel,
+    DefaultModelConfig,
+    ModelType,
+)
+
+class BinaryMaskSegModel(BaseSegmentationModel):
+    def predict_mask(self, image):
+        h, w = image.shape[:2]
+        mask = np.zeros((h, w), dtype=np.uint8)
+        mask[10:min(h - 5, 50), 10:min(w - 5, 60)] = 255
+        return [PredictionResult(class_name="bin_mask_obj", class_id=0, score=0.91, mask=mask)]
+
+class SimpleClassModel(BaseClassificationModel):
+    def predict_class(self, image):
+        return [PredictionResult(class_name="scene_class", class_id=1, score=0.88)]
+
+class SimpleDetModel(BaseDetectionModel):
+    def predict_boxes(self, image):
+        return [PredictionResult(class_name="baked_det", class_id=0, score=0.95, rectangle=[10, 10, 40, 30])]
+
+LOADED_MODELS = {
+    "BinaryMaskSegModel": BinaryMaskSegModel(DefaultModelConfig(model_type=ModelType.SEGMENTATION)),
+    "SimpleClassModel": SimpleClassModel(DefaultModelConfig(model_type=ModelType.CLASSIFICATION)),
+    "SimpleDetModel": SimpleDetModel(DefaultModelConfig(model_type=ModelType.DETECTION)),
+}
+"""
+    models_file = tmp_path / "edge_models.py"
+    models_file.write_text(models_code.strip(), encoding="utf-8")
+
+    engine = WebAppEngine(
+        models_file=str(models_file),
+        project_dir=str(tmp_path),
+        configs_file=None,
+    )
+    ok, _ = engine.select_folder(str(img_dir))
+    assert ok is True
+    assert len(engine.get_state()["layerify"]["images"]) == 2
+
+    # Verify BMP and TIFF images are served properly (TIFF converted to PNG)
+    bmp_res = engine.get_layerify_image_bytes(0)
+    assert bmp_res is not None and bmp_res[1] == "image/bmp" and len(bmp_res[0]) > 0
+    tiff_res = engine.get_layerify_image_bytes(1)
+    assert (
+        tiff_res is not None
+        and tiff_res[1] == "image/png"
+        and tiff_res[0][:8] == b"\x89PNG\r\n\x1a\n"
+    )
+
+    # Run BinaryMaskSegModel and SimpleClassModel
+    engine.current_model_name = "BinaryMaskSegModel"
+    ok, _ = engine.run_prediction()
+    assert ok is True
+
+    engine.current_model_name = "SimpleClassModel"
+    ok, _ = engine.run_prediction()
+    assert ok is True
+
+    anns = engine.get_state()["layerify"]["annotations"]
+    assert len(anns) >= 2
+    for a in anns:
+        a["visible"] = True
+    engine.update_annotations(anns, push_undo=False)
+
+    # Single-layer JSON save/load
+    single_json = tmp_path / "single_layer.json"
+    res_single = engine.export_annotations_json(all_layers=False, file_path=str(single_json))
+    assert res_single["ok"] is True
+    assert single_json.exists()
+
+    # Layerify and add brush drawing states to layer
+    ok, _ = engine.layerify_annotations()
+    assert ok is True
+    layers = engine.get_state()["baker"]["layers"]
+    assert len(layers) >= 1
+    layers[0]["selected"] = True
+    layers[0]["drawing_states"] = [
+        {"position": [12, 12], "color": "#ff0000", "size": 6},
+        {"position": [18, 18], "color": "#00ff00", "size": 6},
+    ]
+    engine.update_baker_layers(layers, push_undo=True)
+
+    # Enable all built-in plugins (GaussianBlur, PerspectiveTransform, SineMovement, SmokeSim)
+    ok, _ = engine.manage_plugins(
+        {
+            "action": "set",
+            "plugins": ["GaussianBlur", "PerspectiveTransform", "SineMovement", "SmokeSim"],
+        }
+    )
+    assert ok is True
+
+    # Save states and verify brush annotation is exported
+    engine.manage_states({"action": "save", "steps": 1})
+    exp = engine.bake_and_export(mode="current_local")
+    assert exp["ok"] is True
+    exported_json = Path(exp["exported_files"][0]).with_suffix(".json")
+    assert exported_json.exists()
+    saved_baked_anns = json.loads(exported_json.read_text(encoding="utf-8"))
+    assert any(a["label"].endswith("_brush") for a in saved_baked_anns)
+
+    # Test predict_state mode (bakes current state & sends it to Layerify tab)
+    engine.current_model_name = "SimpleDetModel"
+    pred_state_res = engine.bake_and_export(mode="predict_state")
+    assert pred_state_res["ok"] is True
+    assert pred_state_res["switched_to_layerify"] is True
+    assert engine.get_state()["layerify"]["current_image"]["is_baked_result"] is True
+    ok, _ = engine.run_prediction()
+    assert ok is True
+    assert any(a["label"] == "baked_det" for a in engine.get_state()["layerify"]["annotations"])
+
+
+def test_real_world_workflows_example():
+    """Run the 4 real-world end-to-end scenarios from examples/web_workflows_example.py."""
+    from examples.web_workflows_example import run_all_scenarios
+
+    run_all_scenarios()
+
+
+if __name__ == "__main__":
+    import tempfile
+
+    print("Running ImageBaker Web test suite...")
+    test_cli_web_help()
+    print("  [PASS] test_cli_web_help")
+    with tempfile.TemporaryDirectory() as d1:
+        test_web_engine_end_to_end(Path(d1))
+    print("  [PASS] test_web_engine_end_to_end")
+    with tempfile.TemporaryDirectory() as d2:
+        test_http_server_endpoints(Path(d2))
+    print("  [PASS] test_http_server_endpoints")
+    with tempfile.TemporaryDirectory() as d3:
+        test_edge_cases_and_formats(Path(d3))
+    print("  [PASS] test_edge_cases_and_formats")
+    test_real_world_workflows_example()
+    print("  [PASS] test_real_world_workflows_example")
+    print("All tests passed!")
