@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import QMainWindow, QMessageBox, QTabWidget
 
 from imagebaker import __version__, logger
@@ -57,7 +57,25 @@ class MainWindow(QMainWindow):
             icon = get_app_icon()
             if not icon.isNull():
                 self.setWindowIcon(icon)
-            self.setGeometry(100, 100, 1200, 800)
+
+            # Responsive initial window size for all operating systems and screen resolutions
+            screen = self.screen() or QGuiApplication.primaryScreen()
+            if screen:
+                avail = screen.availableGeometry()
+                target_w = min(1200, max(840, int(avail.width() * 0.82)))
+                target_h = min(780, max(560, int(avail.height() * 0.82)))
+                x = avail.x() + max(0, (avail.width() - target_w) // 2)
+                y = avail.y() + max(0, (avail.height() - target_h) // 2)
+                self.setGeometry(x, y, target_w, target_h)
+            else:
+                self.setGeometry(80, 80, 1024, 700)
+
+            self.setMinimumSize(780, 500)
+            self.setDockOptions(
+                QMainWindow.AnimatedDocks
+                | QMainWindow.AllowNestedDocks
+                | QMainWindow.AllowTabbedDocks
+            )
 
             self.status_bar = self.statusBar()
             self.status_bar.showMessage("Ready")
@@ -106,6 +124,18 @@ class MainWindow(QMainWindow):
                 Qt.QueuedConnection,
             )
             self.layerify_tab.messageSignal.connect(self.update_status)
+
+            # Establish proportional initial widths for side dock panels
+            if hasattr(self, "layerify_tab"):
+                if hasattr(self.layerify_tab, "image_list_panel"):
+                    self.resizeDocks([self.layerify_tab.image_list_panel], [240], Qt.Horizontal)
+                if hasattr(self.layerify_tab, "annotation_list"):
+                    self.resizeDocks([self.layerify_tab.annotation_list], [270], Qt.Horizontal)
+            if hasattr(self, "baker_tab"):
+                if hasattr(self.baker_tab, "canvas_list"):
+                    self.resizeDocks([self.baker_tab.canvas_list], [240], Qt.Horizontal)
+                if hasattr(self.baker_tab, "layer_list"):
+                    self.resizeDocks([self.baker_tab.layer_list], [270], Qt.Horizontal)
         except Exception as e:
             logger.error(f"Final signal connection error: {e}")
 

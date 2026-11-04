@@ -279,87 +279,136 @@ class BakerTab(QWidget):
         self.layer_settings.update_sliders()
 
     def create_toolbar(self):
-        """Create Baker-specific toolbar."""
+        """Create Baker-specific toolbar organized into compact, flexible rows."""
         self.toolbar = QWidget()
-        baker_toolbar_layout = QHBoxLayout(self.toolbar)
-        baker_toolbar_layout.setContentsMargins(5, 5, 5, 5)
-        baker_toolbar_layout.setSpacing(10)
+        main_layout = QVBoxLayout(self.toolbar)
+        main_layout.setContentsMargins(6, 4, 6, 4)
+        main_layout.setSpacing(4)
+
+        # ----------------- Row 1: Timeline Playback & Baking -----------------
+        row1 = QWidget()
+        row1_layout = QHBoxLayout(row1)
+        row1_layout.setContentsMargins(0, 0, 0, 0)
+        row1_layout.setSpacing(6)
 
         steps_label = QLabel("Steps:")
         steps_label.setStyleSheet("font-weight: bold;")
-        baker_toolbar_layout.addWidget(steps_label)
+        row1_layout.addWidget(steps_label)
 
         self.steps_spinbox = QSpinBox()
         self.steps_spinbox.setMinimum(1)
         self.steps_spinbox.setMaximum(1000)
         self.steps_spinbox.setValue(1)
         self.steps_spinbox.valueChanged.connect(self.update_slider_range)
-        baker_toolbar_layout.addWidget(self.steps_spinbox)
+        row1_layout.addWidget(self.steps_spinbox)
 
-        baker_modes = [
-            ("Export Current State", self.export_current_state),
-            ("Save State", self.save_current_state),
-            ("Randomize States", self.randomize_states),
-            ("Group Layers", self.group_layers),
-            ("Convert Ann Type", self.convert_selected_annotation_type),
-            ("Predict State", self.predict_state),
-            ("Play States", self.play_saved_states),
-            ("Clear States", self.clear_states),
-            ("Annotate States", self.export_for_annotation),
-            ("Export States", self.export_locally),
-        ]
+        self.play_btn = QPushButton("▶ Play States")
+        self.play_btn.setCheckable(True)
+        self.play_btn.clicked.connect(self.play_saved_states)
+        row1_layout.addWidget(self.play_btn)
 
-        for text, callback in baker_modes:
-            btn = QPushButton(text)
-            btn.clicked.connect(callback)
-            baker_toolbar_layout.addWidget(btn)
+        self.timeline_slider = QSlider(Qt.Horizontal)
+        self.timeline_slider.setMinimum(0)
+        self.timeline_slider.setMaximum(0)
+        self.timeline_slider.setValue(0)
+        self.timeline_slider.setSingleStep(1)
+        self.timeline_slider.setPageStep(1)
+        self.timeline_slider.setEnabled(False)
+        self.timeline_slider.valueChanged.connect(self.seek_state)
+        self.timeline_slider.setMinimumWidth(100)
+        row1_layout.addWidget(self.timeline_slider)
 
-            if text == "Play States":
-                self.timeline_slider = QSlider(Qt.Horizontal)
-                self.timeline_slider.setMinimum(0)
-                self.timeline_slider.setMaximum(0)
-                self.timeline_slider.setValue(0)
-                self.timeline_slider.setSingleStep(1)
-                self.timeline_slider.setPageStep(1)
-                self.timeline_slider.setEnabled(False)
-                self.timeline_slider.valueChanged.connect(self.seek_state)
-                baker_toolbar_layout.addWidget(self.timeline_slider)
+        clear_btn = QPushButton("🗑️ Clear")
+        clear_btn.setToolTip("Clear saved timeline states")
+        clear_btn.clicked.connect(self.clear_states)
+        row1_layout.addWidget(clear_btn)
+
+        row1_spacer = QWidget()
+        row1_spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        row1_layout.addWidget(row1_spacer)
+
+        save_btn = QPushButton("💾 Save State")
+        save_btn.setStyleSheet("font-weight: bold;")
+        save_btn.setToolTip("Save current layers layout as keyframe state (Ctrl+S)")
+        save_btn.clicked.connect(self.save_current_state)
+        row1_layout.addWidget(save_btn)
+
+        rand_btn = QPushButton("🎲 Randomize")
+        rand_btn.clicked.connect(self.randomize_states)
+        row1_layout.addWidget(rand_btn)
+
+        export_curr_btn = QPushButton("📤 Export Current")
+        export_curr_btn.clicked.connect(self.export_current_state)
+        row1_layout.addWidget(export_curr_btn)
+
+        export_states_btn = QPushButton("📦 Export States")
+        export_states_btn.clicked.connect(self.export_locally)
+        row1_layout.addWidget(export_states_btn)
+
+        annotate_btn = QPushButton("🧅 Annotate States")
+        annotate_btn.clicked.connect(self.export_for_annotation)
+        row1_layout.addWidget(annotate_btn)
+
+        main_layout.addWidget(row1)
+
+        # ----------------- Row 2: Composition & Layer Tools -----------------
+        row2 = QWidget()
+        row2_layout = QHBoxLayout(row2)
+        row2_layout.setContentsMargins(0, 0, 0, 0)
+        row2_layout.setSpacing(6)
+
+        comp_tag = QLabel("Composition:")
+        comp_tag.setStyleSheet("font-weight: bold;")
+        row2_layout.addWidget(comp_tag)
+
+        group_btn = QPushButton("Group")
+        group_btn.clicked.connect(self.group_layers)
+        row2_layout.addWidget(group_btn)
+
+        conv_btn = QPushButton("Convert Geometry")
+        conv_btn.clicked.connect(self.convert_selected_annotation_type)
+        row2_layout.addWidget(conv_btn)
+
+        predict_state_btn = QPushButton("🔮 Predict State")
+        predict_state_btn.clicked.connect(self.predict_state)
+        row2_layout.addWidget(predict_state_btn)
 
         self.plugin_dropdown_btn = QToolButton()
-        self.plugin_dropdown_btn.setText("Plugin Options")
+        self.plugin_dropdown_btn.setText("🧩 Plugins")
         self.plugin_dropdown_btn.setPopupMode(QToolButton.InstantPopup)
         self.plugin_menu = QMenu(self.plugin_dropdown_btn)
         self.plugin_dropdown_btn.setMenu(self.plugin_menu)
-        baker_toolbar_layout.addWidget(self.plugin_dropdown_btn)
+        row2_layout.addWidget(self.plugin_dropdown_btn)
 
-        draw_button = QPushButton("Draw")
+        row2_spacer = QWidget()
+        row2_spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        row2_layout.addWidget(row2_spacer)
+
+        draw_button = QPushButton("🖌️ Draw")
         draw_button.setCheckable(True)
         draw_button.clicked.connect(self.toggle_drawing_mode)
-        baker_toolbar_layout.addWidget(draw_button)
+        row2_layout.addWidget(draw_button)
 
-        erase_button = QPushButton("Erase")
+        erase_button = QPushButton("🧹 Erase")
         erase_button.setCheckable(True)
         erase_button.clicked.connect(self.toggle_erase_mode)
-        baker_toolbar_layout.addWidget(erase_button)
+        row2_layout.addWidget(erase_button)
 
-        color_picker_button = QPushButton("Color")
+        color_picker_button = QPushButton("🎨 Color")
         color_picker_button.clicked.connect(self.open_color_picker)
-        baker_toolbar_layout.addWidget(color_picker_button)
+        row2_layout.addWidget(color_picker_button)
 
         self.grid_btn = QPushButton("Grid")
         self.grid_btn.setCheckable(True)
         self.grid_btn.setChecked(self.config.show_gridlines)
         self.grid_btn.clicked.connect(self.toggle_gridlines)
-        baker_toolbar_layout.addWidget(self.grid_btn)
+        row2_layout.addWidget(self.grid_btn)
 
         self.theme_btn = QPushButton("Theme")
         self.theme_btn.clicked.connect(self.toggle_theme)
-        baker_toolbar_layout.addWidget(self.theme_btn)
+        row2_layout.addWidget(self.theme_btn)
 
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        baker_toolbar_layout.addWidget(spacer)
-
+        main_layout.addWidget(row2)
         self.main_layout.addWidget(self.toolbar)
 
     def toggle_drawing_mode(self):

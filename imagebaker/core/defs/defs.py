@@ -32,6 +32,30 @@ class ModelType(str, Enum):
     PROMPT = "prompt"
 
 
+class AnnotationFormat(str, Enum):
+    """Supported annotation file/export formats."""
+
+    DEFAULT = "default"
+    COCO = "coco"
+    YOLO = "yolo"
+
+    @classmethod
+    def from_value(cls, val: object) -> "AnnotationFormat":
+        """Convert a string or enum instance to AnnotationFormat safely."""
+        if isinstance(val, cls):
+            return val
+        if not val:
+            return cls.DEFAULT
+        v = str(val).strip().lower()
+        for item in cls:
+            if item.value == v or item.name.lower() == v:
+                return item
+        valid_opts = [f.value for f in cls]
+        raise ValueError(
+            f"Unsupported annotation format '{val}'. Choose from {valid_opts}."
+        )
+
+
 @dataclass
 class DrawingState:
     position: QPointF = field(default_factory=lambda: QPointF(0, 0))

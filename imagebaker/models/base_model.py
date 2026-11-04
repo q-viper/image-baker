@@ -50,9 +50,15 @@ class BaseModel(ABC):
         rectangles: list[list[int]] | None = None,
         polygons: list[list[int]] | None = None,
         label_hints: list[int] | None = None,
+        prompt: str | None = None,
+        text_prompt: str | None = None,
+        **kwargs,
     ) -> list[PredictionResult]:
         t0 = time.time()
         self.image_shape = image.shape[:2]
+        effective_prompt = text_prompt if text_prompt is not None else prompt
+        self.current_prompt = effective_prompt
+
         if image.shape[2] == 4:
             logger.info("Converting image from RGBA to RGB")
             image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
@@ -61,19 +67,32 @@ class BaseModel(ABC):
         logger.info(f"Preprocessing time: {t1-t0:.4f} seconds")
 
         if self.config.model_type == ModelType.DETECTION:
-            output = self.predict_boxes(preprocessed_image)
+            try:
+                output = self.predict_boxes(preprocessed_image, text_prompt=effective_prompt)
+            except TypeError:
+                output = self.predict_boxes(preprocessed_image)
 
         elif self.config.model_type == ModelType.SEGMENTATION:
-            output = self.predict_mask(preprocessed_image)
+            try:
+                output = self.predict_mask(preprocessed_image, text_prompt=effective_prompt)
+            except TypeError:
+                output = self.predict_mask(preprocessed_image)
 
         elif self.config.model_type == ModelType.CLASSIFICATION:
-            output = self.predict_class(preprocessed_image)
+            try:
+                output = self.predict_class(preprocessed_image, text_prompt=effective_prompt)
+            except TypeError:
+                output = self.predict_class(preprocessed_image)
 
         elif self.config.model_type == ModelType.PROMPT:
-
-            output = self.predict_prompt(
-                preprocessed_image, points, rectangles, label_hints
-            )
+            try:
+                output = self.predict_prompt(
+                    preprocessed_image, points, rectangles, label_hints, prompt=effective_prompt
+                )
+            except TypeError:
+                output = self.predict_prompt(
+                    preprocessed_image, points, rectangles, label_hints
+                )
 
         t2 = time.time()
         logger.info(f"Prediction time: {t2-t1:.4f} seconds")

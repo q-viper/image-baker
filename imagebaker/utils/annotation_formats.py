@@ -9,10 +9,10 @@ import numpy as np
 from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import QColor, QPolygonF
 
-from imagebaker.core.defs.defs import Annotation
+from imagebaker.core.defs.defs import Annotation, AnnotationFormat
 
 UNDEFINED_LABEL = "Undefined"
-SUPPORTED_ANNOTATION_FORMATS = ("default", "coco", "yolo")
+SUPPORTED_ANNOTATION_FORMATS = tuple(f.value for f in AnnotationFormat)
 
 
 def _deterministic_color_rgb(label: str) -> list[int]:
@@ -237,7 +237,7 @@ def _infer_image_dimensions(
 
 def export_annotations_data(
     annotations: list[Any],
-    fmt: str = "default",
+    fmt: AnnotationFormat | str = AnnotationFormat.DEFAULT,
     image_name: str = "image.png",
     image_width: int | None = None,
     image_height: int | None = None,
@@ -253,11 +253,8 @@ def export_annotations_data(
       - 'content': serialized string (JSON string for default/coco, YOLO lines for yolo)
       - 'classes': ordered list of class names
     """
-    fmt_norm = (fmt or "default").strip().lower()
-    if fmt_norm not in SUPPORTED_ANNOTATION_FORMATS:
-        raise ValueError(
-            f"Unsupported annotation format '{fmt}'. Choose from {SUPPORTED_ANNOTATION_FORMATS}."
-        )
+    format_enum = AnnotationFormat.from_value(fmt)
+    fmt_norm = format_enum.value
 
     norm_list = [
         normalize_annotation_dict(a, idx + 1) for idx, a in enumerate(annotations)
@@ -441,7 +438,7 @@ def export_annotations_data(
 def save_annotations_to_path(
     annotations: list[Any],
     output_path: str | Path,
-    fmt: str = "default",
+    fmt: AnnotationFormat | str = AnnotationFormat.DEFAULT,
     image_name: str = "image.png",
     image_width: int | None = None,
     image_height: int | None = None,
@@ -450,9 +447,10 @@ def save_annotations_to_path(
     """Save annotations to disk in 'default', 'coco', or 'yolo' format."""
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
+    format_enum = AnnotationFormat.from_value(fmt)
     exported = export_annotations_data(
         annotations=annotations,
-        fmt=fmt,
+        fmt=format_enum,
         image_name=image_name,
         image_width=image_width,
         image_height=image_height,

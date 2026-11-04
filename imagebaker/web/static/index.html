@@ -77,6 +77,9 @@
             </div>
           </aside>
 
+          <!-- Draggable Left Splitter -->
+          <div class="dock-resizer dock-resizer-left" id="lyr-resizer-left" title="Drag to resize Image List"></div>
+
           <!-- Center Area: Label Studio Bar + Left Tool Strip + AnnotableLayer Canvas -->
           <div class="center-studio-column">
             <!-- Label Studio-Style Interactive Label Chips & Model Action Bar -->
@@ -92,6 +95,7 @@
               <div class="ls-label-bar-right">
                 <span class="ls-bar-tag">Model</span>
                 <select id="select-model" class="combo-box" title="Select a model for prediction."></select>
+                <input type="text" id="input-predict-prompt" class="text-input prompt-input" placeholder="Prompt (optional)..." title="Optional text prompt for model prediction" />
                 <button class="btn btn-sm btn-primary" id="btn-predict" title="Run model prediction on the current image (P).">🔮 Predict (P)</button>
                 <span class="top-divider"></span>
                 <button class="btn btn-sm" id="btn-layerify-all" title="Create layers from all visible annotations (L).">🧅 Layerify All</button>
@@ -194,6 +198,9 @@
             </div>
           </div>
 
+          <!-- Draggable Right Splitter -->
+          <div class="dock-resizer dock-resizer-right" id="lyr-resizer-right" title="Drag to resize Regions & Layers panel"></div>
+
           <!-- Right Docks: Annotations & Layers (stacked vertically like MainWindow right dock area) -->
           <aside class="dock-right-stack">
             <!-- Annotations / Regions Dock -->
@@ -261,12 +268,18 @@
             </div>
           </aside>
 
+          <!-- Draggable Left Splitter -->
+          <div class="dock-resizer dock-resizer-left" id="bkr-resizer-left" title="Drag to resize Canvas List"></div>
+
           <!-- Center Area: CanvasLayer Canvas -->
           <div class="center-canvas-container" id="baker-canvas-wrap">
             <canvas id="baker-canvas" tabindex="0"></canvas>
             <div class="canvas-coords-pill" id="baker-coords-pill">X: 0, Y: 0</div>
             <div id="baker-toast" class="canvas-toast hidden"></div>
           </div>
+
+          <!-- Draggable Right Splitter -->
+          <div class="dock-resizer dock-resizer-right" id="bkr-resizer-right" title="Drag to resize Layers & Settings panel"></div>
 
           <!-- Right Docks: Layers & BaseLayer Settings -->
           <aside class="dock-right-stack">
@@ -284,120 +297,150 @@
               </div>
             </div>
 
-            <!-- BaseLayer Settings Dock -->
+            <!-- BaseLayer Settings Dock (Organized into Logical Collapsible Cards) -->
             <div class="dock-widget dock-half" id="dock-layer-settings">
               <div class="dock-title">BaseLayer Settings</div>
               <div class="dock-content settings-panel">
                 <div class="selected-layer-banner" id="selected-layer-banner">No BaseLayer Selected</div>
 
-                <div class="setting-row">
-                  <div class="setting-header">
-                    <span>Opacity: <strong id="val-opacity">255</strong></span>
+                <!-- Group 1: Transform Settings -->
+                <div class="settings-group">
+                  <div class="settings-group-title">📐 Transform</div>
+                  <div class="setting-row">
+                    <div class="setting-header">
+                      <span>X: <strong id="val-xpos">0</strong></span>
+                    </div>
+                    <input type="range" id="slider-xpos" min="-2000" max="2000" value="0" />
                   </div>
-                  <input type="range" id="slider-opacity" min="0" max="255" value="255" />
+
+                  <div class="setting-row">
+                    <div class="setting-header">
+                      <span>Y: <strong id="val-ypos">0</strong></span>
+                    </div>
+                    <input type="range" id="slider-ypos" min="-2000" max="2000" value="0" />
+                  </div>
+
+                  <div class="setting-row">
+                    <div class="setting-header">
+                      <span>Scale X: <strong id="val-scalex">1.00</strong></span>
+                    </div>
+                    <input type="range" id="slider-scalex" min="10" max="500" value="100" />
+                  </div>
+
+                  <div class="setting-row">
+                    <div class="setting-header">
+                      <span>Scale Y: <strong id="val-scaley">1.00</strong></span>
+                    </div>
+                    <input type="range" id="slider-scaley" min="10" max="500" value="100" />
+                  </div>
+
+                  <div class="setting-row">
+                    <div class="setting-header">
+                      <span>Rotation: <strong id="val-rotation">0</strong>°</span>
+                    </div>
+                    <input type="range" id="slider-rotation" min="-180" max="180" value="0" />
+                  </div>
                 </div>
 
-                <div class="setting-row">
-                  <div class="setting-header">
-                    <span>X: <strong id="val-xpos">0</strong></span>
+                <!-- Group 2: Appearance Settings -->
+                <div class="settings-group">
+                  <div class="settings-group-title">🎨 Appearance</div>
+                  <div class="setting-row">
+                    <div class="setting-header">
+                      <span>Opacity: <strong id="val-opacity">255</strong></span>
+                    </div>
+                    <input type="range" id="slider-opacity" min="0" max="255" value="255" />
                   </div>
-                  <input type="range" id="slider-xpos" min="-2000" max="2000" value="0" />
+
+                  <div class="setting-row">
+                    <div class="setting-header">
+                      <span>Edge Opacity: <strong id="val-edge-opacity">255</strong></span>
+                    </div>
+                    <input type="range" id="slider-edge-opacity" min="0" max="255" value="255" />
+                  </div>
+
+                  <div class="setting-row">
+                    <div class="setting-header">
+                      <span>Edge Width: <strong id="val-edge-width">1</strong></span>
+                    </div>
+                    <input type="range" id="slider-edge-width" min="0" max="50" value="1" />
+                  </div>
                 </div>
 
-                <div class="setting-row">
-                  <div class="setting-header">
-                    <span>Y: <strong id="val-ypos">0</strong></span>
+                <!-- Group 3: Layer Details & Caption -->
+                <div class="settings-group">
+                  <div class="settings-group-title">🏷️ Layer Info</div>
+                  <div class="setting-row">
+                    <div class="setting-header">
+                      <span>Caption:</span>
+                    </div>
+                    <input type="text" id="input-layer-caption" class="text-input" placeholder="Enter caption for this layer" />
                   </div>
-                  <input type="range" id="slider-ypos" min="-2000" max="2000" value="0" />
-                </div>
-
-                <div class="setting-row">
-                  <div class="setting-header">
-                    <span>Scale X: <strong id="val-scalex">1.00</strong></span>
-                  </div>
-                  <input type="range" id="slider-scalex" min="10" max="500" value="100" />
-                </div>
-
-                <div class="setting-row">
-                  <div class="setting-header">
-                    <span>Scale Y: <strong id="val-scaley">1.00</strong></span>
-                  </div>
-                  <input type="range" id="slider-scaley" min="10" max="500" value="100" />
-                </div>
-
-                <div class="setting-row">
-                  <div class="setting-header">
-                    <span>Rotation: <strong id="val-rotation">0</strong>°</span>
-                  </div>
-                  <input type="range" id="slider-rotation" min="-180" max="180" value="0" />
-                </div>
-
-                <div class="setting-row">
-                  <div class="setting-header">
-                    <span>Edge Opacity: <strong id="val-edge-opacity">255</strong></span>
-                  </div>
-                  <input type="range" id="slider-edge-opacity" min="0" max="255" value="255" />
-                </div>
-
-                <div class="setting-row">
-                  <div class="setting-header">
-                    <span>Edge Width: <strong id="val-edge-width">1</strong></span>
-                  </div>
-                  <input type="range" id="slider-edge-width" min="0" max="50" value="1" />
-                </div>
-
-                <div class="setting-row">
-                  <div class="setting-header">
-                    <span>Caption:</span>
-                  </div>
-                  <input type="text" id="input-layer-caption" class="text-input" placeholder="Enter caption for this layer" />
                 </div>
               </div>
             </div>
           </aside>
         </div>
 
-        <!-- Bottom Dock: Baker Tools -->
+        <!-- Bottom Dock: Baker Tools (Organized into 3 Flex Groups) -->
         <footer class="dock-widget dock-bottom" id="dock-baker-tools">
-          <div class="dock-title">Tools</div>
-          <div class="dock-content tools-toolbar">
-            <button class="btn" id="btn-baker-undo" title="Undo layer change (Ctrl+Z).">↶ Undo</button>
-            <button class="btn" id="btn-baker-redo" title="Redo layer change (Ctrl+Y / Ctrl+Shift+Z).">↷ Redo</button>
-            <label class="inline-spin-label" for="input-bake-steps">Steps:</label>
-            <input type="number" id="input-bake-steps" class="spin-box" min="1" max="100" value="1" title="Number of states to interpolate on Save State or generate on Randomize States." />
-            <button class="btn" id="btn-export-current-state" title="Export only the currently visible canvas state and transfer it to Layerify.">Export Current State</button>
-            <button class="btn btn-primary" id="btn-save-state" title="Save the current transform/visibility of all layers as a timeline state (Ctrl+S).">Save State</button>
-            <button class="btn" id="btn-randomize-states" title="Run enabled plugins for N steps and append generated states to the timeline.">Randomize States</button>
-            <button class="btn" id="btn-group-layers-tool" title="Merge selected layers into a single layer (Ctrl+G).">Group Layers</button>
-            <button class="btn" id="btn-convert-ann-type" title="Convert selected layer annotation geometry between rectangle and polygon.">Convert Ann Type</button>
-            <button class="btn" id="btn-predict-state" title="Bake the current canvas state and send it to Layerify for model prediction.">Predict State</button>
-            <button class="btn toggle-btn" id="btn-play-states" title="Play or pause saved timeline states.">Play States</button>
-            <div class="timeline-slider-wrap" title="Scrub through saved states.">
-              <input type="range" id="slider-state-timeline" min="0" max="0" value="0" disabled />
-              <span id="label-state-step" class="timeline-step-badge">0 / 0</span>
-            </div>
-            <button class="btn" id="btn-clear-states" title="Clear all saved states from the current canvas timeline.">Clear States</button>
-            <button class="btn" id="btn-annotate-states" title="Bake saved states and send them to Layerify for annotation.">Annotate States</button>
-            <button class="btn" id="btn-export-states" title="Bake and export all saved timeline states to disk.">Export States</button>
-
-            <!-- Plugin Options Dropdown -->
-            <div class="dropdown-wrap" id="plugin-dropdown-wrap">
-              <button class="btn" id="btn-plugin-options" title="Configure plugins applied during state generation.">Plugin Options ▾</button>
-              <div class="dropdown-menu hidden" id="menu-plugin-options">
-                <button class="dropdown-item" id="btn-reload-plugins">Reload Plugins</button>
-                <div class="dropdown-sep"></div>
-                <div id="plugin-checkbox-list"></div>
-                <div class="dropdown-sep"></div>
-                <button class="dropdown-item" id="btn-clear-plugins">Clear Plugin Selection</button>
+          <div class="dock-title">Baker Tools</div>
+          <div class="dock-content tools-toolbar grouped-toolbar">
+            <!-- Group 1: Timeline & Playback -->
+            <div class="toolbar-group">
+              <span class="toolbar-group-tag">Playback</span>
+              <button class="btn btn-sm" id="btn-baker-undo" title="Undo layer change (Ctrl+Z).">↶ Undo</button>
+              <button class="btn btn-sm" id="btn-baker-redo" title="Redo layer change (Ctrl+Y / Ctrl+Shift+Z).">↷ Redo</button>
+              <label class="inline-spin-label" for="input-bake-steps">Steps:</label>
+              <input type="number" id="input-bake-steps" class="spin-box" min="1" max="100" value="1" title="Number of states to interpolate on Save State or generate on Randomize States." />
+              <button class="btn btn-sm toggle-btn" id="btn-play-states" title="Play or pause saved timeline states.">Play States</button>
+              <div class="timeline-slider-wrap" title="Scrub through saved states.">
+                <input type="range" id="slider-state-timeline" min="0" max="0" value="0" disabled />
+                <span id="label-state-step" class="timeline-step-badge">0 / 0</span>
               </div>
+              <button class="btn btn-sm" id="btn-clear-states" title="Clear all saved states from the current canvas timeline.">Clear States</button>
             </div>
 
-            <button class="btn toggle-btn" id="btn-draw-mode" title="Toggle drawing mode on the selected layer (Ctrl+D).">Draw</button>
-            <button class="btn toggle-btn" id="btn-erase-mode" title="Toggle erase mode on the selected layer (Ctrl+E).">Erase</button>
-            <button class="btn" id="btn-brush-color" title="Select drawing color.">Color</button>
-            <input type="color" id="input-brush-color-picker" class="hidden-color-input" value="#ff0000" />
-            <button class="btn toggle-btn active hidden" id="btn-baker-grid" title="Show or hide canvas gridlines.">Grid: On</button>
-            <button class="btn hidden" id="btn-baker-theme" title="Switch between light and dark theme.">Theme: Dark</button>
+            <div class="toolbar-v-divider"></div>
+
+            <!-- Group 2: Baking & Synthesis -->
+            <div class="toolbar-group">
+              <span class="toolbar-group-tag">Baking</span>
+              <button class="btn btn-sm btn-primary" id="btn-save-state" title="Save the current transform/visibility of all layers as a timeline state (Ctrl+S).">Save State</button>
+              <button class="btn btn-sm" id="btn-randomize-states" title="Run enabled plugins for N steps and append generated states to the timeline.">Randomize States</button>
+              <button class="btn btn-sm" id="btn-annotate-states" title="Bake saved states and send them to Layerify for annotation.">Annotate States</button>
+              <button class="btn btn-sm" id="btn-export-current-state" title="Export only the currently visible canvas state and transfer it to Layerify.">Export Current State</button>
+              <button class="btn btn-sm" id="btn-export-states" title="Bake and export all saved timeline states to disk.">Export States</button>
+              <button class="btn btn-sm" id="btn-predict-state" title="Bake the current canvas state and send it to Layerify for model prediction.">Predict State</button>
+            </div>
+
+            <div class="toolbar-v-divider"></div>
+
+            <!-- Group 3: Composition, Plugins & Tools -->
+            <div class="toolbar-group">
+              <span class="toolbar-group-tag">Layer Tools</span>
+              <button class="btn btn-sm" id="btn-group-layers-tool" title="Merge selected layers into a single layer (Ctrl+G).">Group Layers</button>
+              <button class="btn btn-sm" id="btn-convert-ann-type" title="Convert selected layer annotation geometry between rectangle and polygon.">Convert Ann Type</button>
+
+              <!-- Plugin Options Dropdown -->
+              <div class="dropdown-wrap" id="plugin-dropdown-wrap">
+                <button class="btn btn-sm" id="btn-plugin-options" title="Configure plugins applied during state generation.">Plugins ▾</button>
+                <div class="dropdown-menu hidden" id="menu-plugin-options">
+                  <button class="dropdown-item" id="btn-reload-plugins">Reload Plugins</button>
+                  <div class="dropdown-sep"></div>
+                  <div id="plugin-checkbox-list"></div>
+                  <div class="dropdown-sep"></div>
+                  <button class="dropdown-item" id="btn-clear-plugins">Clear Plugin Selection</button>
+                </div>
+              </div>
+
+              <button class="btn btn-sm toggle-btn" id="btn-draw-mode" title="Toggle drawing mode on the selected layer (Ctrl+D).">Draw</button>
+              <button class="btn btn-sm toggle-btn" id="btn-erase-mode" title="Toggle erase mode on the selected layer (Ctrl+E).">Erase</button>
+              <button class="btn btn-sm" id="btn-brush-color" title="Select drawing color.">Color</button>
+              <input type="color" id="input-brush-color-picker" class="hidden-color-input" value="#ff0000" />
+              <button class="btn btn-sm toggle-btn active hidden" id="btn-baker-grid" title="Show or hide canvas gridlines.">Grid: On</button>
+              <button class="btn btn-sm hidden" id="btn-baker-theme" title="Switch between light and dark theme.">Theme: Dark</button>
+            </div>
           </div>
         </footer>
       </section>
@@ -657,6 +700,17 @@
   <input type="file" id="hidden-image-upload-input" multiple accept=".png,.jpg,.jpeg,.bmp,.tiff,.tif,.webp" class="hidden" />
   <input type="file" id="hidden-folder-upload-input" webkitdirectory directory multiple class="hidden" />
 
+  <!-- Modularized Frontend Components -->
+  <script src="/static/js/utils.js"></script>
+  <script src="/static/js/state.js"></script>
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/grid.js"></script>
+  <script src="/static/js/splitters.js"></script>
+  <script src="/static/js/canvas_layerify.js"></script>
+  <script src="/static/js/canvas_baker.js"></script>
+  <script src="/static/js/ui_layerify.js"></script>
+  <script src="/static/js/ui_baker.js"></script>
+  <script src="/static/js/shortcuts.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

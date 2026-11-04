@@ -276,8 +276,10 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": ok, "message": msg, "state": engine.get_state_dict()})
                 return
 
-            if route == "/api/layerify/model":
-                action = payload.get("action", "select")
+            if route in ("/api/layerify/model", "/api/predict"):
+                action = payload.get(
+                    "action", "predict" if route == "/api/predict" else "select"
+                )
                 if action == "select":
                     with engine.lock:
                         model_name = str(payload.get("model_name", "None"))
@@ -287,7 +289,10 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
                         {"ok": True, "message": engine.last_message, "state": engine.get_state_dict()}
                     )
                 elif action == "predict":
-                    ok, msg = engine.run_prediction()
+                    prompt_val = payload.get("text_prompt")
+                    if prompt_val is None:
+                        prompt_val = payload.get("prompt")
+                    ok, msg = engine.run_prediction(text_prompt=prompt_val)
                     self._send_json({"ok": ok, "message": msg, "state": engine.get_state_dict()})
                 else:
                     self._send_json({"ok": False, "message": f"Unknown model action: {action}"})

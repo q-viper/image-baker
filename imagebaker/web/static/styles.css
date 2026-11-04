@@ -324,6 +324,49 @@ body {
   flex-shrink: 0;
 }
 
+/* Draggable Splitters for Resizing Sidebars */
+.dock-resizer {
+  width: 6px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  position: relative;
+  z-index: 20;
+  background-color: transparent;
+  transition: background-color 0.15s ease;
+  user-select: none;
+}
+
+.dock-resizer:hover,
+.dock-resizer.dragging {
+  background-color: var(--accent);
+}
+
+.dock-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background-color: var(--border);
+  border-radius: 1px;
+  transition: background-color 0.15s ease;
+}
+
+.dock-resizer:hover::after,
+.dock-resizer.dragging::after {
+  background-color: var(--accent);
+}
+
+body.resizing-sidebar {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+body.resizing-sidebar * {
+  user-select: none !important;
+}
+
 /* ==================== CENTER STUDIO COLUMN (LABEL STUDIO STYLE) ==================== */
 .center-studio-column {
   flex: 1;
@@ -418,6 +461,14 @@ body {
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+}
+
+.prompt-input {
+  width: 140px;
+  max-width: 180px;
+  padding: 3px 8px;
+  font-size: 12px;
+  height: 26px;
 }
 
 .center-stage-row {
@@ -684,6 +735,41 @@ body {
   gap: 6px;
 }
 
+.grouped-toolbar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 6px;
+}
+
+.toolbar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background-color: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+  flex-wrap: wrap;
+}
+
+.toolbar-group-tag {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 3px;
+  letter-spacing: 0.4px;
+}
+
+.toolbar-v-divider {
+  width: 1px;
+  height: 22px;
+  background-color: var(--border);
+}
+
 .timeline-slider-wrap {
   display: inline-flex;
   align-items: center;
@@ -912,6 +998,28 @@ body {
   border: 1px solid var(--border);
   color: var(--accent);
   text-align: center;
+}
+
+.settings-group {
+  background-color: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.settings-group-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .setting-row {

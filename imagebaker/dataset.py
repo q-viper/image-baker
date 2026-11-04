@@ -27,6 +27,7 @@ import numpy as np
 from PIL import Image
 
 from imagebaker import logger
+from imagebaker.core.defs.defs import AnnotationFormat
 from imagebaker.utils.annotation_formats import (
     UNDEFINED_LABEL,
     export_annotations_data,
@@ -65,7 +66,7 @@ class DatasetBakeConfig:
     seed: int | None = 42
 
     # Output formatting and splits
-    export_format: Literal["default", "coco", "yolo"] = "default"
+    export_format: AnnotationFormat | str = AnnotationFormat.DEFAULT
     split_ratios: dict[str, float] = field(
         default_factory=lambda: {"train": 0.7, "val": 0.2, "test": 0.1}
     )
@@ -673,14 +674,15 @@ class CacheDatasetGenerator:
         self,
         output_dir: str | Path,
         num_samples: int = 100,
-        format: str | None = None,
+        format: AnnotationFormat | str | None = None,
     ) -> dict[str, Any]:
         """
         Extract synthesized dataset into disk with train/val/test splits in specified format.
         """
         out_path = Path(output_dir).resolve()
         out_path.mkdir(parents=True, exist_ok=True)
-        fmt = (format or self.config.export_format).strip().lower()
+        fmt_enum = AnnotationFormat.from_value(format or self.config.export_format)
+        fmt = fmt_enum.value
 
         bgs_map = self._partition_backgrounds()
         ratios = self.config.split_ratios

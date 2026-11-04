@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -89,8 +90,10 @@ class LayerifyTab(QWidget):
         self.canvas_config = canvas_config
         self.main_layout = QVBoxLayout(self)
 
-        self.all_models = loaded_models
-        self.current_model = list(self.all_models.values())[0]
+        self.all_models = loaded_models or {}
+        self.current_model = (
+            list(self.all_models.values())[0] if self.all_models else None
+        )
         self.config.load_labels_from_cache()
         self.current_label = self.config.default_label.name
         self.image_entries = []
@@ -1127,9 +1130,21 @@ class LayerifyTab(QWidget):
         QApplication.processEvents()
 
         # Setup worker thread
+        prompt_text = (
+            self.predict_prompt_input.text().strip()
+            if hasattr(self, "predict_prompt_input") and self.predict_prompt_input.text().strip()
+            else None
+        )
         self.worker_thread = QThread()
         self.worker = ModelPredictionWorker(
-            self.current_model, image, points, polygons, rectangles, label_hints
+            self.current_model,
+            image,
+            points,
+            polygons,
+            rectangles,
+            label_hints,
+            prompt=prompt_text,
+            text_prompt=prompt_text,
         )
         self.worker.moveToThread(self.worker_thread)
 
@@ -1573,87 +1588,155 @@ class LayerifyTab(QWidget):
             self.main_window.toggle_theme()
 
     def create_toolbar(self):
-        """Create Layerify-specific toolbar"""
+        """Create Layerify-specific toolbar organized in two compact, flexible rows."""
         self.toolbar = QWidget()
-        toolbar_layout = QHBoxLayout(self.toolbar)
+        main_toolbar_layout = QVBoxLayout(self.toolbar)
+        main_toolbar_layout.setContentsMargins(6, 4, 6, 4)
+        main_toolbar_layout.setSpacing(4)
+
+        # ----------------- Row 1: Dataset, Labels & AI Predict -----------------
+        row1 = QWidget()
+        row1_layout = QHBoxLayout(row1)
+        row1_layout.setContentsMargins(0, 0, 0, 0)
+        row1_layout.setSpacing(6)
+
+        # Folder selection
+        self.select_folder_btn = QPushButton("📁 Folder")
+        self.select_folder_btn.setToolTip("Select folder of images to annotate")
+        self.select_folder_btn.clicked.connect(self.select_folder)
+        row1_layout.addWidget(self.select_folder_btn)
+
+        # Label controls
+        lbl_tag = QLabel("Label:")
+        lbl_tag.setStyleSheet("font-weight: bold;")
+        row1_layout.addWidget(lbl_tag)
+
+        self.label_combo = QComboBox()
+        self.label_combo.setToolTip("Select active annotation label")
+        for label in self.config.predefined_labels:
+            pixmap = QPixmap(14, 14)
+            pixmap.fill(label.color)
+            self.label_combo.addItem(QIcon(pixmap), label.name)
+        self.label_combo.currentIndexChanged.connect(self.handle_label_change)
+        row1_layout.addWidget(self.label_combo)
+
+        add_label_btn = QPushButton("+ Label")
+        add_label_btn.setToolTip("Add a new class label")
+        add_label_btn.clicked.connect(self.add_new_label)
+        row1_layout.addWidget(add_label_btn)
+
+        color_btn = QPushButton("🎨")
+        color_btn.setToolTip("Change color of active label")
+        color_btn.clicked.connect(self.choose_color)
+        row1_layout.addWidget(color_btn)
+
+        self.manage_label_btn = QPushButton("⚙️ Labels")
+        self.manage_label_btn.setToolTip("Manage, recolor, or delete labels")
+        self.manage_label_btn.clicked.connect(self.open_label_manager)
+        row1_layout.addWidget(self.manage_label_btn)
+
+        sep1 = QLabel("|")
+        sep1.setStyleSheet("color: #718096;")
+        row1_layout.addWidget(sep1)
+
+        # Model & Prediction with text prompt
+        model_tag = QLabel("Model:")
+        model_tag.setStyleSheet("font-weight: bold;")
+        row1_layout.addWidget(model_tag)
+
+        self.model_combo = QComboBox()
+        for model_name in self.all_models.keys():
+            self.model_combo.addItem(model_name)
+        self.model_combo.currentIndexChanged.connect(self.handle_model_change)
+        row1_layout.addWidget(self.model_combo)
+
+        self.predict_prompt_input = QLineEdit()
+        self.predict_prompt_input.setPlaceholderText("Text prompt (optional)...")
+        self.predict_prompt_input.setToolTip("Text prompt for open-vocabulary / prompt-guided models (e.g. dog, car)")
+        self.predict_prompt_input.setMinimumWidth(110)
+        self.predict_prompt_input.setMaximumWidth(180)
+        row1_layout.addWidget(self.predict_prompt_input)
+
+        predict_btn = QPushButton("🔮 Predict")
+        predict_btn.setStyleSheet("font-weight: bold;")
+        predict_btn.setToolTip("Run model prediction on current image with prompt")
+        predict_btn.clicked.connect(self.handle_predict)
+        row1_layout.addWidget(predict_btn)
+
+        layerify_all_btn = QPushButton("🧅 Layerify All")
+        layerify_all_btn.setToolTip("Extract all visible annotations into Baker layers")
+        layerify_all_btn.clicked.connect(self.layerify_all)
+        row1_layout.addWidget(layerify_all_btn)
+
+        row1_spacer = QWidget()
+        row1_spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        row1_layout.addWidget(row1_spacer)
+
+        save_btn = QPushButton("💾 Save")
+        save_btn.clicked.connect(self.save_annotations)
+        row1_layout.addWidget(save_btn)
+
+        load_btn = QPushButton("📂 Load")
+        load_btn.clicked.connect(self.load_annotations)
+        row1_layout.addWidget(load_btn)
+
+        clear_btn = QPushButton("🗑️ Clear")
+        clear_btn.clicked.connect(self.clear_annotations)
+        row1_layout.addWidget(clear_btn)
+
+        main_toolbar_layout.addWidget(row1)
+
+        # ----------------- Row 2: Modes & Canvas View -----------------
+        row2 = QWidget()
+        row2_layout = QHBoxLayout(row2)
+        row2_layout.setContentsMargins(0, 0, 0, 0)
+        row2_layout.setSpacing(6)
+
+        mode_tag = QLabel("Tools:")
+        mode_tag.setStyleSheet("font-weight: bold;")
+        row2_layout.addWidget(mode_tag)
 
         modes = [
-            ("📍", "Point", MouseMode.POINT),
-            ("🔷", "Polygon", MouseMode.POLYGON),
-            ("🔳", "Rectangle", MouseMode.RECTANGLE),
-            ("⏳", "Idle", MouseMode.IDLE),
-            ("💾", "Annotations", self.save_annotations),
-            ("📂", "Annotations", self.load_annotations),
-            ("🔮", "Predict", self.handle_predict),
-            ("🎨", "Color", self.choose_color),
-            ("🧅", "Layerify All", self.layerify_all),
-            ("🏷️", "Add Label", self.add_new_label),
-            ("🗑️", "Clear", self.clear_annotations),
+            ("↖", "Select", MouseMode.IDLE, "Select, move, or resize regions (V or Esc)"),
+            ("🔳", "Rectangle", MouseMode.RECTANGLE, "Draw rectangle region (E)"),
+            ("🔷", "Polygon", MouseMode.POLYGON, "Draw polygon region (W)"),
+            ("📍", "Point", MouseMode.POINT, "Add point region (Q)"),
+            ("🖌️", "Brush", MouseMode.DRAW, "Brush segmentation mask (B)"),
         ]
 
-        # Folder navigation buttons
-        self.select_folder_btn = QPushButton("Select Folder")
-        self.select_folder_btn.clicked.connect(self.select_folder)
-        toolbar_layout.addWidget(self.select_folder_btn)
-
-        # Add mode buttons
-        for icon, text, mode in modes:
-            btn_txt = icon + text
+        for icon, text, mode, tip in modes:
+            btn_txt = f"{icon} {text}"
             btn = QPushButton(btn_txt)
-            btn.setToolTip(btn_txt)
-            btn.setMinimumWidth(96)
+            btn.setToolTip(tip)
             btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
-            if isinstance(mode, MouseMode):
-                btn.setCheckable(True)
-                btn.setStyleSheet(
-                    "QPushButton:checked {"
-                    " background-color: #2f80ed;"
-                    " color: white;"
-                    " border: 2px solid #1456b8;"
-                    " font-weight: bold;"
-                    "}"
-                )
-                btn.clicked.connect(lambda _, m=mode: self.set_annotation_mode(m))
-                self.mode_buttons[mode] = btn
-            else:
-                btn.clicked.connect(mode)
-            toolbar_layout.addWidget(btn)
+            btn.setCheckable(True)
+            btn.setStyleSheet(
+                "QPushButton:checked {"
+                " background-color: #2f80ed;"
+                " color: white;"
+                " border: 2px solid #1456b8;"
+                " font-weight: bold;"
+                "}"
+            )
+            btn.clicked.connect(lambda _, m=mode: self.set_annotation_mode(m))
+            self.mode_buttons[mode] = btn
+            row2_layout.addWidget(btn)
 
-        # Add spacer
+        row2_spacer = QWidget()
+        row2_spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        row2_layout.addWidget(row2_spacer)
+
         self.grid_btn = QPushButton("Grid")
         self.grid_btn.setCheckable(True)
         self.grid_btn.setChecked(self.config.show_gridlines)
         self.grid_btn.clicked.connect(self.toggle_gridlines)
-        toolbar_layout.addWidget(self.grid_btn)
+        row2_layout.addWidget(self.grid_btn)
 
         self.theme_btn = QPushButton("Theme")
         self.theme_btn.clicked.connect(self.toggle_theme)
-        toolbar_layout.addWidget(self.theme_btn)
+        row2_layout.addWidget(self.theme_btn)
 
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        toolbar_layout.addWidget(spacer)
-
-        # Label and Model dropdowns
-        self.label_combo = QComboBox()
-        self.label_combo.setStyleSheet("QComboBox { min-width: 120px; }")
-        for label in self.config.predefined_labels:
-            pixmap = QPixmap(16, 16)
-            pixmap.fill(label.color)
-            self.label_combo.addItem(QIcon(pixmap), label.name)
-        self.label_combo.currentIndexChanged.connect(self.handle_label_change)
-        toolbar_layout.addWidget(self.label_combo)
-
-        self.manage_label_btn = QPushButton("Manage Label")
-        self.manage_label_btn.clicked.connect(self.open_label_manager)
-        toolbar_layout.addWidget(self.manage_label_btn)
-
-        self.model_combo = QComboBox()
-        self.model_combo.setStyleSheet("QComboBox { min-width: 120px; }")
-        for model_name in self.all_models.keys():
-            self.model_combo.addItem(model_name)
-        self.model_combo.currentIndexChanged.connect(self.handle_model_change)
-        toolbar_layout.addWidget(self.model_combo)
+        main_toolbar_layout.addWidget(row2)
         self.sync_mode_buttons()
 
     def _load_images_from_folder(self, folder_path: Path):

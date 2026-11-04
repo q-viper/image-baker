@@ -19,6 +19,8 @@ class ModelPredictionWorker(QObject):
         polygons: list[list[int]],
         rectangles: list[list[int]],
         label_hints: list[int],
+        prompt: str | None = None,
+        text_prompt: str | None = None,
     ):
         """
         A worker that runs the model prediction in a separate thread.
@@ -30,6 +32,8 @@ class ModelPredictionWorker(QObject):
             polygons (list[list[int]]): The polygons to predict on.
             rectangles (list[list[int]]): The rectangles to predict on.
             label_hints (list[int]): The label hints to use.
+            prompt (str, optional): Text prompt for open-vocabulary / prompt models.
+            text_prompt (str, optional): Alternative alias for prompt.
         """
         super().__init__()
         self.model = model
@@ -38,6 +42,7 @@ class ModelPredictionWorker(QObject):
         self.polygons = polygons
         self.rectangles = rectangles
         self.label_hints = label_hints
+        self.prompt = text_prompt if text_prompt is not None else prompt
 
     def process(self):
         try:
@@ -47,6 +52,8 @@ class ModelPredictionWorker(QObject):
                 self.rectangles,
                 self.polygons,
                 self.label_hints,
+                prompt=self.prompt,
+                text_prompt=self.prompt,
             )
             self.finished.emit(result)
         except Exception as e:

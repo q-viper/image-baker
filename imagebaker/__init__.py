@@ -14,6 +14,7 @@ except PackageNotFoundError:
 
 _LAZY_EXPORTS = {
     "AnnotationType": ("imagebaker.api", "AnnotationType"),
+    "AnnotationFormat": ("imagebaker.core.defs", "AnnotationFormat"),
     "ImageBaker": ("imagebaker.api", "ImageBaker"),
     "Layer": ("imagebaker.api", "Layer"),
     "create_annotation": ("imagebaker.api", "create_annotation"),
