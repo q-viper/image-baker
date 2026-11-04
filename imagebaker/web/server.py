@@ -70,6 +70,9 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
         query = parse_qs(parsed.query)
 
         try:
+            if getattr(self.engine, "is_debug", False):
+                logger.debug(f"[HTTP GET] {self.path}")
+
             if route in {"/", "/index.html"}:
                 index_file = STATIC_DIR / "index.html"
                 self._send_bytes(
@@ -77,6 +80,18 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
                     "text/html; charset=utf-8",
                 )
                 return
+
+            if route == "/favicon.ico":
+                target = (STATIC_DIR / "favicon.ico").resolve()
+                if target.is_file():
+                    self._send_bytes(target.read_bytes(), "image/x-icon")
+                    return
+
+            if route == "/logo.png":
+                target = (STATIC_DIR / "logo.png").resolve()
+                if target.is_file():
+                    self._send_bytes(target.read_bytes(), "image/png")
+                    return
 
             if route.startswith("/static/"):
                 rel = route[len("/static/") :]
@@ -113,6 +128,23 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
                 self._send_bytes(png_bytes, "image/png", cache_control="public, max-age=300")
                 return
 
+            if route == "/api/baker/exported-file":
+                name = Path(query.get("name", [""])[0]).name
+                export_dir = self.engine.canvas_config.export_folder.resolve()
+                target = (export_dir / name).resolve()
+                if not name or target.parent != export_dir or not target.is_file():
+                    self._send_json({"ok": False, "message": "File not found"}, HTTPStatus.NOT_FOUND)
+                    return
+                mime, _ = mimetypes.guess_type(str(target))
+                self.send_response(HTTPStatus.OK)
+                data = target.read_bytes()
+                self.send_header("Content-Type", mime or "application/octet-stream")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+                self.end_headers()
+                self.wfile.write(data)
+                return
+
             if route == "/api/layerify/browse-folders":
                 path_arg = query.get("path", [None])[0]
                 info = self.engine.browse_directory(path_arg)
@@ -132,6 +164,8 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
         route = parsed.path
 
         try:
+            if getattr(self.engine, "is_debug", False):
+                logger.debug(f"[HTTP POST] {self.path}")
             payload = self._read_json_body()
             engine = self.engine
 
@@ -215,16 +249,24 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
                 res = engine.export_annotations_json(
                     all_layers=bool(payload.get("all_layers", True)),
                     file_path=payload.get("file_path"),
+                    fmt=str(payload.get("format") or payload.get("fmt") or "default"),
                 )
                 res["state"] = engine.get_state_dict()
                 self._send_json(res)
                 return
 
             if route == "/api/layerify/annotations/load":
+                raw_content = payload.get("json_content") or payload.get("content")
+                if payload.get("content_b64"):
+                    import base64
+
+                    raw_content = base64.b64decode(payload["content_b64"])
                 ok, msg = engine.import_annotations_json(
                     all_layers=bool(payload.get("all_layers", True)),
                     file_path=payload.get("file_path"),
-                    json_content=payload.get("json_content"),
+                    json_content=raw_content,
+                    fmt=str(payload.get("format") or payload.get("fmt") or "auto"),
+                    class_names=payload.get("class_names"),
                 )
                 self._send_json({"ok": ok, "message": msg, "state": engine.get_state_dict()})
                 return
@@ -300,7 +342,14 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
                 return
 
             if route == "/api/baker/export":
-                res = engine.bake_and_export(payload.get("mode", "current_local"))
+                res = engine.bake_and_export(
+                    mode=payload.get("mode", "current_local"),
+                    annotation_format=str(
+                        payload.get("annotation_format")
+                        or payload.get("format")
+                        or "default"
+                    ),
+                )
                 res["state"] = engine.get_state_dict()
                 self._send_json(res)
                 return
@@ -390,17 +439,32 @@ def run_web_server(
     host: str = "127.0.0.1",
     port: int = 8000,
     open_browser: bool = True,
+    debug: bool = False,
 ):
     """Initialize WebAppEngine and start the standalone ImageBaker Web server."""
+    if debug:
+        import logging
+
+        logging.basicConfig(level=logging.DEBUG)
+        try:
+            logger.remove()
+            logger.add(sys.stderr, level="DEBUG")
+        except Exception:
+            pass
+
     engine = WebAppEngine(
         models_file=models_file,
         project_dir=project_dir,
         configs_file=configs_file,
+        is_debug=debug,
     )
     server, bound_port = create_http_server(engine, host=host, port=port)
     url = f"http://{host}:{bound_port}"
-    logger.info(f"ImageBaker Web running at {url}")
-    print(f"\n  ImageBaker Web v{engine.get_state_dict()['version']} is running at: {url}")
+    mode_str = " (DEBUG MODE)" if debug else ""
+    logger.info(f"ImageBaker Web{mode_str} running at {url}")
+    print(f"\n  ImageBaker Web v{engine.get_state_dict()['version']}{mode_str} is running at: {url}")
+    if debug:
+        print("  [DEBUG MODE] Debug server active with verbose logging and debug state dumps.")
     print("  Press Ctrl+C to stop the server.\n")
 
     if open_browser:

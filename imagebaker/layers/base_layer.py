@@ -3,7 +3,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from PySide6.QtCore import QPoint, QPointF, QSize, QSizeF, Qt, Signal
+from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, QSizeF, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QCursor,
@@ -13,6 +13,7 @@ from PySide6.QtGui import (
     QPainter,
     QPen,
     QPixmap,
+    QPolygonF,
 )
 from PySide6.QtWidgets import QWidget
 
@@ -302,13 +303,14 @@ class BaseLayer(QWidget):
     def update_cursor(self):
         """
         Update the cursor based on the current mouse mode.
+        Every MouseMode is assigned a visually distinct cursor icon.
         """
         if MouseMode.POINT == self.mouse_mode:
-            self.setCursor(CursorDef.POINT_CURSOR)
+            self.setCursor(self._create_mode_cursor(MouseMode.POINT))
         elif MouseMode.RECTANGLE == self.mouse_mode:
-            self.setCursor(CursorDef.RECTANGLE_CURSOR)
+            self.setCursor(self._create_mode_cursor(MouseMode.RECTANGLE))
         elif MouseMode.POLYGON == self.mouse_mode:
-            self.setCursor(CursorDef.POLYGON_CURSOR)
+            self.setCursor(self._create_mode_cursor(MouseMode.POLYGON))
         elif MouseMode.PAN == self.mouse_mode:
             self.setCursor(CursorDef.PAN_CURSOR)
         elif MouseMode.ZOOM_IN == self.mouse_mode:
@@ -318,7 +320,7 @@ class BaseLayer(QWidget):
         elif MouseMode.IDLE == self.mouse_mode:
             self.setCursor(CursorDef.IDLE_CURSOR)
         elif MouseMode.RESIZE == self.mouse_mode:
-            self.setCursor(CursorDef.RECTANGLE_CURSOR)
+            self.setCursor(Qt.SizeFDiagCursor)
         elif MouseMode.RESIZE_HEIGHT == self.mouse_mode:
             self.setCursor(CursorDef.TRANSFORM_UPDOWN)
         elif MouseMode.RESIZE_WIDTH == self.mouse_mode:
@@ -328,14 +330,72 @@ class BaseLayer(QWidget):
         elif self.mouse_mode == MouseMode.DRAW:
             # Create a custom cursor for drawing (circle representing brush size)
             self.setCursor(self._create_custom_cursor(self.drawing_color, "circle"))
-
         elif self.mouse_mode == MouseMode.ERASE:
             # Create a custom cursor for erasing (square representing eraser size)
             self.setCursor(self._create_custom_cursor(Qt.white, "square"))
-
         else:
             # Reset to default cursor
             self.setCursor(Qt.ArrowCursor)
+
+    def _create_mode_cursor(self, mode: MouseMode) -> QCursor:
+        """Create a distinct custom cursor icon for Point, Rectangle, and Polygon modes."""
+        size = 28
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHints(QPainter.Antialiasing)
+
+        # Crosshair at (10, 10) with high-contrast halo
+        cx, cy = 10, 10
+        halo_pen = QPen(QColor(255, 255, 255, 220), 3)
+        fg_pen = QPen(QColor(20, 24, 32, 245), 1.5)
+
+        for pen in (halo_pen, fg_pen):
+            painter.setPen(pen)
+            painter.drawLine(cx - 7, cy, cx - 2, cy)
+            painter.drawLine(cx + 2, cy, cx + 7, cy)
+            painter.drawLine(cx, cy - 7, cx, cy - 2)
+            painter.drawLine(cx, cy + 2, cx, cy + 7)
+
+        if mode == MouseMode.POINT:
+            # Distinct target dot + outer ring badge
+            painter.setPen(QPen(QColor(255, 255, 255, 230), 2))
+            painter.setBrush(QColor(0, 210, 255, 240))
+            painter.drawEllipse(QPointF(cx, cy), 3.0, 3.0)
+            painter.setPen(QPen(QColor(0, 180, 230, 240), 1.5))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawEllipse(QPointF(20, 20), 4.5, 4.5)
+        elif mode == MouseMode.RECTANGLE:
+            # Distinct rectangle badge at bottom-right
+            painter.setPen(QPen(QColor(255, 255, 255, 230), 2.5))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRect(14, 15, 11, 9)
+            painter.setPen(QPen(QColor(59, 130, 246, 250), 1.5))
+            painter.setBrush(QColor(59, 130, 246, 70))
+            painter.drawRect(14, 15, 11, 9)
+        elif mode == MouseMode.POLYGON:
+            # Distinct polygon badge with vertex nodes at bottom-right
+            poly = QPolygonF(
+                [
+                    QPointF(15, 24),
+                    QPointF(14, 17),
+                    QPointF(20, 14),
+                    QPointF(25, 19),
+                    QPointF(23, 25),
+                ]
+            )
+            painter.setPen(QPen(QColor(255, 255, 255, 230), 2.5))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawPolygon(poly)
+            painter.setPen(QPen(QColor(16, 185, 129, 250), 1.5))
+            painter.setBrush(QColor(16, 185, 129, 75))
+            painter.drawPolygon(poly)
+            painter.setBrush(QColor(16, 185, 129, 255))
+            for pt in poly:
+                painter.drawEllipse(pt, 1.6, 1.6)
+
+        painter.end()
+        return QCursor(pixmap, cx, cy)
 
     def _create_custom_cursor(self, color: QColor, shape: str) -> QCursor:
         """Create a custom cursor with the given color and shape."""
@@ -555,8 +615,12 @@ class BaseLayer(QWidget):
         Create a copy of the layer, including its properties and annotations.
         Should be overridden by subclasses to copy additional properties.
         """
-        layer = self.__class__(self.parent_obj, self.config)
+        if hasattr(self, "canvas_config"):
+            layer = self.__class__(self.parent_obj, self.config, self.canvas_config)
+        else:
+            layer = self.__class__(self.parent_obj, self.config)
         layer.set_image(self.image)
+        layer.layer_state = self.layer_state.copy()
         layer.annotations = [ann.copy() for ann in self.annotations]
         # Copy child layers from the source layer (not from the new layer itself).
         layer.layers = [child.copy() for child in self.layers]
@@ -714,11 +778,10 @@ class BaseLayer(QWidget):
         return anchor, max(0.01, zoom)
 
     def _draw_grid_overlay(self, painter: QPainter):
-        """Draw a lightweight screen-space grid overlay with hover highlight."""
+        """Draw a multi-depth grid overlay relative to image dimensions."""
         if not getattr(self.config, "show_gridlines", False):
             return
 
-        logical_spacing = max(16, int(getattr(self.config, "grid_spacing", 48)))
         width = self.width()
         height = self.height()
         if width <= 0 or height <= 0:
@@ -726,71 +789,153 @@ class BaseLayer(QWidget):
 
         grid_color = getattr(self.config, "grid_color", QColor(120, 120, 120, 80))
         anchor, zoom = self._grid_view_transform()
-        base_step = logical_spacing * zoom
-        if base_step <= 0:
-            return
-
-        # Keep draw cost bounded when zoomed far out by skipping minor lines.
-        min_screen_step = 8.0
-        stride = max(1, int(math.ceil(min_screen_step / base_step)))
-        step = base_step * stride
+        zoom = max(0.001, float(zoom))
         anchor_x = float(anchor.x())
         anchor_y = float(anchor.y())
 
+        img_w = (
+            float(self.image.width())
+            if hasattr(self, "image") and self.image and not self.image.isNull()
+            else float(width)
+        )
+        img_h = (
+            float(self.image.height())
+            if hasattr(self, "image") and self.image and not self.image.isNull()
+            else float(height)
+        )
+
+        candidate_steps = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000]
+        fine_step = candidate_steps[-1]
+        for s in candidate_steps:
+            if s * zoom >= 5.0:
+                fine_step = s
+                break
+
+        mid_step = fine_step * 5
+        if fine_step == 2:
+            mid_step = 10
+        elif fine_step in (20, 25):
+            mid_step = 100
+        elif fine_step in (200, 250):
+            mid_step = 1000
+
+        major_step = mid_step * 5
+        if mid_step == 10:
+            major_step = 50
+        elif mid_step == 100:
+            major_step = 500
+
+        min_img_x = int(math.floor((-anchor_x) / (fine_step * zoom))) * fine_step
+        max_img_x = int(math.ceil((width - anchor_x) / (fine_step * zoom))) * fine_step
+        min_img_y = int(math.floor((-anchor_y) / (fine_step * zoom))) * fine_step
+        max_img_y = int(math.ceil((height - anchor_y) / (fine_step * zoom))) * fine_step
+
         painter.save()
         painter.resetTransform()
+        painter.setOpacity(1.0)
         painter.setRenderHint(QPainter.Antialiasing, False)
 
-        pen = QPen(grid_color, 1)
-        pen.setCosmetic(True)
-        painter.setPen(pen)
-        start_x = anchor_x % step
-        start_y = anchor_y % step
+        # 1. Deep Fine Grid Lines
+        fine_color = QColor(grid_color)
+        fine_color.setAlpha(max(20, min(80, int(fine_color.alpha() * 0.45))))
+        pen_fine = QPen(fine_color, 1)
+        pen_fine.setCosmetic(True)
+        painter.setPen(pen_fine)
 
-        max_vlines = int(width / step) + 3
-        max_hlines = int(height / step) + 3
+        for ix in range(min_img_x, max_img_x + 1, fine_step):
+            if ix % mid_step == 0:
+                continue
+            sx = int(round(anchor_x + ix * zoom))
+            if 0 <= sx <= width:
+                painter.drawLine(sx, 0, sx, height)
 
-        for i in range(max_vlines):
-            x = start_x + (i * step)
-            if x > width:
-                break
-            x_px = int(round(x))
-            painter.drawLine(x_px, 0, x_px, height)
+        for iy in range(min_img_y, max_img_y + 1, fine_step):
+            if iy % mid_step == 0:
+                continue
+            sy = int(round(anchor_y + iy * zoom))
+            if 0 <= sy <= height:
+                painter.drawLine(0, sy, width, sy)
 
-        for i in range(max_hlines):
-            y = start_y + (i * step)
-            if y > height:
-                break
-            y_px = int(round(y))
-            painter.drawLine(0, y_px, width, y_px)
+        # 2. Medium Grid Lines
+        mid_color = QColor(grid_color)
+        mid_color.setAlpha(max(40, min(140, int(mid_color.alpha() * 0.85))))
+        pen_mid = QPen(mid_color, 1)
+        pen_mid.setCosmetic(True)
+        painter.setPen(pen_mid)
 
+        for ix in range(min_img_x, max_img_x + 1, fine_step):
+            if ix % mid_step != 0 or ix % major_step == 0:
+                continue
+            sx = int(round(anchor_x + ix * zoom))
+            if 0 <= sx <= width:
+                painter.drawLine(sx, 0, sx, height)
+
+        for iy in range(min_img_y, max_img_y + 1, fine_step):
+            if iy % mid_step != 0 or iy % major_step == 0:
+                continue
+            sy = int(round(anchor_y + iy * zoom))
+            if 0 <= sy <= height:
+                painter.drawLine(0, sy, width, sy)
+
+        # 3. Major Grid Lines
+        major_color = QColor(grid_color).lighter(150)
+        major_color.setAlpha(max(70, min(200, int(major_color.alpha() * 1.3))))
+        pen_major = QPen(major_color, 1)
+        pen_major.setCosmetic(True)
+        painter.setPen(pen_major)
+
+        for ix in range(min_img_x, max_img_x + 1, fine_step):
+            if ix % major_step != 0:
+                continue
+            sx = int(round(anchor_x + ix * zoom))
+            if 0 <= sx <= width:
+                painter.drawLine(sx, 0, sx, height)
+
+        for iy in range(min_img_y, max_img_y + 1, fine_step):
+            if iy % major_step != 0:
+                continue
+            sy = int(round(anchor_y + iy * zoom))
+            if 0 <= sy <= height:
+                painter.drawLine(0, sy, width, sy)
+
+        # 4. Image Boundary Frame
+        frame_color = QColor(56, 189, 248, 200)
+        pen_frame = QPen(frame_color, 2)
+        pen_frame.setCosmetic(True)
+        painter.setPen(pen_frame)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRect(
+            QRectF(
+                anchor_x,
+                anchor_y,
+                img_w * zoom,
+                img_h * zoom,
+            )
+        )
+
+        # 5. Interactive Snapping Crosshair and Coordinate Indicator
         hover_pos = self._mouse_widget_pos
         if hover_pos is not None:
-            hover_x = int(hover_pos.x())
-            hover_y = int(hover_pos.y())
+            hover_x = float(hover_pos.x())
+            hover_y = float(hover_pos.y())
             if 0 <= hover_x < width and 0 <= hover_y < height:
-                highlight_color = QColor(grid_color).lighter(190)
-                highlight_color.setAlpha(210)
+                cur_img_x = (hover_x - anchor_x) / zoom
+                cur_img_y = (hover_y - anchor_y) / zoom
+                snap_img_x = int(round(cur_img_x / fine_step) * fine_step)
+                snap_img_y = int(round(cur_img_y / fine_step) * fine_step)
+                snap_x = int(round(anchor_x + snap_img_x * zoom))
+                snap_y = int(round(anchor_y + snap_img_y * zoom))
 
-                snap_x = int(
-                    round((hover_x - anchor_x) / step) * step + anchor_x
-                )
-                snap_y = int(
-                    round((hover_y - anchor_y) / step) * step + anchor_y
-                )
-                snap_x = max(0, min(width, snap_x))
-                snap_y = max(0, min(height, snap_y))
-
-                snap_pen = QPen(highlight_color, 2)
+                highlight_color = QColor(56, 189, 248, 220)
+                snap_pen = QPen(highlight_color, 1)
                 snap_pen.setCosmetic(True)
                 painter.setPen(snap_pen)
                 painter.drawLine(snap_x, 0, snap_x, height)
                 painter.drawLine(0, snap_y, width, snap_y)
 
-                dot_size = 4
                 painter.setBrush(highlight_color)
                 painter.setPen(Qt.NoPen)
-                painter.drawEllipse(QPointF(snap_x, snap_y), dot_size, dot_size)
+                painter.drawEllipse(QPointF(snap_x, snap_y), 3.5, 3.5)
 
         painter.restore()
 
@@ -822,7 +967,8 @@ class BaseLayer(QWidget):
         raise NotImplementedError
 
     def __del__(self):
-        logger.debug(f"Layer {self.layer_id}: {self.layer_name} deleted.")
+        if hasattr(self, "layer_state"):
+            logger.debug(f"Layer {self.layer_id}: {self.layer_name} deleted.")
 
     # override update to store last state
     def update(self):

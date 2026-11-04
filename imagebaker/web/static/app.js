@@ -20,6 +20,8 @@
     annotations: [],
     hoveredIdx: null,
     hoverPosImg: null, // {x, y} in image coords
+    hoverScreenPos: null, // {x, y} in canvas coords
+    isLoadingImage: false,
     isPanning: false,
     panStart: { x: 0, y: 0 },
     // Drawing in-progress
@@ -143,6 +145,10 @@
       el("btn-top-grid").classList.toggle("active", gridOn);
     }
 
+    if (el("header-debug-badge")) {
+      el("header-debug-badge").classList.toggle("hidden", !state.is_debug);
+    }
+
     // 2. Active Tab
     const activeTab = state.active_tab || "Layerify";
     document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -236,25 +242,55 @@
   }
 
   // ==================== LAYERIFY UI RENDERING ====================
+  function showLayerifyLoading(text = "Loading image…") {
+    const overlay = el("layerify-loading-overlay");
+    const label = el("layerify-loading-text");
+    if (label) label.textContent = text;
+    if (overlay) overlay.classList.remove("hidden");
+  }
+
+  function hideLayerifyLoading() {
+    const overlay = el("layerify-loading-overlay");
+    if (overlay) overlay.classList.add("hidden");
+  }
+
   function syncLayerifyImage(lyr) {
     const idx = lyr.current_image_index;
     const rev = lyr.current_image_revision || 0;
     if (idx === null || idx === undefined || idx < 0) {
       lyrView.img = null;
       lyrView.imgKey = "";
+      lyrView.isLoadingImage = false;
+      hideLayerifyLoading();
       drawLayerifyCanvas();
       return;
     }
     const key = `${idx}:${rev}:${lyr.current_image_name}`;
     if (lyrView.imgKey === key && lyrView.img) {
+      hideLayerifyLoading();
       return;
     }
     lyrView.imgKey = key;
+    lyrView.img = null;
+    lyrView.isLoadingImage = true;
+    showLayerifyLoading(`Loading ${lyr.current_image_name || "image"}…`);
+    drawLayerifyCanvas();
+
     const img = new Image();
     img.onload = () => {
+      if (lyrView.imgKey !== key) return;
       lyrView.img = img;
+      lyrView.isLoadingImage = false;
+      hideLayerifyLoading();
       // Fit image nicely on first load
       fitLayerifyImageIfNeeded();
+      drawLayerifyCanvas();
+      updateZoomReadout();
+    };
+    img.onerror = () => {
+      if (lyrView.imgKey !== key) return;
+      lyrView.isLoadingImage = false;
+      hideLayerifyLoading();
       drawLayerifyCanvas();
     };
     img.src = `/api/layerify/image?index=${idx}&rev=${rev}`;
@@ -303,9 +339,11 @@
       `;
       row.addEventListener("click", async () => {
         try {
+          showLayerifyLoading(`Loading ${item.full_name || item.name}…`);
           const res = await apiPost("/api/layerify/select-image", { index: item.index });
           applyServerState(res.state);
         } catch (err) {
+          hideLayerifyLoading();
           showToast("Layerify", err.message);
         }
       });
@@ -452,29 +490,34 @@
   function renderLabelAndModelControls(lyr) {
     const labelSelect = el("select-label");
     const labels = lyr.labels || [];
-    labelSelect.innerHTML = "";
-    labels.forEach((lbl) => {
-      const opt = document.createElement("option");
-      opt.value = lbl.name;
-      opt.textContent = lbl.name;
-      if (lbl.name === lyr.selected_label) opt.selected = true;
-      labelSelect.appendChild(opt);
-    });
+    if (labelSelect) {
+      labelSelect.innerHTML = "";
+      labels.forEach((lbl) => {
+        const opt = document.createElement("option");
+        opt.value = lbl.name;
+        opt.textContent = lbl.name;
+        if (lbl.name === lyr.selected_label) opt.selected = true;
+        labelSelect.appendChild(opt);
+      });
+    }
 
     // Render Label Studio-style clickable label chips with hotkeys [0]..[9]
     const chipsWrap = el("ls-label-chips");
     if (chipsWrap) {
       chipsWrap.innerHTML = "";
       labels.forEach((lbl, idx) => {
-        const [r, g, b] = lbl.color || [255, 128, 0];
+        const [r, g, b] = lbl.color || [255, 255, 255];
         const hex = rgbToHex(r, g, b);
-        const isCurrent = lbl.name === lyr.selected_label;
+        const isCurrent = lbl.name === (lyr.selected_label || "Undefined");
         const chip = document.createElement("button");
         chip.className = `ls-label-chip ${isCurrent ? "active" : ""}`;
         if (isCurrent) {
           chip.style.borderColor = hex;
         }
-        chip.title = `Select label "${lbl.name}" ${idx < 10 ? `(Hotkey: ${idx})` : ""} — Click while a region is selected to relabel it`;
+        chip.title =
+          lbl.name === "Undefined"
+            ? `Default label "Undefined" (active when no other label is selected)`
+            : `Select label "${lbl.name}" ${idx < 10 ? `(Hotkey: ${idx})` : ""} — Click again to deselect to Undefined, or double-click to edit`;
         chip.innerHTML = `
           <span class="ls-chip-swatch" style="background-color: ${hex};"></span>
           <span>${escapeHtml(lbl.name)}</span>
@@ -482,32 +525,54 @@
         `;
         chip.addEventListener("click", () => {
           chip.blur();
-          selectLabelAndMaybeAssign(lbl.name);
+          const nextLabel =
+            isCurrent && lbl.name !== "Undefined" ? "Undefined" : lbl.name;
+          selectLabelAndMaybeAssign(nextLabel);
+        });
+        chip.addEventListener("dblclick", (e) => {
+          e.stopPropagation();
+          openManageLabelsDialog();
         });
         chipsWrap.appendChild(chip);
       });
     }
 
     const curLblObj = labels.find((l) => l.name === lyr.selected_label);
-    if (curLblObj && curLblObj.color) {
+    if (curLblObj && curLblObj.color && el("input-label-color-picker")) {
       const [r, g, b] = curLblObj.color;
       el("input-label-color-picker").value = rgbToHex(r, g, b);
     }
 
     const modelSelect = el("select-model");
-    const models = lyr.models || ["None"];
-    modelSelect.innerHTML = "";
-    models.forEach((m) => {
-      const opt = document.createElement("option");
-      opt.value = m;
-      opt.textContent = m;
-      if (m === lyr.selected_model) opt.selected = true;
-      modelSelect.appendChild(opt);
-    });
+    if (modelSelect) {
+      const models = lyr.models || ["None"];
+      modelSelect.innerHTML = "";
+      models.forEach((m) => {
+        const opt = document.createElement("option");
+        opt.value = m;
+        opt.textContent = m;
+        if (m === lyr.selected_model) opt.selected = true;
+        modelSelect.appendChild(opt);
+      });
+    }
 
-    const canPredict = lyr.selected_model && lyr.selected_model !== "None" && lyr.current_image_index !== null;
-    el("btn-predict").disabled = !canPredict;
-    el("btn-predict-state").disabled = !(lyr.selected_model && lyr.selected_model !== "None");
+    const canPredict =
+      lyr.selected_model && lyr.selected_model !== "None" && lyr.current_image_index !== null;
+    if (el("btn-predict")) el("btn-predict").disabled = !canPredict;
+    if (el("btn-predict-state")) {
+      el("btn-predict-state").disabled = !(lyr.selected_model && lyr.selected_model !== "None");
+    }
+    if (el("strip-btn-undo")) {
+      el("strip-btn-undo").disabled = !(lyr.can_undo || lyrView.polyPoints.length > 0);
+    }
+    if (el("strip-btn-redo")) {
+      el("strip-btn-redo").disabled = !lyr.can_redo;
+    }
+
+    const manageModal = el("modal-manage-label");
+    if (manageModal && !manageModal.classList.contains("hidden")) {
+      renderManageLabelsModal();
+    }
   }
 
   // ==================== BAKER UI RENDERING ====================
@@ -744,7 +809,7 @@
     const sy = Number(active.scale_y ?? 1.0);
     const rot = Math.round(active.rotation ?? 0);
     const eo = Math.round(active.edge_opacity ?? 255);
-    const ew = Math.round(active.edge_width ?? 0);
+    const ew = Math.round(active.edge_width ?? 1);
 
     el("slider-opacity").value = String(op);
     el("val-opacity").textContent = String(op);
@@ -801,6 +866,8 @@
     el("btn-clear-states").disabled = !hasStates;
     el("btn-annotate-states").disabled = !hasStates;
     el("btn-export-states").disabled = !hasStates;
+    if (el("btn-baker-undo")) el("btn-baker-undo").disabled = !bkr.can_undo;
+    if (el("btn-baker-redo")) el("btn-baker-redo").disabled = !bkr.can_redo;
 
     // Plugin list
     const pluginListEl = el("plugin-checkbox-list");
@@ -859,41 +926,175 @@
     }
   }
 
-  function drawGridlines(ctx, width, height, offsetX, offsetY, zoom) {
+  function drawGridlines(ctx, width, height, offsetX, offsetY, zoom, hoverPos = null, imgW = null, imgH = null) {
     if (!appState?.show_gridlines) return;
     const isDark = appState?.theme_mode === "dark";
-    const step = Math.max(8, Math.round(32 * zoom));
-    const startX = ((Math.round(offsetX) % step) + step) % step;
-    const startY = ((Math.round(offsetY) % step) + step) % step;
+    const z = Math.max(0.001, zoom);
+
+    // Determine target image dimension
+    const targetW = Math.max(1, imgW || (lyrView.img ? lyrView.img.width : 1000));
+    const targetH = Math.max(1, imgH || (lyrView.img ? lyrView.img.height : 1000));
+
+    // Choose fine, mid, and major steps in image pixel units relative to image dimension
+    // As deep as possible: down to 1px when zoom is sufficient
+    const candidateSteps = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000];
+    let fineStep = candidateSteps[candidateSteps.length - 1];
+    for (const s of candidateSteps) {
+      if (s * z >= 5.0) {
+        fineStep = s;
+        break;
+      }
+    }
+    let midStep = fineStep * 5;
+    if (fineStep === 2) midStep = 10;
+    else if (fineStep === 20 || fineStep === 25) midStep = 100;
+    else if (fineStep === 200 || fineStep === 250) midStep = 1000;
+
+    let majorStep = midStep * 5;
+    if (midStep === 10) majorStep = 50;
+    else if (midStep === 100) majorStep = 500;
+
+    const imgScreenX0 = offsetX;
+    const imgScreenY0 = offsetY;
+
+    // Viewport visible range in image coordinates (with margin)
+    const minImgX = Math.floor((-offsetX) / (fineStep * z)) * fineStep;
+    const maxImgX = Math.ceil((width - offsetX) / (fineStep * z)) * fineStep;
+    const minImgY = Math.floor((-offsetY) / (fineStep * z)) * fineStep;
+    const maxImgY = Math.ceil((height - offsetY) / (fineStep * z)) * fineStep;
 
     ctx.save();
-    ctx.lineWidth = 1;
-    for (let x = startX, i = 0; x < width; x += step, i++) {
-      ctx.strokeStyle = isDark
-        ? i % 4 === 0
-          ? "rgba(86, 114, 152, 0.35)"
-          : "rgba(56, 78, 108, 0.22)"
-        : i % 4 === 0
-          ? "rgba(155, 175, 201, 0.45)"
-          : "rgba(188, 204, 224, 0.28)";
-      ctx.beginPath();
-      ctx.moveTo(x + 0.5, 0);
-      ctx.lineTo(x + 0.5, height);
-      ctx.stroke();
+
+    // 1. Draw Deep Fine Grid Lines
+    ctx.lineWidth = 0.75;
+    ctx.strokeStyle = isDark
+      ? "rgba(148, 163, 184, 0.18)"
+      : "rgba(100, 116, 139, 0.16)";
+    ctx.beginPath();
+    for (let ix = minImgX; ix <= maxImgX; ix += fineStep) {
+      if (ix % midStep === 0) continue;
+      const sx = Math.round(offsetX + ix * z) + 0.5;
+      if (sx >= -1 && sx <= width + 1) {
+        ctx.moveTo(sx, 0);
+        ctx.lineTo(sx, height);
+      }
     }
-    for (let y = startY, j = 0; y < height; y += step, j++) {
-      ctx.strokeStyle = isDark
-        ? j % 4 === 0
-          ? "rgba(86, 114, 152, 0.35)"
-          : "rgba(56, 78, 108, 0.22)"
-        : j % 4 === 0
-          ? "rgba(155, 175, 201, 0.45)"
-          : "rgba(188, 204, 224, 0.28)";
-      ctx.beginPath();
-      ctx.moveTo(0, y + 0.5);
-      ctx.lineTo(width, y + 0.5);
-      ctx.stroke();
+    for (let iy = minImgY; iy <= maxImgY; iy += fineStep) {
+      if (iy % midStep === 0) continue;
+      const sy = Math.round(offsetY + iy * z) + 0.5;
+      if (sy >= -1 && sy <= height + 1) {
+        ctx.moveTo(0, sy);
+        ctx.lineTo(width, sy);
+      }
     }
+    ctx.stroke();
+
+    // 2. Draw Medium Grid Lines
+    ctx.lineWidth = 1.0;
+    ctx.strokeStyle = isDark
+      ? "rgba(148, 163, 184, 0.38)"
+      : "rgba(71, 85, 105, 0.35)";
+    ctx.beginPath();
+    for (let ix = minImgX; ix <= maxImgX; ix += fineStep) {
+      if (ix % midStep !== 0 || ix % majorStep === 0) continue;
+      const sx = Math.round(offsetX + ix * z) + 0.5;
+      if (sx >= -1 && sx <= width + 1) {
+        ctx.moveTo(sx, 0);
+        ctx.lineTo(sx, height);
+      }
+    }
+    for (let iy = minImgY; iy <= maxImgY; iy += fineStep) {
+      if (iy % midStep !== 0 || iy % majorStep === 0) continue;
+      const sy = Math.round(offsetY + iy * z) + 0.5;
+      if (sy >= -1 && sy <= height + 1) {
+        ctx.moveTo(0, sy);
+        ctx.lineTo(width, sy);
+      }
+    }
+    ctx.stroke();
+
+    // 3. Draw Major Grid Lines
+    ctx.lineWidth = 1.25;
+    ctx.strokeStyle = isDark
+      ? "rgba(186, 230, 253, 0.62)"
+      : "rgba(30, 58, 138, 0.58)";
+    ctx.beginPath();
+    for (let ix = minImgX; ix <= maxImgX; ix += fineStep) {
+      if (ix % majorStep !== 0) continue;
+      const sx = Math.round(offsetX + ix * z) + 0.5;
+      if (sx >= -1 && sx <= width + 1) {
+        ctx.moveTo(sx, 0);
+        ctx.lineTo(sx, height);
+      }
+    }
+    for (let iy = minImgY; iy <= maxImgY; iy += fineStep) {
+      if (iy % majorStep !== 0) continue;
+      const sy = Math.round(offsetY + iy * z) + 0.5;
+      if (sy >= -1 && sy <= height + 1) {
+        ctx.moveTo(0, sy);
+        ctx.lineTo(width, sy);
+      }
+    }
+    ctx.stroke();
+
+    // 4. Prominent Image Dimension Boundary Frame
+    ctx.lineWidth = 1.75;
+    ctx.strokeStyle = isDark ? "rgba(56, 189, 248, 0.85)" : "rgba(37, 99, 235, 0.85)";
+    ctx.strokeRect(
+      Math.round(imgScreenX0) + 0.5,
+      Math.round(imgScreenY0) + 0.5,
+      Math.round(targetW * z),
+      Math.round(targetH * z)
+    );
+
+    // 5. Interactive Deep Snapping with Image Coordinate Tag
+    if (
+      hoverPos &&
+      hoverPos.x >= 0 &&
+      hoverPos.x < width &&
+      hoverPos.y >= 0 &&
+      hoverPos.y < height
+    ) {
+      const curImgX = (hoverPos.x - offsetX) / z;
+      const curImgY = (hoverPos.y - offsetY) / z;
+      const snapImgX = Math.round(curImgX / fineStep) * fineStep;
+      const snapImgY = Math.round(curImgY / fineStep) * fineStep;
+      const snapScreenX = Math.round(offsetX + snapImgX * z);
+      const snapScreenY = Math.round(offsetY + snapImgY * z);
+
+      const highlightColor = isDark
+        ? "rgba(56, 189, 248, 0.9)"
+        : "rgba(37, 99, 235, 0.9)";
+      ctx.strokeStyle = highlightColor;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(snapScreenX + 0.5, 0);
+      ctx.lineTo(snapScreenX + 0.5, height);
+      ctx.moveTo(0, snapScreenY + 0.5);
+      ctx.lineTo(width, snapScreenY + 0.5);
+      ctx.stroke();
+
+      ctx.fillStyle = highlightColor;
+      ctx.beginPath();
+      ctx.arc(snapScreenX, snapScreenY, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Precision Coordinate Readout Tag
+      const coordText = `(${snapImgX}, ${snapImgY}) [${fineStep}px grid]`;
+      ctx.font = "600 10.5px monospace";
+      const tw = ctx.measureText(coordText).width;
+      const tx = Math.min(width - tw - 12, Math.max(6, snapScreenX + 8));
+      const ty = Math.min(height - 18, Math.max(18, snapScreenY - 8));
+      ctx.fillStyle = isDark ? "rgba(15, 23, 42, 0.88)" : "rgba(255, 255, 255, 0.92)";
+      roundRect(ctx, tx - 4, ty - 12, tw + 8, 16, 3);
+      ctx.fill();
+      ctx.strokeStyle = highlightColor;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = isDark ? "#38bdf8" : "#1d4ed8";
+      ctx.fillText(coordText, tx, ty);
+    }
+
     ctx.restore();
   }
 
@@ -939,7 +1140,6 @@
     const h = lyrCanvas.height;
     lyrCtx.clearRect(0, 0, w, h);
 
-    drawGridlines(lyrCtx, w, h, lyrView.offsetX, lyrView.offsetY, lyrView.zoom);
     lyrView.labelPillRects = [];
 
     if (!lyrView.img) {
@@ -948,11 +1148,14 @@
       lyrCtx.font = "14px 'Segoe UI', sans-serif";
       lyrCtx.textAlign = "center";
       lyrCtx.fillText(
-        "Select a folder or upload images to begin annotating.",
+        lyrView.isLoadingImage
+          ? "Loading image…"
+          : "Select a folder or upload images to begin annotating.",
         w / 2,
         h / 2
       );
       lyrCtx.restore();
+      drawGridlines(lyrCtx, w, h, lyrView.offsetX, lyrView.offsetY, lyrView.zoom, lyrView.hoverScreenPos);
       return;
     }
 
@@ -981,7 +1184,9 @@
         if (mImg && mImg.complete) {
           lyrCtx.save();
           lyrCtx.globalAlpha = isSelected ? 0.5 : 0.34;
-          lyrCtx.drawImage(mImg, 0, 0);
+          const mx = Number(ann.mask_offset_x || 0);
+          const my = Number(ann.mask_offset_y || 0);
+          lyrCtx.drawImage(mImg, mx, my);
           lyrCtx.restore();
         }
       }
@@ -1217,6 +1422,19 @@
       }
     });
     lyrCtx.restore();
+
+    // Draw grid overlay IN FRONT OF the image and annotations
+    drawGridlines(
+      lyrCtx,
+      w,
+      h,
+      lyrView.offsetX,
+      lyrView.offsetY,
+      lyrView.zoom,
+      lyrView.hoverScreenPos,
+      lyrView.img ? lyrView.img.width : null,
+      lyrView.img ? lyrView.img.height : null
+    );
   }
 
   function getAnnotationAnchorPoint(ann) {
@@ -1253,6 +1471,20 @@
 
   function hitTestAnnotation(ix, iy) {
     const tol = 7 / lyrView.zoom;
+    // Check if clicked/hovered over any label pill in screen space first
+    const scr = imageToScreen(ix, iy);
+    for (let p = lyrView.labelPillRects.length - 1; p >= 0; p--) {
+      const pill = lyrView.labelPillRects[p];
+      if (
+        scr.x >= pill.x - 2 &&
+        scr.x <= pill.x + pill.w + 2 &&
+        scr.y >= pill.y - 2 &&
+        scr.y <= pill.y + pill.h + 2
+      ) {
+        return pill.annIdx;
+      }
+    }
+
     // Check point annotations first
     for (let i = lyrView.annotations.length - 1; i >= 0; i--) {
       const ann = lyrView.annotations[i];
@@ -1345,6 +1577,67 @@
     return null;
   }
 
+  // ==================== DISTINCT MODE CURSORS (SVG data-URIs) ====================
+  function svgCursor(svgBody, hotX, hotY, fallback) {
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'>${svgBody}</svg>`;
+    return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}") ${hotX} ${hotY}, ${fallback}`;
+  }
+  const CROSS_BASE =
+    "<g stroke='white' stroke-width='3' stroke-linecap='round'><path d='M3 10h5M12 10h5M10 3v5M10 12v5'/></g>" +
+    "<g stroke='%23141820' stroke-width='1.5' stroke-linecap='round'><path d='M3 10h5M12 10h5M10 3v5M10 12v5'/></g>";
+  const MODE_CURSORS = {
+    Idle: "default",
+    Point: svgCursor(
+      CROSS_BASE.replace(/%23/g, "#") +
+        "<circle cx='10' cy='10' r='3' fill='#00d2ff' stroke='white' stroke-width='1.5'/>" +
+        "<circle cx='21' cy='21' r='4.5' fill='none' stroke='#00b4e6' stroke-width='1.8'/>",
+      10, 10, "crosshair"
+    ),
+    Rectangle: svgCursor(
+      CROSS_BASE.replace(/%23/g, "#") +
+        "<rect x='14' y='15' width='11' height='9' fill='rgba(59,130,246,0.3)' stroke='white' stroke-width='2.5'/>" +
+        "<rect x='14' y='15' width='11' height='9' fill='none' stroke='#3b82f6' stroke-width='1.5'/>",
+      10, 10, "crosshair"
+    ),
+    Polygon: svgCursor(
+      CROSS_BASE.replace(/%23/g, "#") +
+        "<polygon points='15,24 14,17 20,14 25,19 23,25' fill='rgba(16,185,129,0.3)' stroke='white' stroke-width='2.5'/>" +
+        "<polygon points='15,24 14,17 20,14 25,19 23,25' fill='none' stroke='#10b981' stroke-width='1.5'/>" +
+        "<g fill='#10b981'><circle cx='15' cy='24' r='1.6'/><circle cx='14' cy='17' r='1.6'/><circle cx='20' cy='14' r='1.6'/><circle cx='25' cy='19' r='1.6'/><circle cx='23' cy='25' r='1.6'/></g>",
+      10, 10, "crosshair"
+    ),
+    Brush: "none", // brush circle drawn on canvas
+    Pan: "grab",
+    Draw: svgCursor(
+      "<path d='M4 24 L7 17 L19 5 L23 9 L11 21 Z' fill='#ef4444' stroke='white' stroke-width='1.5'/>" +
+        "<path d='M4 24 L7 17 L11 21 Z' fill='#141820'/>",
+      4, 24, "crosshair"
+    ),
+    Erase: svgCursor(
+      "<rect x='6' y='8' width='16' height='10' rx='2' transform='rotate(-35 14 13)' fill='#f9a8d4' stroke='#141820' stroke-width='1.5'/>" +
+        "<line x1='4' y1='25' x2='24' y2='25' stroke='#141820' stroke-width='1.5'/>",
+      6, 22, "cell"
+    ),
+  };
+
+  function updateBakerCursor(hit = null) {
+    if (!bkrCanvas || bkrView.isPanning) return;
+    if (bkrView.drawingMode) {
+      bkrCanvas.style.cursor = MODE_CURSORS.Draw;
+    } else if (bkrView.eraseMode) {
+      bkrCanvas.style.cursor = MODE_CURSORS.Erase;
+    } else if (hit && hit.hitType === "rotate") {
+      bkrCanvas.style.cursor = "alias";
+    } else if (hit && hit.hitType === "scale") {
+      const resizeMap = ["nwse-resize", "ns-resize", "nesw-resize", "ew-resize", "nwse-resize", "ns-resize", "nesw-resize", "ew-resize"];
+      bkrCanvas.style.cursor = resizeMap[hit.handleIdx] || "nwse-resize";
+    } else if (hit && hit.hitType === "body") {
+      bkrCanvas.style.cursor = "move";
+    } else {
+      bkrCanvas.style.cursor = "default";
+    }
+  }
+
   // ==================== LAYERIFY CANVAS EVENTS ====================
   function updateLayerifyHud() {
     const pill = el("hud-mode-pill");
@@ -1356,32 +1649,32 @@
       Idle: {
         label: "Mode: Select / Edit (V)",
         hint: "Click any region to select • Drag inside to move • Drag handles to resize • 0-9 relabels",
-        cursor: "default",
+        cursor: MODE_CURSORS.Idle,
       },
       Rectangle: {
         label: "Mode: Rectangle (E)",
         hint: "Drag to draw rectangle • Click existing region to select or drag its handles",
-        cursor: "crosshair",
+        cursor: MODE_CURSORS.Rectangle,
       },
       Polygon: {
         label: "Mode: Polygon (W)",
         hint: "Click to add points • Click 1st point, Enter, or Double-Click to finish • Right-Click removes point",
-        cursor: "crosshair",
+        cursor: MODE_CURSORS.Polygon,
       },
       Point: {
         label: "Mode: Point (Q)",
         hint: "Click to place key/prompt point • Drag existing point to move",
-        cursor: "crosshair",
+        cursor: MODE_CURSORS.Point,
       },
       Brush: {
         label: "Mode: Brush Mask (B)",
         hint: "Paint over object to create segmentation mask & polygon • Alt+Wheel adjusts size",
-        cursor: "none",
+        cursor: MODE_CURSORS.Brush,
       },
       Pan: {
         label: "Mode: Pan (Space)",
         hint: "Drag anywhere on canvas to pan viewport • Scroll wheel to zoom",
-        cursor: "grab",
+        cursor: MODE_CURSORS.Pan,
       },
     };
     const info = modeInfo[lyrView.mode] || modeInfo.Idle;
@@ -1542,7 +1835,34 @@
       return;
     }
 
-    // 3. Check if clicking any annotation handle (works in ALL modes, matching Windows AnnotableLayer!)
+    // 3. Check if clicked directly on any label pill to select and drag it
+    for (let p = lyrView.labelPillRects.length - 1; p >= 0; p--) {
+      const pill = lyrView.labelPillRects[p];
+      if (
+        sx >= pill.x - 2 &&
+        sx <= pill.x + pill.w + 2 &&
+        sy >= pill.y - 2 &&
+        sy <= pill.y + pill.h + 2
+      ) {
+        const ann = lyrView.annotations[pill.annIdx];
+        if (ann) {
+          const multi = e.ctrlKey || e.metaKey || e.shiftKey;
+          lyrView.annotations.forEach((a, i) => {
+            if (i === pill.annIdx) a.selected = multi ? !a.selected : true;
+            else if (!multi) a.selected = false;
+          });
+          lyrView.draggingAnnIdx = pill.annIdx;
+          lyrView.dragStartImg = imgPt;
+          lyrView.dirtyDuringDrag = false;
+          lyrView.selectionChangedOnMouseDown = true;
+          renderAnnotationList(lyrView.annotations);
+          drawLayerifyCanvas();
+          return;
+        }
+      }
+    }
+
+    // 4. Check if clicking any annotation handle (works in ALL modes, matching Windows AnnotableLayer!)
     const handleHit = hitTestAnnotationHandle(imgPt.x, imgPt.y);
     if (handleHit) {
       lyrView.annotations.forEach((a, i) => {
@@ -1621,6 +1941,7 @@
     const rect = lyrCanvas.getBoundingClientRect();
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
+    lyrView.hoverScreenPos = { x: sx, y: sy };
 
     if (lyrView.isPanning) {
       lyrView.offsetX = sx - lyrView.panStart.x;
@@ -1733,12 +2054,20 @@
       } else {
         // Click without drag (< 3px) in Rectangle mode: select/deselect region under cursor!
         const hitIdx = hitTestAnnotation(clickPt.x, clickPt.y);
+        const changed = lyrView.annotations.some(
+          (a, i) => Boolean(a.selected) !== (i === hitIdx)
+        );
         lyrView.annotations.forEach((a, i) => {
           a.selected = i === hitIdx;
         });
         renderAnnotationList(lyrView.annotations);
         drawLayerifyCanvas();
-        syncAnnotationsToServer(false, hitIdx !== null ? "Selected annotation" : "Deselected annotations");
+        if (changed) {
+          syncAnnotationsToServer(
+            false,
+            hitIdx !== null ? "Selected annotation" : "Deselected annotations"
+          );
+        }
       }
       return;
     }
@@ -1843,7 +2172,7 @@
 
   function addNewAnnotation(geom) {
     const lyr = appState?.layerify || {};
-    const label = lyr.selected_label || "Unlabeled";
+    const label = lyr.selected_label || "Undefined";
     const color = getCurrentSelectedLabelColor();
     // Select the newly created annotation so pressing 0-9, C, or L immediately acts on it!
     lyrView.annotations.forEach((a) => {
@@ -1923,8 +2252,6 @@
     const h = bkrCanvas.height;
     bkrCtx.clearRect(0, 0, w, h);
 
-    drawGridlines(bkrCtx, w, h, bkrView.offsetX, bkrView.offsetY, bkrView.zoom);
-
     if (!bkrView.layers || bkrView.layers.length === 0) {
       bkrCtx.save();
       bkrCtx.fillStyle = appState?.theme_mode === "dark" ? "#9eb0ca" : "#4b5a70";
@@ -1936,6 +2263,7 @@
         h / 2
       );
       bkrCtx.restore();
+      drawGridlines(bkrCtx, w, h, bkrView.offsetX, bkrView.offsetY, bkrView.zoom, bkrView.hoverCanvasPos);
       return;
     }
 
@@ -2038,6 +2366,20 @@
       bkrCtx.stroke();
       bkrCtx.restore();
     }
+
+    // Draw grid overlay IN FRONT OF all Baker layers
+    const curC = (appState?.baker?.canvases || [])[bkrView.canvasIdx] || null;
+    drawGridlines(
+      bkrCtx,
+      w,
+      h,
+      bkrView.offsetX,
+      bkrView.offsetY,
+      bkrView.zoom,
+      bkrView.hoverCanvasPos,
+      curC ? curC.width : (bkrView.canvas_width || 1280),
+      curC ? curC.height : (bkrView.canvas_height || 720)
+    );
   }
 
   function getBakerLayerLocalHandles(lw, lh) {
@@ -2255,14 +2597,17 @@
     }
 
     if (bkrView.drawingMode || bkrView.eraseMode) {
+      updateBakerCursor();
       drawBakerCanvas();
+    } else {
+      updateBakerCursor(hitTestBakerLayer(scenePt));
     }
   });
 
   window.addEventListener("mouseup", () => {
     if (bkrView.isPanning) {
       bkrView.isPanning = false;
-      bkrCanvas.style.cursor = "default";
+      updateBakerCursor();
     }
     if (bkrView.action) {
       const shouldSync = bkrView.dirtyDuringDrag;
@@ -2362,8 +2707,15 @@
       const curIdx = appState?.layerify?.current_image_index ?? 0;
       const nextIdx = Math.max(0, Math.min(imgs.length - 1, curIdx + delta));
       if (nextIdx !== curIdx) {
-        const res = await apiPost("/api/layerify/select-image", { index: nextIdx });
-        applyServerState(res.state);
+        const nextImg = imgs[nextIdx];
+        showLayerifyLoading(`Loading ${nextImg?.name || "image"}...`, 20);
+        try {
+          const res = await apiPost("/api/layerify/select-image", { index: nextIdx });
+          applyServerState(res.state);
+        } catch (err) {
+          hideLayerifyLoading();
+          showToast("Layerify", err.message);
+        }
       }
     } else if (activeTab === "Baker") {
       const canvases = appState?.baker?.canvases || [];
@@ -2479,7 +2831,7 @@
     renderCanvasList(appState?.baker || {});
   });
 
-  // Layerify Drawing Mode Buttons (Left Tool Strip + Bottom Toolbar)
+  // Layerify Drawing Mode Buttons (Left Tool Strip)
   document.querySelectorAll(".mode-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       btn.blur();
@@ -2487,19 +2839,33 @@
     });
   });
 
+  async function performLayerifyUndo() {
+    if (lyrView.mode === "Polygon" && lyrView.polyPoints.length > 0) {
+      lyrView.polyPoints.pop();
+      updateLayerifyHud();
+      drawLayerifyCanvas();
+      return;
+    }
+    const res = await apiPost("/api/layerify/annotations/action", { action: "undo" });
+    applyServerState(res.state);
+  }
+
+  async function performLayerifyRedo() {
+    const res = await apiPost("/api/layerify/annotations/action", { action: "redo" });
+    applyServerState(res.state);
+  }
+
   // Left Tool Strip Action Buttons & HUD Controls
   if (el("strip-btn-undo")) {
     el("strip-btn-undo").addEventListener("click", async (e) => {
       e.currentTarget.blur();
-      const res = await apiPost("/api/layerify/annotations/action", { action: "undo" });
-      applyServerState(res.state);
+      await performLayerifyUndo();
     });
   }
   if (el("strip-btn-redo")) {
     el("strip-btn-redo").addEventListener("click", async (e) => {
       e.currentTarget.blur();
-      const res = await apiPost("/api/layerify/annotations/action", { action: "redo" });
-      applyServerState(res.state);
+      await performLayerifyRedo();
     });
   }
   if (el("strip-btn-caption")) {
@@ -2523,12 +2889,6 @@
       } else {
         showToast("Layerify", "Select an annotation first to toggle visibility.");
       }
-    });
-  }
-  if (el("strip-btn-layerify")) {
-    el("strip-btn-layerify").addEventListener("click", async (e) => {
-      e.currentTarget.blur();
-      await layerifySelectedOrAllAnnotations();
     });
   }
   if (el("strip-btn-delete")) {
@@ -2582,16 +2942,8 @@
       if (selIdx >= 0) openEditCaptionModal({ type: "layerify", annIdx: selIdx });
     });
   }
-  if (el("btn-insp-bake")) {
-    el("btn-insp-bake").addEventListener("click", () => layerifySelectedOrAllAnnotations());
-  }
 
-  async function layerifySelectedOrAllAnnotations() {
-    const selIds = lyrView.annotations.filter((a) => a.selected).map((a) => a.annotation_id);
-    await layerifyAnnotations(selIds.length > 0 ? selIds : null);
-  }
-
-  // Grid & Theme Toggles (Top-Right + Legacy Buttons)
+  // Grid & Theme Toggles (Top-Right + Baker Toolbar)
   async function toggleGridlines(e) {
     if (e && e.currentTarget) e.currentTarget.blur();
     const next = !appState?.show_gridlines;
@@ -2606,18 +2958,15 @@
   }
   if (el("btn-top-grid")) el("btn-top-grid").addEventListener("click", toggleGridlines);
   if (el("btn-top-theme")) el("btn-top-theme").addEventListener("click", toggleTheme);
-  el("btn-layerify-grid").addEventListener("click", toggleGridlines);
-  el("btn-baker-grid").addEventListener("click", toggleGridlines);
-  el("btn-layerify-theme").addEventListener("click", toggleTheme);
-  el("btn-baker-theme").addEventListener("click", toggleTheme);
+  if (el("btn-baker-grid")) el("btn-baker-grid").addEventListener("click", toggleGridlines);
+  if (el("btn-baker-theme")) el("btn-baker-theme").addEventListener("click", toggleTheme);
 
-  // Select Folder Modal (Left Dock + Bottom Toolbar)
+  // Select Folder Modal (Left Dock)
   const openSelectFolderDialog = async (e) => {
     if (e && e.currentTarget) e.currentTarget.blur();
     openModal("modal-folder-browser");
     await browseFolder(appState?.layerify?.current_folder || "");
   };
-  el("btn-select-folder").addEventListener("click", openSelectFolderDialog);
   if (el("btn-select-folder-left")) {
     el("btn-select-folder-left").addEventListener("click", openSelectFolderDialog);
   }
@@ -2634,11 +2983,13 @@
   async function selectServerFolderPath(folderPath) {
     if (!folderPath) return;
     try {
+      showLayerifyLoading("Loading folder images...", 20);
       const res = await apiPost("/api/layerify/select-folder", { folder_path: folderPath });
       closeAllModals();
       imagePage = 0;
       applyServerState(res.state);
     } catch (err) {
+      hideLayerifyLoading();
       showToast("Layerify", err.message);
     }
   }
@@ -2673,6 +3024,7 @@
         folderName = files[0].webkitRelativePath.split("/")[0] || folderName;
       }
       closeAllModals();
+      showLayerifyLoading(`Importing ${files.length} image(s)...`, 15);
       showToast("Layerify", `Importing ${files.length} image(s) from ${folderName}...`);
       const payloadFiles = [];
       for (const f of files) {
@@ -2689,6 +3041,7 @@
         applyServerState(res.state);
         showToast("Layerify", `Loaded ${files.length} image(s) from ${folderName}`);
       } catch (err) {
+        hideLayerifyLoading();
         showToast("Layerify", err.message);
       }
     });
@@ -2774,13 +3127,13 @@
     if (e && e.currentTarget) e.currentTarget.blur();
     el("hidden-image-upload-input").click();
   };
-  el("btn-upload-images").addEventListener("click", triggerImageUpload);
   if (el("btn-upload-images-left")) {
     el("btn-upload-images-left").addEventListener("click", triggerImageUpload);
   }
   el("hidden-image-upload-input").addEventListener("change", async (e) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
+    showLayerifyLoading(`Uploading ${files.length} image(s)...`, 20);
     const payloadFiles = [];
     for (const f of files) {
       const b64 = await readFileAsDataUrl(f);
@@ -2792,57 +3145,93 @@
       applyServerState(res.state);
       showToast("Layerify", `Uploaded ${res.uploaded || files.length} image(s)`);
     } catch (err) {
+      hideLayerifyLoading();
       showToast("Layerify", err.message);
     }
   });
 
   // Save / Load Annotations Modal
-  el("btn-save-annotations").addEventListener("click", (e) => {
-    e.currentTarget.blur();
-    annIoMode = "save";
-    el("modal-ann-io-title").textContent = "Save Annotations";
-    el("modal-ann-io-desc").textContent =
-      "Do you want to save annotations for all layers or just the current layer?";
-    el("group-ann-file-upload").classList.add("hidden");
-    openModal("modal-annotations-io");
-  });
-  el("btn-load-annotations").addEventListener("click", (e) => {
-    e.currentTarget.blur();
-    annIoMode = "load";
-    el("modal-ann-io-title").textContent = "Load Annotations";
-    el("modal-ann-io-desc").textContent =
-      "Do you want to load annotations for all layers or just the current layer?";
-    el("group-ann-file-upload").classList.remove("hidden");
-    el("input-ann-upload-json").value = "";
-    openModal("modal-annotations-io");
-  });
+  function setAnnFormatOptions(mode) {
+    const sel = el("select-ann-io-format");
+    const autoOpt = el("opt-ann-format-auto");
+    if (autoOpt) autoOpt.classList.toggle("hidden", mode !== "load");
+    if (sel) sel.value = mode === "load" ? "auto" : "default";
+    syncAnnFilePathExt();
+  }
+  function syncAnnFilePathExt() {
+    const sel = el("select-ann-io-format");
+    const inp = el("input-ann-file-path");
+    if (!sel || !inp || annIoMode !== "save") return;
+    const fmt = sel.value;
+    const stem = (inp.value.trim() || "annotations").replace(/\.(json|txt|zip)$/i, "").replace(/_coco$/i, "");
+    inp.value = fmt === "yolo" ? `${stem}.txt` : fmt === "coco" ? `${stem}_coco.json` : `${stem}.json`;
+  }
+  if (el("select-ann-io-format")) {
+    el("select-ann-io-format").addEventListener("change", syncAnnFilePathExt);
+  }
+
+  if (el("btn-save-annotations")) {
+    el("btn-save-annotations").addEventListener("click", (e) => {
+      e.currentTarget.blur();
+      annIoMode = "save";
+      el("modal-ann-io-title").textContent = "Save / Export Annotations";
+      el("modal-ann-io-desc").textContent =
+        "Choose a format, then save annotations for all layers or just the current layer.";
+      el("group-ann-file-upload").classList.add("hidden");
+      setAnnFormatOptions("save");
+      openModal("modal-annotations-io");
+    });
+  }
+  if (el("btn-load-annotations")) {
+    el("btn-load-annotations").addEventListener("click", (e) => {
+      e.currentTarget.blur();
+      annIoMode = "load";
+      el("modal-ann-io-title").textContent = "Load / Import Annotations";
+      el("modal-ann-io-desc").textContent =
+        "Choose a format (or Auto-Detect), then load annotations for all layers or just the current layer.";
+      el("group-ann-file-upload").classList.remove("hidden");
+      el("input-ann-upload-json").value = "";
+      setAnnFormatOptions("load");
+      openModal("modal-annotations-io");
+    });
+  }
 
   async function handleAnnotationsIo(allLayers) {
     const filePath = el("input-ann-file-path").value.trim() || "annotations.json";
+    const fmt = el("select-ann-io-format")?.value || (annIoMode === "save" ? "default" : "auto");
     try {
       if (annIoMode === "save") {
         const res = await apiPost("/api/layerify/annotations/save", {
           all_layers: allLayers,
           file_path: filePath,
+          format: fmt,
         });
         closeAllModals();
         applyServerState(res.state);
-        if (res.json_content) {
-          downloadTextFile(filePath.split(/[\\/]/).pop() || "annotations.json", res.json_content);
+        const content = res.content ?? res.json_content;
+        if (content) {
+          downloadTextFile(res.filename || filePath.split(/[\\/]/).pop() || "annotations.json", content);
         }
+        if (res.classes_txt) {
+          downloadTextFile("classes.txt", res.classes_txt);
+        }
+        showToast("Layerify", res.message || "Annotations saved");
       } else {
         const uploadInput = el("input-ann-upload-json");
-        let jsonContent = null;
+        const payload = { all_layers: allLayers, file_path: filePath, format: fmt };
         if (uploadInput.files && uploadInput.files[0]) {
-          jsonContent = await uploadInput.files[0].text();
+          const f = uploadInput.files[0];
+          if (f.name.toLowerCase().endsWith(".zip")) {
+            const dataUrl = await readFileAsDataUrl(f);
+            payload.content_b64 = dataUrl.split(",")[1] || "";
+          } else {
+            payload.json_content = await f.text();
+          }
         }
-        const res = await apiPost("/api/layerify/annotations/load", {
-          all_layers: allLayers,
-          file_path: filePath,
-          json_content: jsonContent,
-        });
+        const res = await apiPost("/api/layerify/annotations/load", payload);
         closeAllModals();
         applyServerState(res.state);
+        showToast("Layerify", res.message || "Annotations loaded");
       }
     } catch (err) {
       showToast("Layerify", err.message);
@@ -2851,7 +3240,7 @@
   el("btn-ann-io-single").addEventListener("click", () => handleAnnotationsIo(false));
   el("btn-ann-io-all").addEventListener("click", () => handleAnnotationsIo(true));
 
-  // Predict, Color, Layerify All, Add Label, Clear, Label/Model Select, Manage Label
+  // Predict, Color, Single Layerify All Button, Add Label, Clear, Model Select, Manage Labels
   async function runModelPrediction(e) {
     if (e && e.currentTarget) e.currentTarget.blur();
     try {
@@ -2863,19 +3252,20 @@
       showToast("Layerify", err.message);
     }
   }
-  el("btn-predict").addEventListener("click", runModelPrediction);
+  if (el("btn-predict")) {
+    el("btn-predict").addEventListener("click", runModelPrediction);
+  }
 
   const openColorPicker = (e) => {
     if (e && e.currentTarget) e.currentTarget.blur();
     el("input-label-color-picker").click();
   };
-  el("btn-label-color").addEventListener("click", openColorPicker);
   if (el("btn-quick-label-color")) {
     el("btn-quick-label-color").addEventListener("click", openColorPicker);
   }
   el("input-label-color-picker").addEventListener("input", async (e) => {
     const rgb = hexToRgb(e.target.value);
-    const label = el("select-label").value;
+    const label = (appState?.layerify?.selected_label || "").trim() || "Undefined";
     try {
       const res = await apiPost("/api/layerify/labels", {
         action: "color",
@@ -2888,10 +3278,12 @@
     }
   });
 
-  el("btn-layerify-all").addEventListener("click", (e) => {
-    e.currentTarget.blur();
-    layerifySelectedOrAllAnnotations();
-  });
+  if (el("btn-layerify-all")) {
+    el("btn-layerify-all").addEventListener("click", async (e) => {
+      e.currentTarget.blur();
+      await layerifyAnnotations(null);
+    });
+  }
 
   function openAddLabelModal(e) {
     if (e && e.currentTarget) e.currentTarget.blur();
@@ -2903,7 +3295,6 @@
     setTimeout(() => el("input-new-label-name").focus(), 30);
   }
 
-  el("btn-add-label").addEventListener("click", openAddLabelModal);
   if (el("btn-quick-add-label")) {
     el("btn-quick-add-label").addEventListener("click", openAddLabelModal);
   }
@@ -2934,7 +3325,7 @@
     });
   }
 
-  // Edit Region / Layer Caption & Label Modal (replaces blocking window.prompt)
+  // Edit Region / Layer Caption & Label Modal
   function openEditCaptionModal(ctx) {
     editCaptionContext = ctx;
     if (ctx.type === "layerify") {
@@ -2973,7 +3364,7 @@
     if (editCaptionContext.type === "layerify") {
       const ann = lyrView.annotations[editCaptionContext.annIdx];
       if (ann) {
-        const newLbl = el("input-edit-region-label").value.trim() || ann.label;
+        const newLbl = el("input-edit-region-label").value.trim() || ann.label || "Undefined";
         ann.label = newLbl;
         const known = (appState?.layerify?.labels || []).find((l) => l.name === newLbl);
         if (known) ann.color = known.color;
@@ -3000,88 +3391,162 @@
     });
   }
 
-  el("btn-clear-annotations").addEventListener("click", async (e) => {
-    e.currentTarget.blur();
-    try {
-      const res = await apiPost("/api/layerify/annotations/action", { action: "clear" });
-      applyServerState(res.state);
-    } catch (err) {
-      showToast("Layerify", err.message);
-    }
-  });
+  if (el("btn-clear-annotations")) {
+    el("btn-clear-annotations").addEventListener("click", async (e) => {
+      e.currentTarget.blur();
+      try {
+        const res = await apiPost("/api/layerify/annotations/action", { action: "clear" });
+        applyServerState(res.state);
+      } catch (err) {
+        showToast("Layerify", err.message);
+      }
+    });
+  }
 
-  el("select-label").addEventListener("change", async (e) => {
-    const val = e.target.value;
-    e.target.blur(); // Prevent trapping keyboard shortcuts!
-    await selectLabelAndMaybeAssign(val);
-  });
+  if (el("select-model")) {
+    el("select-model").addEventListener("change", async (e) => {
+      const val = e.target.value;
+      e.target.blur(); // Prevent trapping keyboard shortcuts!
+      try {
+        const res = await apiPost("/api/layerify/model", {
+          action: "select",
+          model_name: val,
+        });
+        applyServerState(res.state);
+      } catch (err) {
+        showToast("Layerify", err.message);
+      }
+    });
+  }
 
-  el("select-model").addEventListener("change", async (e) => {
-    const val = e.target.value;
-    e.target.blur(); // Prevent trapping keyboard shortcuts!
-    try {
-      const res = await apiPost("/api/layerify/model", {
-        action: "select",
-        model_name: val,
+  // Manage Labels Modal (direct cache editing for labels.json)
+  function renderManageLabelsModal() {
+    const listEl = el("manage-labels-list");
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    const labels = appState?.layerify?.labels || [];
+    labels.forEach((lbl) => {
+      const row = document.createElement("div");
+      row.className = "folder-row";
+      row.style.cssText = "display:flex;align-items:center;gap:8px;padding:6px 8px;";
+
+      const colorInput = document.createElement("input");
+      colorInput.type = "color";
+      const [r, g, b] = lbl.color || [255, 255, 255];
+      colorInput.value = rgbToHex(r, g, b);
+      colorInput.style.cssText = "width:30px;height:26px;padding:1px;border-radius:4px;cursor:pointer;";
+      colorInput.title = `Change color for ${lbl.name}`;
+      colorInput.addEventListener("change", async () => {
+        try {
+          const res = await apiPost("/api/layerify/labels", {
+            action: "color",
+            label: lbl.name,
+            color: hexToRgb(colorInput.value),
+          });
+          applyServerState(res.state);
+          renderManageLabelsModal();
+        } catch (err) {
+          showToast("Layerify", err.message);
+        }
       });
-      applyServerState(res.state);
-    } catch (err) {
-      showToast("Layerify", err.message);
-    }
-  });
 
-  // Manage Labels Modal
+      const nameInput = document.createElement("input");
+      nameInput.type = "text";
+      nameInput.className = "text-input";
+      nameInput.style.cssText = "flex:1;height:28px;font-size:12px;";
+      nameInput.value = lbl.name;
+      nameInput.disabled = lbl.name === "Undefined";
+
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "btn btn-xs";
+      saveBtn.textContent = "Save";
+      saveBtn.disabled = lbl.name === "Undefined";
+      const doRename = async () => {
+        const nextName = nameInput.value.trim();
+        if (!nextName || nextName === lbl.name) return;
+        try {
+          const res = await apiPost("/api/layerify/labels", {
+            action: "rename",
+            old_label: lbl.name,
+            new_label: nextName,
+          });
+          applyServerState(res.state);
+          renderManageLabelsModal();
+        } catch (err) {
+          showToast("Layerify", err.message);
+        }
+      };
+      saveBtn.addEventListener("click", doRename);
+      nameInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          doRename();
+        }
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "btn btn-xs btn-danger";
+      delBtn.textContent = "Delete";
+      delBtn.disabled = lbl.name === "Undefined";
+      delBtn.addEventListener("click", async () => {
+        try {
+          const res = await apiPost("/api/layerify/labels", {
+            action: "delete",
+            label: lbl.name,
+          });
+          applyServerState(res.state);
+          renderManageLabelsModal();
+        } catch (err) {
+          showToast("Layerify", err.message);
+        }
+      });
+
+      row.appendChild(colorInput);
+      row.appendChild(nameInput);
+      row.appendChild(saveBtn);
+      row.appendChild(delBtn);
+      listEl.appendChild(row);
+    });
+  }
+
   const openManageLabelsDialog = (e) => {
     if (e && e.currentTarget) e.currentTarget.blur();
-    const cur = el("select-label").value || "Unlabeled";
-    el("manage-label-current-name").textContent = cur;
-    el("input-rename-label").value = cur;
+    renderManageLabelsModal();
     openModal("modal-manage-label");
   };
-  el("btn-manage-label").addEventListener("click", openManageLabelsDialog);
   if (el("btn-quick-manage-label")) {
     el("btn-quick-manage-label").addEventListener("click", openManageLabelsDialog);
   }
-  el("btn-do-rename-label").addEventListener("click", async () => {
-    const oldName = el("manage-label-current-name").textContent;
-    const newName = el("input-rename-label").value.trim();
-    if (!newName) return;
-    try {
-      const res = await apiPost("/api/layerify/labels", {
-        action: "rename",
-        old_label: oldName,
-        new_label: newName,
+  if (el("btn-manage-add-label")) {
+    const addFromManageModal = async () => {
+      const inp = el("input-manage-new-label");
+      const name = (inp?.value || "").trim();
+      if (!name) return;
+      const colorInp = el("input-manage-new-color");
+      const rgb = hexToRgb(colorInp?.value || "#3b82f6");
+      try {
+        const res = await apiPost("/api/layerify/labels", {
+          action: "add",
+          label: name,
+          color: rgb,
+        });
+        if (inp) inp.value = "";
+        applyServerState(res.state);
+        renderManageLabelsModal();
+      } catch (err) {
+        showToast("Layerify", err.message);
+      }
+    };
+    el("btn-manage-add-label").addEventListener("click", addFromManageModal);
+    if (el("input-manage-new-label")) {
+      el("input-manage-new-label").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          addFromManageModal();
+        }
       });
-      closeAllModals();
-      applyServerState(res.state);
-    } catch (err) {
-      showToast("Layerify", err.message);
     }
-  });
-  el("btn-do-delete-label").addEventListener("click", async () => {
-    const lbl = el("manage-label-current-name").textContent;
-    try {
-      const res = await apiPost("/api/layerify/labels", {
-        action: "delete",
-        label: lbl,
-      });
-      closeAllModals();
-      applyServerState(res.state);
-    } catch (err) {
-      showToast("Layerify", err.message);
-    }
-  });
-  el("btn-do-cleanup-labels").addEventListener("click", async () => {
-    try {
-      const res = await apiPost("/api/layerify/labels", {
-        action: "cleanup_defaults",
-      });
-      closeAllModals();
-      applyServerState(res.state);
-    } catch (err) {
-      showToast("Layerify", err.message);
-    }
-  });
+  }
 
   // Baker Canvas List & Layer Actions (uses clean modal instead of window.prompt)
   el("btn-create-canvas").addEventListener("click", (e) => {
@@ -3114,13 +3579,28 @@
     });
   }
 
+  if (el("btn-baker-undo")) {
+    el("btn-baker-undo").addEventListener("click", async (e) => {
+      e.currentTarget.blur();
+      const res = await apiPost("/api/baker/layers/action", { action: "undo" });
+      applyServerState(res.state);
+    });
+  }
+  if (el("btn-baker-redo")) {
+    el("btn-baker-redo").addEventListener("click", async (e) => {
+      e.currentTarget.blur();
+      const res = await apiPost("/api/baker/layers/action", { action: "redo" });
+      applyServerState(res.state);
+    });
+  }
+
   el("btn-add-blank-layer").addEventListener("click", async (e) => {
     e.currentTarget.blur();
     try {
       const res = await apiPost("/api/baker/layers/add-blank", {
         width: 512,
         height: 512,
-        label: el("select-label").value || "Drawing",
+        label: (appState?.layerify?.selected_label || "").trim() || "Undefined",
       });
       applyServerState(res.state);
     } catch (err) {
@@ -3204,6 +3684,15 @@
   });
 
   // Baker States & Baking Buttons (passes steps & resets spinbox to 1 like Windows BakerTab)
+  let pendingBakerExportMode = "states_local";
+  function openBakerExportPrompt(mode, title, desc, skipLabel) {
+    pendingBakerExportMode = mode;
+    el("modal-baker-export-title").textContent = title;
+    el("modal-baker-export-desc").textContent = desc;
+    el("btn-baker-export-skip").textContent = skipLabel || "Cancel";
+    openModal("modal-baker-export-prompt");
+  }
+
   async function saveBakerState(e) {
     if (e && e.currentTarget) e.currentTarget.blur();
     const stepsInput = el("input-bake-steps");
@@ -3212,11 +3701,27 @@
       const res = await apiPost("/api/baker/states", { action: "save", steps });
       if (stepsInput) stepsInput.value = "1";
       applyServerState(res.state);
+      if (res.ok !== false) {
+        openBakerExportPrompt(
+          "states_local",
+          "State Saved — Download Baked States?",
+          `${res.message || "State saved."} Do you want to bake and download all saved states with their annotations now?`,
+          "Skip Download"
+        );
+      }
     } catch (err) {
       showToast("Baker", err.message);
     }
   }
   el("btn-save-state").addEventListener("click", saveBakerState);
+
+  if (el("btn-baker-export-confirm")) {
+    el("btn-baker-export-confirm").addEventListener("click", async () => {
+      const fmt = el("select-baker-export-format")?.value || "default";
+      closeAllModals();
+      await triggerBakeExport(pendingBakerExportMode, null, fmt, true);
+    });
+  }
 
   el("btn-randomize-states").addEventListener("click", async (e) => {
     e.currentTarget.blur();
@@ -3302,34 +3807,65 @@
   }
 
   // Export & Bake Modes
-  async function triggerBakeExport(mode, e) {
+  async function triggerBakeExport(mode, e, annotationFormat = "default", download = false) {
     if (e && e.currentTarget) e.currentTarget.blur();
     stopPlayingStates();
     try {
       showToast("Baker", "Baking canvas state(s)...");
-      const res = await apiPost("/api/baker/export", { mode });
+      const res = await apiPost("/api/baker/export", { mode, annotation_format: annotationFormat });
       applyServerState(res.state);
+      if (download) {
+        (res.exported_files || []).forEach((fp) => {
+          const name = String(fp).split(/[\\/]/).pop();
+          const a = document.createElement("a");
+          a.href = `/api/baker/exported-file?name=${encodeURIComponent(name)}`;
+          a.download = name;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        });
+        let classesDone = false;
+        (res.annotation_exports || []).forEach((ex) => {
+          if (ex.content) downloadTextFile(ex.filename, ex.content);
+          if (ex.classes_txt && !classesDone) {
+            downloadTextFile("classes.txt", ex.classes_txt);
+            classesDone = true;
+          }
+        });
+      }
       showToast(
         appState?.active_tab || "Baker",
-        `Exported ${res.count || 0} baked state(s)`
+        res.message || `Exported ${res.count || 0} baked state(s)`
       );
     } catch (err) {
       showToast("Baker", err.message);
     }
   }
 
-  el("btn-export-current-state").addEventListener("click", (e) =>
-    triggerBakeExport("current_local", e)
-  );
+  el("btn-export-current-state").addEventListener("click", (e) => {
+    e.currentTarget.blur();
+    openBakerExportPrompt(
+      "current_local",
+      "Export Current State",
+      "Choose the annotation format for the exported current state.",
+      "Cancel"
+    );
+  });
   el("btn-predict-state").addEventListener("click", (e) =>
     triggerBakeExport("predict_state", e)
   );
   el("btn-annotate-states").addEventListener("click", (e) =>
     triggerBakeExport("annotate_states", e)
   );
-  el("btn-export-states").addEventListener("click", (e) =>
-    triggerBakeExport("states_local", e)
-  );
+  el("btn-export-states").addEventListener("click", (e) => {
+    e.currentTarget.blur();
+    openBakerExportPrompt(
+      "states_local",
+      "Export All Saved States",
+      "Choose the annotation format for all exported baked states.",
+      "Cancel"
+    );
+  });
 
   // Plugin Dropdown
   el("btn-plugin-options").addEventListener("click", (e) => {
@@ -3365,6 +3901,7 @@
     if (bkrView.drawingMode) bkrView.eraseMode = false;
     el("btn-draw-mode").classList.toggle("active", bkrView.drawingMode);
     el("btn-erase-mode").classList.toggle("active", bkrView.eraseMode);
+    updateBakerCursor();
     drawBakerCanvas();
   });
   el("btn-erase-mode").addEventListener("click", (e) => {
@@ -3373,6 +3910,7 @@
     if (bkrView.eraseMode) bkrView.drawingMode = false;
     el("btn-erase-mode").classList.toggle("active", bkrView.eraseMode);
     el("btn-draw-mode").classList.toggle("active", bkrView.drawingMode);
+    updateBakerCursor();
     drawBakerCanvas();
   });
   el("btn-brush-color").addEventListener("click", (e) => {
@@ -3488,14 +4026,15 @@
         if (lyrView.annotations.length !== before) {
           syncAnnotationsToServer(true, "Deleted selected annotation(s)");
         }
+      } else if (ctrl && e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        await performLayerifyRedo();
       } else if (ctrl && e.key.toLowerCase() === "z") {
         e.preventDefault();
-        const res = await apiPost("/api/layerify/annotations/action", { action: "undo" });
-        applyServerState(res.state);
+        await performLayerifyUndo();
       } else if (ctrl && e.key.toLowerCase() === "y") {
         e.preventDefault();
-        const res = await apiPost("/api/layerify/annotations/action", { action: "redo" });
-        applyServerState(res.state);
+        await performLayerifyRedo();
       } else if (ctrl && e.key.toLowerCase() === "c") {
         e.preventDefault();
         const res = await apiPost("/api/layerify/annotations/action", { action: "copy" });
@@ -3538,7 +4077,7 @@
         setLayerifyMode("Idle");
       } else if (!ctrl && e.key.toLowerCase() === "l") {
         e.preventDefault();
-        await layerifySelectedOrAllAnnotations();
+        await layerifyAnnotations(null);
       } else if (!ctrl && e.key.toLowerCase() === "p") {
         e.preventDefault();
         await runModelPrediction();
@@ -3595,7 +4134,7 @@
         const res = await apiPost("/api/baker/layers/add-blank", {
           width: 512,
           height: 512,
-          label: el("select-label").value || "Drawing",
+          label: (appState?.layerify?.selected_label || "").trim() || "Undefined",
         });
         applyServerState(res.state);
       } else if (ctrl && e.key.toLowerCase() === "d") {
@@ -3623,6 +4162,10 @@
           });
           syncLayersToServer(true, "Rotated layer(s)");
         }
+      } else if (ctrl && e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        const res = await apiPost("/api/baker/layers/action", { action: "redo" });
+        applyServerState(res.state);
       } else if (ctrl && e.key.toLowerCase() === "z") {
         e.preventDefault();
         const res = await apiPost("/api/baker/layers/action", { action: "undo" });
@@ -3687,6 +4230,10 @@
     if (ann.rectangle && ann.rectangle.length === 4) {
       const [x1, y1, x2, y2] = ann.rectangle;
       ann.rectangle = [clampX(x1 + dx), clampY(y1 + dy), clampX(x2 + dx), clampY(y2 + dy)];
+    }
+    if (ann.mask_png_b64) {
+      ann.mask_offset_x = (ann.mask_offset_x || 0) + dx;
+      ann.mask_offset_y = (ann.mask_offset_y || 0) + dy;
     }
   }
 
@@ -3755,7 +4302,9 @@
   }
 
   function downloadTextFile(filename, content) {
-    const blob = new Blob([content], { type: "application/json" });
+    const lower = String(filename || "").toLowerCase();
+    const mime = lower.endsWith(".txt") ? "text/plain" : "application/json";
+    const blob = new Blob([content], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

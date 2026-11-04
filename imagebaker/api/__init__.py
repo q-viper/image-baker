@@ -5,6 +5,12 @@ This module provides programmatic access to ImageBaker's core functionality
 for use as a Python library.
 """
 
+from imagebaker.dataset import (
+    CacheDatasetGenerator,
+    DatasetBakeConfig,
+    ImageBakerTorchDataset,
+)
+
 from .annotation import AnnotationType, create_annotation
 from .baker import ImageBaker
 from .layer import Layer
@@ -16,4 +22,7 @@ __all__ = [
     "create_annotation",
     "AnnotationType",
     "load_model",
+    "DatasetBakeConfig",
+    "CacheDatasetGenerator",
+    "ImageBakerTorchDataset",
 ]

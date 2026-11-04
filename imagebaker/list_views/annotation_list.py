@@ -192,8 +192,10 @@ class AnnotationList(QDockWidget):
 
     def toggle_visibility(self, index):
         if 0 <= index < len(self.layer.annotations):
+            self.layer._push_undo_state()
             ann = self.layer.annotations[index]
             ann.visible = not ann.visible
+            self.layer.annotationUpdated.emit(ann)
             self.layer.update()
             self.update_list()
             logger.info(f"Annotation visibility toggled: {ann.label}, {ann.visible}")
@@ -216,7 +218,20 @@ class AnnotationList(QDockWidget):
     def keyPressEvent(self, event):
         key = event.key()
         logger.info(f"Key pressed in AnnotationList: {key}")
-        if event.key() == Qt.Key_C and event.modifiers() == Qt.ControlModifier:
+        if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_Z:
+            if event.modifiers() & Qt.ShiftModifier:
+                self.layer.redo()
+            else:
+                self.layer.undo()
+            self.update_list()
+            event.accept()
+            return
+        elif event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_Y:
+            self.layer.redo()
+            self.update_list()
+            event.accept()
+            return
+        elif event.key() == Qt.Key_C and event.modifiers() == Qt.ControlModifier:
             self.layer.copy_annotation()
             event.accept()
             return

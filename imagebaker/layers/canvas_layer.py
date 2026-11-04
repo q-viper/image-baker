@@ -1643,12 +1643,15 @@ class CanvasLayer(BaseLayer):
             f"Moved layer {selected_layer.layer_name} down in order."
         )
 
-    def export_current_state(self, export_to_annotation_tab=False):
+    def export_current_state(
+        self, export_to_annotation_tab=False, annotation_format: str = "default"
+    ):
         """
         Export the current state of the canvas layer to an image file or annotation tab.
 
         Args:
             export_to_annotation_tab (bool, optional): Whether to export the image to the annotation tab. Defaults to False.
+            annotation_format (str, optional): Annotation export format ('default', 'coco', 'yolo'). Defaults to 'default'.
 
         Raises:
             ValueError: If the layer is not a BaseLayer instance
@@ -1724,8 +1727,10 @@ class CanvasLayer(BaseLayer):
         # Connect signals
         self.worker_thread.started.connect(self.worker.process)
         self.worker.finished.connect(
-            lambda results, export_to_annotation_tab=export_to_annotation_tab: self.handle_baker_results(
-                results, export_to_annotation_tab=export_to_annotation_tab
+            lambda results, export_to_annotation_tab=export_to_annotation_tab, fmt=annotation_format: self.handle_baker_results(
+                results,
+                export_to_annotation_tab=export_to_annotation_tab,
+                annotation_format=fmt,
             )
         )
         self.worker.finished.connect(self.worker_thread.quit)
@@ -1886,7 +1891,9 @@ class CanvasLayer(BaseLayer):
         self.update()
         self.messageSignal.emit(f"Randomized {num_states} state(s).")
 
-    def export_baked_states(self, export_to_annotation_tab=False):
+    def export_baked_states(
+        self, export_to_annotation_tab=False, annotation_format: str = "default"
+    ):
         """Export all the states stored in self.states."""
         export_states = self.states
         if len(self.states) == 0:
@@ -1930,8 +1937,10 @@ class CanvasLayer(BaseLayer):
         # Connect signals
         self.worker_thread.started.connect(self.worker.process)
         self.worker.finished.connect(
-            lambda results, export_to_annotation_tab=export_to_annotation_tab: self.handle_baker_results(
-                results, export_to_annotation_tab
+            lambda results, export_to_annotation_tab=export_to_annotation_tab, fmt=annotation_format: self.handle_baker_results(
+                results,
+                export_to_annotation_tab,
+                annotation_format=fmt,
             )
         )  # Handle multiple results
         self.worker.finished.connect(self.worker_thread.quit)
@@ -1949,8 +1958,12 @@ class CanvasLayer(BaseLayer):
         self,
         baking_results: list[BakingResult],
         export_to_annotation_tab=False,
+        annotation_format: str = "default",
     ):
+        from imagebaker.utils.annotation_formats import save_annotations_to_path
+
         logger.info("Baking completed.")
+        fmt_norm = (annotation_format or "default").strip().lower()
         for baking_result in baking_results:
 
             filename, image = baking_result.filename, baking_result.image
@@ -1973,19 +1986,42 @@ class CanvasLayer(BaseLayer):
                             logger.info(f"Saved mask for {mask_name}")
                     logger.info(f"Saved baked image to {filename}")
                     if self.config.write_annotations:
-                        image = qpixmap_to_numpy(image.copy())
-                        image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGRA)
-                        drawn = draw_annotations(image, annotations)
+                        image_np = qpixmap_to_numpy(image.copy())
+                        image_np = cv2.cvtColor(image_np, cv2.COLOR_RGBA2BGRA)
+                        drawn = draw_annotations(image_np, annotations)
                         write_to = filename.parent / f"annotated_{filename.name}"
 
                         cv2.imwrite(str(write_to), drawn)
 
                         logger.info(f"Saved annotated image to annotated_{filename}")
 
-                Annotation.save_as_json(
-                    annotations, f"{filename.parent/filename.stem}.json"
-                )
-                logger.info(f"Saved annotations to {filename}.json")
+                if fmt_norm == "coco":
+                    out_ann = filename.parent / f"{filename.stem}_coco.json"
+                    save_annotations_to_path(
+                        annotations,
+                        out_ann,
+                        fmt="coco",
+                        image_name=filename.name,
+                        image_width=image.width(),
+                        image_height=image.height(),
+                    )
+                    logger.info(f"Saved COCO annotations to {out_ann}")
+                elif fmt_norm == "yolo":
+                    out_ann = filename.parent / f"{filename.stem}.txt"
+                    save_annotations_to_path(
+                        annotations,
+                        out_ann,
+                        fmt="yolo",
+                        image_name=filename.name,
+                        image_width=image.width(),
+                        image_height=image.height(),
+                    )
+                    logger.info(f"Saved YOLO annotations to {out_ann}")
+                else:
+                    Annotation.save_as_json(
+                        annotations, f"{filename.parent/filename.stem}.json"
+                    )
+                    logger.info(f"Saved annotations to {filename}.json")
             else:
                 self.bakingResult.emit(baking_result)
 

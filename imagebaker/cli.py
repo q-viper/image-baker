@@ -9,9 +9,12 @@ import sys
 from pathlib import Path
 
 import typer
+from PySide6.QtWidgets import QApplication
+
+from imagebaker import logger
+from imagebaker.api import ImageBaker
 
 # Initialize Qt application for headless operation
-from PySide6.QtWidgets import QApplication
 
 _app = None
 
@@ -28,8 +31,6 @@ def ensure_qapp():
         _app = QApplication.instance() or QApplication(sys.argv)
     return _app
 
-from imagebaker import logger
-from imagebaker.api import ImageBaker
 
 # Create main app
 app = typer.Typer(
@@ -52,7 +53,7 @@ cli.add_typer(bake_app, name="bake")
 def main_callback(ctx: typer.Context):
     """
     ImageBaker - Image composition and annotation tool
-    
+
     Run without arguments to launch the GUI.
     Use 'imagebaker cli' to see command-line interface options.
     """
@@ -94,6 +95,10 @@ def gui(
 
 @app.command()
 def web(
+    mode: str | None = typer.Argument(
+        None,
+        help="Optional subcommand/mode (e.g. 'debug' to start debug server).",
+    ),
     host: str = typer.Option(
         "127.0.0.1", "--host", "-h", help="Host interface to bind the web server to."
     ),
@@ -115,11 +120,19 @@ def web(
         "--open-browser/--no-open-browser",
         help="Automatically open the web application in the default browser.",
     ),
+    debug: bool = typer.Option(
+        False,
+        "--debug",
+        "-d",
+        help="Start the web server in debug mode with verbose logging and state dumps.",
+    ),
 ):
     """
     Launch the standalone cross-platform ImageBaker web application.
     """
     from imagebaker.web.server import run_web_server
+
+    is_debug = debug or (mode is not None and mode.lower() in ("debug", "dev"))
 
     run_web_server(
         host=host,
@@ -128,6 +141,7 @@ def web(
         project_dir=project_dir,
         configs_file=configs_file or "imagebaker/core/configs.py",
         open_browser=open_browser,
+        debug=is_debug,
     )
 
 
@@ -155,7 +169,7 @@ def bake_simple(
 ):
     """
     Simple baking: composite multiple images into one.
-    
+
     Example:
         imagebaker bake simple image1.png image2.png -o output.png \\
             --positions "0,0;100,100" --opacities "1.0,0.5"
@@ -234,7 +248,7 @@ def bake_simple(
     except Exception as e:
         typer.echo(f"Error: {e}", err=True)
         logger.exception(e)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @bake_app.command("from-config")
@@ -244,9 +258,9 @@ def bake_from_config(
 ):
     """
     Bake images using a Python configuration file.
-    
+
     The config file should define a 'bake_config' dictionary with layers and their properties.
-    
+
     Example config.py:
         bake_config = {
             'layers': [
@@ -311,7 +325,7 @@ def bake_from_config(
     except Exception as e:
         typer.echo(f"Error: {e}", err=True)
         logger.exception(e)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @cli.command()
@@ -344,7 +358,7 @@ def info(
 
     except Exception as e:
         typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @cli.command()

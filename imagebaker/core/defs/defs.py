@@ -76,7 +76,7 @@ class LayerState:
     status: str = "Ready"
     drawing_states: list[DrawingState] = field(default_factory=list)
     edge_opacity: int = 100
-    edge_width: int = 10
+    edge_width: int = 1
     caption: str = ""
 
     def copy(self):
@@ -115,7 +115,7 @@ class LayerState:
 
 @dataclass
 class Label:
-    name: str = "Unlabeled"
+    name: str = "Undefined"
     color: QColor = field(default_factory=lambda: QColor(255, 255, 255))
 
 
@@ -141,6 +141,9 @@ class Annotation:
     is_model_generated: bool = False
     model_name: str = None
     caption: str = ""
+    label_id: int = 0
+    iscrowd: bool = False
+    layer_id: str = ""
 
     def copy(self):
         import numpy as np
@@ -174,6 +177,7 @@ class Annotation:
     @staticmethod
     def save_as_json(annotations: list["Annotation"], path: str):
         import json
+
         import numpy as np
 
         annotations_dict = []
@@ -222,6 +226,7 @@ class Annotation:
     @staticmethod
     def load_from_json(path: str):
         import json
+
         import numpy as np
 
         # if path does not exist, return empty list
@@ -230,6 +235,13 @@ class Annotation:
 
         with open(path) as f:
             data = json.load(f)
+
+        if isinstance(data, dict) and (
+            "categories" in data or "images" in data or "annotations" in data
+        ):
+            from imagebaker.utils.annotation_formats import load_annotations_from_path
+
+            return load_annotations_from_path(path, fmt="auto")
 
         annotations = []
         for d in data:

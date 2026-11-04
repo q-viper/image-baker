@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
+import json
 import math
 import os
 import random
@@ -54,6 +55,14 @@ from imagebaker.core.defs import (
 from imagebaker.plugins.base_plugin import BasePlugin
 from imagebaker.plugins.discovery import discover_plugin_classes
 from imagebaker.plugins.runtime import apply_pixel_plugins
+from imagebaker.utils.annotation_formats import (
+    dict_to_annotation,
+    export_annotations_data,
+    load_annotation_dicts_from_data,
+    load_annotations_from_path,
+    normalize_annotation_dict,
+    save_annotations_to_path,
+)
 from imagebaker.utils.image import draw_annotations, qpixmap_to_numpy
 from imagebaker.utils.state_utils import calculate_intermediate_states
 from imagebaker.utils.transform_mask import mask_to_polygons, mask_to_rectangles
@@ -515,8 +524,61 @@ class ImageUndoHistory:
     redo_stack: list[list[Annotation]] = field(default_factory=list)
     max_history: int = 100
 
+    @staticmethod
+    def _ann_sig(ann: Annotation) -> tuple:
+        pts = tuple((round(p.x(), 3), round(p.y(), 3)) for p in (ann.points or []))
+        rect = (
+            (
+                round(ann.rectangle.x(), 3),
+                round(ann.rectangle.y(), 3),
+                round(ann.rectangle.width(), 3),
+                round(ann.rectangle.height(), 3),
+            )
+            if ann.rectangle is not None
+            else None
+        )
+        poly = (
+            tuple((round(p.x(), 3), round(p.y(), 3)) for p in ann.polygon)
+            if ann.polygon is not None
+            else None
+        )
+        mask_sig = (
+            (ann.mask.shape, int(ann.mask.sum()))
+            if ann.mask is not None
+            else None
+        )
+        col = (
+            (ann.color.red(), ann.color.green(), ann.color.blue())
+            if ann.color is not None
+            else (255, 255, 255)
+        )
+        return (
+            ann.label,
+            col,
+            pts,
+            rect,
+            poly,
+            mask_sig,
+            bool(ann.visible),
+            ann.caption or "",
+        )
+
+    @classmethod
+    def annotations_equal(
+        cls, before: list[Annotation], after: list[Annotation]
+    ) -> bool:
+        if len(before) != len(after):
+            return False
+        return all(
+            cls._ann_sig(a) == cls._ann_sig(b) for a, b in zip(before, after, strict=False)
+        )
+
     def push(self, annotations: list[Annotation]):
-        self.undo_stack.append([ann.copy() for ann in annotations])
+        snapshot = [ann.copy() for ann in annotations]
+        if self.undo_stack and self.annotations_equal(self.undo_stack[-1], snapshot):
+            self.redo_stack.clear()
+            return
+        self.undo_stack.append(snapshot)
         if len(self.undo_stack) > self.max_history:
             self.undo_stack.pop(0)
         self.redo_stack.clear()
@@ -532,10 +594,12 @@ class WebAppEngine:
         models_file: str | None = "loaded_models.py",
         project_dir: str = ".",
         configs_file: str | None = "imagebaker/core/configs.py",
+        is_debug: bool = False,
     ):
         ensure_headless_qapp()
         self.lock = threading.RLock()
         self.project_dir = Path(project_dir).resolve()
+        self.is_debug = is_debug
         self.theme_mode = "light"
         self.active_tab = "Layerify"
         self.last_message = "Ready"
@@ -582,7 +646,12 @@ class WebAppEngine:
         else:
             self.canvas_config = CanvasConfig(project_dir=self.project_dir)
 
+        if self.is_debug:
+            self.layer_config.is_debug = True
+            self.canvas_config.is_debug = True
+
         # Layerify state
+        self.layer_config.load_labels_from_cache()
         model_keys = [str(k) for k in self.loaded_models.keys()]
         self.current_model_name = model_keys[0] if model_keys else "None"
         self.current_label = self.layer_config.default_label.name
@@ -599,6 +668,7 @@ class WebAppEngine:
         self.current_canvas: WebCanvasItem = first_canvas
         self.plugin_registry: dict[str, type[BasePlugin]] = {}
         self.reload_plugins()
+        self.load_baker_cache()
 
         # Load default images
         self._load_images_from_folder(self.layer_config.assets_folder)
@@ -608,9 +678,280 @@ class WebAppEngine:
         else:
             self.last_message = "No images found in the assets folder."
 
-    # -------------------------------------------------------------------------
-    # Cache & Annotation Serialization Helpers
-    # -------------------------------------------------------------------------
+    @property
+    def baker_cache_file(self) -> Path:
+        return self.canvas_config.cache_dir / "baker_cache.json"
+
+    @property
+    def baker_layers_dir(self) -> Path:
+        d = self.canvas_config.cache_dir / "baker_layers"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def save_baker_cache(self) -> Path:
+        """Persist Baker canvases, layers, and saved timeline states to .imagebaker/cache."""
+        with self.lock:
+            cache_file = self.baker_cache_file
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            _ = self.baker_layers_dir
+
+            canvases_payload = []
+            for cv in self.canvases:
+                layers_payload = []
+                for order, layer in enumerate(cv.layers):
+                    lid = str(layer.layer_id)
+                    img_rel = f"baker_layers/layer_{lid}.png"
+                    img_abs = self.canvas_config.cache_dir / img_rel
+                    source_img = layer._original_image if not layer._original_image.isNull() else layer.image
+                    if not source_img.isNull():
+                        source_img.save(str(img_abs), "PNG")
+
+                    ann_dict = (
+                        normalize_annotation_dict(layer.annotations[0], order + 1)
+                        if layer.annotations
+                        else None
+                    )
+                    lbl = ann_dict["label"] if ann_dict else "Undefined"
+                    col = ann_dict["color"] if ann_dict else [255, 255, 255]
+                    drawings_payload = [
+                        {
+                            "x": float(d.position.x()),
+                            "y": float(d.position.y()),
+                            "color": [d.color.red(), d.color.green(), d.color.blue()],
+                            "size": int(d.size),
+                        }
+                        for d in layer.drawing_states
+                    ]
+                    plugin_names = [
+                        getattr(p, "plugin_name", getattr(p, "name", type(p).__name__))
+                        for p in getattr(layer, "plugins", [])
+                        if getattr(p, "enabled", True)
+                    ]
+                    layers_payload.append(
+                        {
+                            "layer_id": int(layer.layer_id),
+                            "name": layer.layer_name,
+                            "label": lbl,
+                            "color": col,
+                            "image_file": img_rel,
+                            "source_image": str(layer.file_path or ""),
+                            "visible": bool(layer.visible),
+                            "allow_export": bool(layer.allow_annotation_export),
+                            "order": int(order),
+                            "x": float(layer.position.x()),
+                            "y": float(layer.position.y()),
+                            "scale_x": float(layer.scale_x),
+                            "scale_y": float(layer.scale_y),
+                            "rotation": float(layer.rotation),
+                            "opacity": float(layer.opacity),
+                            "edge_opacity": int(layer.edge_opacity),
+                            "edge_width": int(layer.edge_width),
+                            "caption": str(layer.caption or ""),
+                            "plugins": plugin_names,
+                            "drawings": drawings_payload,
+                            "annotation": ann_dict,
+                        }
+                    )
+
+                states_payload = {}
+                for step_key, step_states in sorted(cv.states.items()):
+                    states_payload[str(step_key)] = [
+                        {
+                            "layer_id": int(st.layer_id),
+                            "layer_name": str(st.layer_name),
+                            "x": float(st.position.x()),
+                            "y": float(st.position.y()),
+                            "scale_x": float(st.scale_x),
+                            "scale_y": float(st.scale_y),
+                            "rotation": float(st.rotation),
+                            "opacity": float(st.opacity),
+                            "edge_opacity": int(st.edge_opacity),
+                            "edge_width": int(st.edge_width),
+                            "order": int(st.order),
+                            "visible": bool(st.visible),
+                            "allow_export": bool(st.allow_annotation_export),
+                            "caption": str(st.caption or ""),
+                            "drawings": [
+                                {
+                                    "x": float(d.position.x()),
+                                    "y": float(d.position.y()),
+                                    "color": [d.color.red(), d.color.green(), d.color.blue()],
+                                    "size": int(d.size),
+                                }
+                                for d in st.drawing_states
+                            ],
+                        }
+                        for st in step_states
+                    ]
+
+                canvases_payload.append(
+                    {
+                        "canvas_id": int(cv.canvas_id),
+                        "name": cv.layer_name,
+                        "width": int(cv.viewport_width),
+                        "height": int(cv.viewport_height),
+                        "current_step": int(cv.current_step),
+                        "layers": layers_payload,
+                        "states": states_payload,
+                    }
+                )
+
+            payload = {
+                "version": 1,
+                "active_canvas_id": int(self.current_canvas.canvas_id) if self.current_canvas else 1,
+                "canvases": canvases_payload,
+            }
+            try:
+                cache_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            except Exception as exc:
+                logger.warning(f"Failed to write Baker cache {cache_file}: {exc}")
+            return cache_file
+
+    def load_baker_cache(self) -> bool:
+        """Restore Baker canvases, layers, and saved timeline states from .imagebaker/cache."""
+        with self.lock:
+            cache_file = self.baker_cache_file
+            if not cache_file.exists():
+                return False
+            try:
+                payload = json.loads(cache_file.read_text(encoding="utf-8"))
+            except Exception as exc:
+                logger.warning(f"Failed to read Baker cache {cache_file}: {exc}")
+                return False
+
+            canvases_data = payload.get("canvases", [])
+            if not canvases_data:
+                return False
+
+            restored_canvases: list[WebCanvasItem] = []
+            max_layer_id = 0
+            for cdata in canvases_data:
+                cv = WebCanvasItem(str(cdata.get("name", "Canvas 1")), self.canvas_config)
+                try:
+                    cv.canvas_id = int(cdata.get("canvas_id", cv.canvas_id))
+                    WebCanvasItem._next_id = max(WebCanvasItem._next_id, cv.canvas_id + 1)
+                except (ValueError, TypeError):
+                    pass
+                cv.viewport_width = int(cdata.get("width", 960))
+                cv.viewport_height = int(cdata.get("height", 640))
+                cv.current_step = int(cdata.get("current_step", 0))
+
+                for ldata in cdata.get("layers", []):
+                    img_rel = ldata.get("image_file", "")
+                    img_abs = self.canvas_config.cache_dir / img_rel
+                    if not img_abs.exists():
+                        continue
+                    pix = QPixmap(str(img_abs))
+                    if pix.isNull():
+                        continue
+
+                    item = WebLayerItem(self.canvas_config)
+                    try:
+                        lid = int(ldata.get("layer_id", item.id))
+                    except (ValueError, TypeError):
+                        lid = item.id
+                    item.id = lid
+                    item.layer_id = lid
+                    max_layer_id = max(max_layer_id, lid)
+                    item.layer_name = str(ldata.get("name", f"Layer {lid}"))
+                    item.set_image(pix)
+                    src_img = ldata.get("source_image", "")
+                    if src_img:
+                        item.file_path = Path(src_img)
+                    item.position = QPointF(float(ldata.get("x", 0.0)), float(ldata.get("y", 0.0)))
+                    item.scale_x = float(ldata.get("scale_x", 1.0))
+                    item.scale_y = float(ldata.get("scale_y", 1.0))
+                    item.rotation = float(ldata.get("rotation", 0.0))
+                    item.opacity = float(ldata.get("opacity", 255.0))
+                    item.edge_opacity = int(ldata.get("edge_opacity", 255))
+                    item.edge_width = int(ldata.get("edge_width", 1))
+                    item.visible = bool(ldata.get("visible", True))
+                    item.allow_annotation_export = bool(ldata.get("allow_export", True))
+                    item.order = int(ldata.get("order", len(cv.layers)))
+                    item.caption = str(ldata.get("caption", ""))
+                    item.drawing_states = [
+                        DrawingState(
+                            position=QPointF(float(d.get("x", 0.0)), float(d.get("y", 0.0))),
+                            color=QColor(*d.get("color", [255, 0, 0])),
+                            size=int(d.get("size", 5)),
+                        )
+                        for d in ldata.get("drawings", [])
+                    ]
+                    ann_raw = ldata.get("annotation")
+                    if isinstance(ann_raw, dict):
+                        item.annotations = [dict_to_annotation(ann_raw, file_path=item.file_path)]
+                    else:
+                        item.annotations = [
+                            Annotation(
+                                annotation_id=1,
+                                label=str(ldata.get("label", "Undefined")),
+                                color=QColor(*ldata.get("color", [255, 255, 255])),
+                            )
+                        ]
+                    pnames = ldata.get("plugins") or []
+                    for pname in pnames:
+                        if pname in self.plugin_registry:
+                            try:
+                                item.plugins.append(self.plugin_registry[pname]())
+                            except Exception:
+                                pass
+                    item._apply_edge_opacity()
+                    cv.layers.append(item)
+
+                for step_str, step_states in cdata.get("states", {}).items():
+                    try:
+                        step_int = int(step_str)
+                    except ValueError:
+                        continue
+                    slist = []
+                    for sdata in step_states:
+                        try:
+                            slid = int(sdata.get("layer_id", 0))
+                        except (ValueError, TypeError):
+                            slid = 0
+                        st = LayerState(
+                            layer_id=slid,
+                            state_step=step_int,
+                            layer_name=str(sdata.get("layer_name", "Layer")),
+                            opacity=float(sdata.get("opacity", 255.0)),
+                            position=QPointF(
+                                float(sdata.get("x", 0.0)), float(sdata.get("y", 0.0))
+                            ),
+                            rotation=float(sdata.get("rotation", 0.0)),
+                            scale_x=float(sdata.get("scale_x", 1.0)),
+                            scale_y=float(sdata.get("scale_y", 1.0)),
+                            order=int(sdata.get("order", 0)),
+                            visible=bool(sdata.get("visible", True)),
+                            allow_annotation_export=bool(sdata.get("allow_export", True)),
+                            edge_opacity=int(sdata.get("edge_opacity", 255)),
+                            edge_width=int(sdata.get("edge_width", 1)),
+                            caption=str(sdata.get("caption", "")),
+                            drawing_states=[
+                                DrawingState(
+                                    position=QPointF(
+                                        float(d.get("x", 0.0)), float(d.get("y", 0.0))
+                                    ),
+                                    color=QColor(*d.get("color", [255, 0, 0])),
+                                    size=int(d.get("size", 5)),
+                                )
+                                for d in sdata.get("drawings", [])
+                            ],
+                        )
+                        slist.append(st)
+                    cv.states[step_int] = slist
+
+                restored_canvases.append(cv)
+
+            if restored_canvases:
+                WebLayerItem._next_id = max(WebLayerItem._next_id, max_layer_id + 1)
+                self.canvases = restored_canvases
+                active_cid = payload.get("active_canvas_id")
+                self.current_canvas = next(
+                    (c for c in self.canvases if str(c.canvas_id) == str(active_cid)),
+                    self.canvases[0],
+                )
+                return True
+            return False
     def _cache_path_for_file(self, file_path: Path, base_dir: Path | None = None) -> Path:
         if base_dir is None:
             base_dir = self.layer_config.cache_dir
@@ -632,11 +973,11 @@ class WebAppEngine:
         self.layer_config.predefined_labels.append(
             Label(name=label_name, color=color or QColor(255, 255, 255))
         )
+        self.layer_config.save_labels_to_cache()
         return True
 
     def get_default_label(self) -> Label:
-        if self.layer_config.predefined_labels:
-            return self.layer_config.predefined_labels[0]
+        self.layer_config.ensure_undefined_label()
         return self.layer_config.default_label
 
     def normalize_annotation_colors(
@@ -800,10 +1141,34 @@ class WebAppEngine:
             ann.mask = (np.array(pil_m, dtype=np.uint8) > 0).astype(np.uint8)
         elif d.get("mask") is not None:
             ann.mask = np.array(d["mask"], dtype=np.uint8)
+
+        # Apply any client-side mask translation offsets
+        offset_x = int(round(float(d.get("mask_offset_x", 0.0) or 0.0)))
+        offset_y = int(round(float(d.get("mask_offset_y", 0.0) or 0.0)))
+        if ann.mask is not None and (offset_x != 0 or offset_y != 0):
+            h, w = ann.mask.shape[:2]
+            shifted = np.zeros_like(ann.mask)
+            sx1 = max(0, -offset_x)
+            sy1 = max(0, -offset_y)
+            sx2 = min(w, w - offset_x)
+            sy2 = min(h, h - offset_y)
+            dx1 = max(0, offset_x)
+            dy1 = max(0, offset_y)
+            dx2 = min(w, offset_x + (sx2 - sx1))
+            dy2 = min(h, offset_y + (sy2 - sy1))
+            if sx2 > sx1 and sy2 > sy1 and dx2 > dx1 and dy2 > dy1:
+                shifted[dy1:dy2, dx1:dx2] = ann.mask[sy1:sy2, sx1:sx2]
+            ann.mask = shifted
+
         if ann.mask is not None and (ann.polygon is None or len(ann.polygon) == 0):
             polys = mask_to_polygons((ann.mask > 0).astype(np.uint8) * 255, merge_polygons=True)
             if polys and len(polys[0]) >= 3:
                 ann.polygon = QPolygonF([QPointF(float(p[0]), float(p[1])) for p in polys[0]])
+        if ann.mask is not None and ann.rectangle is None:
+            mask_uint8 = (ann.mask > 0).astype(np.uint8) * 255
+            bx, by, bw, bh = cv2.boundingRect(mask_uint8)
+            if bw > 0 and bh > 0:
+                ann.rectangle = QRectF(bx, by, bw, bh)
         return ann
 
     # -------------------------------------------------------------------------
@@ -977,8 +1342,6 @@ class WebAppEngine:
         message: str | None = None,
     ):
         with self.lock:
-            if push_undo:
-                self._current_history().push(self.current_annotations)
             default_fp = (
                 self.image_entries[self.curr_image_idx].file_path
                 if self.image_entries and 0 <= self.curr_image_idx < len(self.image_entries)
@@ -989,6 +1352,10 @@ class WebAppEngine:
                 for idx, item in enumerate(annotations_payload)
             ]
             self.normalize_annotation_colors(new_anns)
+            if push_undo and not ImageUndoHistory.annotations_equal(
+                self.current_annotations, new_anns
+            ):
+                self._current_history().push(self.current_annotations)
             self.current_annotations = new_anns
             self.save_current_image_annotations()
             if message:
@@ -1095,32 +1462,79 @@ class WebAppEngine:
                 merged.extend(Annotation.load_from_json(str(cache_path)))
         return merged
 
-    def export_annotations_json(self, all_layers: bool, file_path: str | None = None) -> dict[str, Any]:
+    def export_annotations_json(
+        self,
+        all_layers: bool,
+        file_path: str | None = None,
+        fmt: str = "default",
+    ) -> dict[str, Any]:
         with self.lock:
             anns = self.get_all_annotations() if all_layers else self.current_annotations
             if not anns:
                 return {"ok": False, "message": "No annotations to save!"}
+            fmt_norm = (fmt or "default").strip().lower()
+            if fmt_norm not in ("default", "coco", "yolo"):
+                return {"ok": False, "message": f"Unsupported format: {fmt}"}
+
+            curr_entry = (
+                self.image_entries[self.curr_image_idx]
+                if self.image_entries and 0 <= self.curr_image_idx < len(self.image_entries)
+                else None
+            )
+            img_name = curr_entry.name if curr_entry else "image.png"
+            img_w = curr_entry.width if curr_entry else 640
+            img_h = curr_entry.height if curr_entry else 640
+            class_names = [lbl.name for lbl in self.layer_config.predefined_labels]
+
+            ext = ".txt" if fmt_norm == "yolo" else ".json"
+            default_stem = "all_annotations" if all_layers else (Path(img_name).stem or "layer_annotations")
+            if fmt_norm == "coco":
+                default_stem = f"{default_stem}_coco"
+
             target_path = (
                 Path(file_path).expanduser().resolve()
                 if file_path
-                else (
-                    self.layer_config.cache_dir / "all_annotations.json"
-                    if all_layers
-                    else self.layer_config.cache_dir / "layer_annotations.json"
-                )
+                else (self.layer_config.cache_dir / f"{default_stem}{ext}")
             )
             target_path.parent.mkdir(parents=True, exist_ok=True)
-            Annotation.save_as_json(anns, str(target_path))
-            content = target_path.read_text(encoding="utf-8")
-            self.last_message = f"Saved annotations to {target_path.name}"
+
+            if fmt_norm == "default":
+                Annotation.save_as_json(anns, str(target_path))
+                content = target_path.read_text(encoding="utf-8")
+                classes_txt = None
+            else:
+                exported = export_annotations_data(
+                    annotations=anns,
+                    fmt=fmt_norm,
+                    image_name=img_name,
+                    image_width=img_w,
+                    image_height=img_h,
+                    class_names=class_names,
+                )
+                save_annotations_to_path(
+                    annotations=anns,
+                    output_path=target_path,
+                    fmt=fmt_norm,
+                    image_name=img_name,
+                    image_width=img_w,
+                    image_height=img_h,
+                    class_names=class_names,
+                )
+                content = exported["content"]
+                classes_txt = exported["data"].get("classes_txt") if fmt_norm == "yolo" else None
+
+            self.last_message = f"Saved annotations ({fmt_norm.upper()}) to {target_path.name}"
             return {
                 "ok": True,
-                "message": "Merged annotations saved successfully!"
+                "format": fmt_norm,
+                "message": f"Merged annotations saved ({fmt_norm.upper()})!"
                 if all_layers
-                else "Annotations saved successfully!",
+                else f"Annotations saved ({fmt_norm.upper()})!",
                 "path": str(target_path),
                 "filename": target_path.name,
                 "json_content": content,
+                "content": content,
+                "classes_txt": classes_txt,
             }
 
     def import_annotations_json(
@@ -1128,23 +1542,65 @@ class WebAppEngine:
         all_layers: bool,
         file_path: str | None = None,
         json_content: str | None = None,
+        fmt: str = "auto",
+        class_names: list[str] | None = None,
     ) -> tuple[bool, str]:
         with self.lock:
             temp_path: Path | None = None
             try:
-                if json_content:
-                    temp_path = self.layer_config.cache_dir / "_uploaded_annotations.json"
-                    temp_path.write_text(json_content, encoding="utf-8")
-                    load_path = temp_path
-                elif file_path:
-                    load_path = Path(file_path).expanduser().resolve()
+                fmt_norm = (fmt or "auto").strip().lower()
+                curr_entry = (
+                    self.image_entries[self.curr_image_idx]
+                    if self.image_entries and 0 <= self.curr_image_idx < len(self.image_entries)
+                    else None
+                )
+                img_name = curr_entry.name if curr_entry else None
+                img_w = curr_entry.width if curr_entry else 640
+                img_h = curr_entry.height if curr_entry else 640
+                if not class_names:
+                    class_names = [lbl.name for lbl in self.layer_config.predefined_labels]
+
+                if json_content is not None:
+                    is_json_default = False
+                    if isinstance(json_content, str):
+                        stripped = json_content.strip()
+                        if fmt_norm in ("auto", "default") and stripped.startswith("["):
+                            is_json_default = True
+                    if is_json_default:
+                        temp_path = self.layer_config.cache_dir / "_uploaded_annotations.json"
+                        temp_path.write_text(json_content, encoding="utf-8")
+                        loaded = Annotation.load_from_json(str(temp_path))
+                    else:
+                        dicts = load_annotation_dicts_from_data(
+                            content=json_content,
+                            fmt=fmt_norm,
+                            image_name=None if all_layers else img_name,
+                            image_width=img_w,
+                            image_height=img_h,
+                            class_names=class_names,
+                        )
+                        default_fp = curr_entry.file_path if curr_entry else Path("Runtime")
+                        loaded = [dict_to_annotation(d, file_path=default_fp) for d in dicts]
                 else:
-                    load_path = self.layer_config.cache_dir / "all_annotations.json"
+                    if file_path:
+                        load_path = Path(file_path).expanduser().resolve()
+                    else:
+                        load_path = self.layer_config.cache_dir / "all_annotations.json"
 
-                if not load_path.exists():
-                    return False, f"Annotation file not found: {load_path}"
+                    if not load_path.exists():
+                        return False, f"Annotation file not found: {load_path}"
 
-                loaded = Annotation.load_from_json(str(load_path))
+                    if fmt_norm in ("auto", "default") and load_path.suffix.lower() == ".json":
+                        loaded = Annotation.load_from_json(str(load_path))
+                    else:
+                        loaded = load_annotations_from_path(
+                            load_path,
+                            fmt=fmt_norm,
+                            image_name=None if all_layers else img_name,
+                            image_width=img_w,
+                            image_height=img_h,
+                            class_names=class_names,
+                        )
                 if all_layers:
                     by_file = defaultdict(list)
                     by_name = defaultdict(list)
@@ -1206,11 +1662,16 @@ class WebAppEngine:
         with self.lock:
             action = payload.get("action")
             if action == "select":
-                label_name = payload.get("label")
-                if not label_name:
-                    return False, "No label specified."
+                label_name = (payload.get("label") or "").strip() or "Undefined"
+                self.ensure_label_available(label_name)
                 self.current_label = label_name
                 color = self._label_color(label_name)
+                needs_change = any(
+                    ann.selected and ann.label != label_name
+                    for ann in self.current_annotations
+                )
+                if needs_change:
+                    self._current_history().push(self.current_annotations)
                 updated_selected = False
                 for ann in self.current_annotations:
                     if ann.selected:
@@ -1232,46 +1693,70 @@ class WebAppEngine:
                     return False, "Label name already exists!"
                 qcol = hex_to_qcolor(color_hex)
                 self.ensure_label_available(name, qcol)
+                self.layer_config.save_labels_to_cache()
                 self.current_label = name
                 self.last_message = f"Added label: {name}"
                 return True, self.last_message
 
             elif action == "color":
-                label_name = payload.get("label") or self.current_label
+                label_name = (payload.get("label") or self.current_label or "Undefined").strip()
                 color_hex = payload.get("color") or "#ffffff"
                 qcol = hex_to_qcolor(color_hex)
                 for lbl in self.layer_config.predefined_labels:
                     if lbl.name == label_name:
                         lbl.color = qcol
                         break
+                self.layer_config.save_labels_to_cache()
                 self._propagate_label_color(label_name, qcol)
                 self.last_message = f"Updated color for label {label_name}"
                 return True, self.last_message
 
-            elif action == "rename":
-                old_name = (payload.get("old_name") or payload.get("old_label") or "").strip()
-                new_name = (payload.get("new_name") or payload.get("new_label") or "").strip()
-                if not old_name or not new_name or old_name == new_name:
-                    return False, "Invalid label rename."
+            elif action in {"rename", "update"}:
+                old_name = (
+                    payload.get("old_name")
+                    or payload.get("old_label")
+                    or payload.get("label")
+                    or ""
+                ).strip()
+                new_name = (
+                    payload.get("new_name")
+                    or payload.get("new_label")
+                    or old_name
+                ).strip()
+                color_val = payload.get("color")
+                if not old_name or not new_name:
+                    return False, "Invalid label update."
+                if old_name == "Undefined" and new_name != "Undefined":
+                    return False, "The 'Undefined' label cannot be renamed."
                 existing = [
                     lbl.name
                     for lbl in self.layer_config.predefined_labels
                     if lbl.name != old_name
                 ]
-                if new_name in existing:
+                if new_name != old_name and new_name in existing:
                     return False, "Label name already exists!"
-                found = False
+                found_lbl = None
                 for lbl in self.layer_config.predefined_labels:
                     if lbl.name == old_name:
                         lbl.name = new_name
-                        found = True
+                        if color_val is not None:
+                            lbl.color = hex_to_qcolor(color_val)
+                        found_lbl = lbl
                         break
-                if not found:
+                if found_lbl is None:
                     return False, f"Label '{old_name}' not found."
-                self._propagate_label_rename(old_name, new_name)
-                if self.current_label == old_name:
-                    self.current_label = new_name
-                self.last_message = f"Renamed label {old_name} to {new_name}"
+                self.layer_config.save_labels_to_cache()
+                if old_name != new_name:
+                    self._propagate_label_rename(old_name, new_name)
+                    if self.current_label == old_name:
+                        self.current_label = new_name
+                if color_val is not None:
+                    self._propagate_label_color(new_name, found_lbl.color)
+                self.last_message = (
+                    f"Renamed label {old_name} to {new_name}"
+                    if old_name != new_name
+                    else f"Updated label {new_name}"
+                )
                 return True, self.last_message
 
             elif action == "delete":
@@ -1282,36 +1767,29 @@ class WebAppEngine:
                 if not names:
                     return False, "Select one or more labels to delete."
                 default_lbl = self.get_default_label()
-                if default_lbl.name in names:
-                    return False, "The default label cannot be removed."
+                if default_lbl.name in names or "Undefined" in names:
+                    return False, "The 'Undefined' label cannot be removed."
                 self.layer_config.predefined_labels = [
                     lbl for lbl in self.layer_config.predefined_labels if lbl.name not in set(names)
                 ]
+                self.layer_config.save_labels_to_cache()
                 for name in names:
                     self._propagate_label_delete(name, default_lbl)
-                self.current_label = default_lbl.name
+                if self.current_label in set(names):
+                    self.current_label = default_lbl.name
                 self.last_message = f"Deleted {len(names)} label(s)"
                 return True, self.last_message
 
             elif action == "cleanup_defaults":
-                placeholders = {"Label 1", "Label 2", "Label 3", "Custom"}
-                custom_labels = {
-                    lbl.name
-                    for lbl in self.layer_config.predefined_labels
-                    if lbl.name not in (placeholders | {"Unlabeled"})
-                }
-                if not custom_labels:
-                    return (
-                        False,
-                        "Create your own labels first, then the default placeholders can be removed.",
-                    )
+                placeholders = {"Label 1", "Label 2", "Label 3", "Custom", "Unlabeled"}
                 targets = [
                     lbl.name
                     for lbl in self.layer_config.predefined_labels
                     if lbl.name in placeholders
                 ]
                 if not targets:
-                    return False, "No default placeholder labels remain."
+                    self.last_message = "No default placeholder labels remain."
+                    return True, self.last_message
                 return self.manage_labels({"action": "delete", "labels": targets})
 
             return False, f"Unknown label action: {action}"
@@ -1442,10 +1920,11 @@ class WebAppEngine:
             model_name = getattr(model, "name", self.current_model_name)
             img_w = max(1, pixmap.width())
             img_h = max(1, pixmap.height())
+            selected_label = (self.current_label or "").strip() or "Undefined"
+            self.ensure_label_available(selected_label)
+            pred_color = self._label_color(selected_label)
             for pred in predictions or []:
-                cls_name = pred.class_name or pred.prompt or "predicted"
-                self.ensure_label_available(cls_name)
-                pred_color = self._label_color(cls_name)
+                cls_name = selected_label
                 if pred.rectangle:
                     r = pred.rectangle
                     # Handle xywh from PredictionResult and clamp into image bounds if out-of-range
@@ -1672,6 +2151,7 @@ class WebAppEngine:
             if not created_names:
                 return False, "Could not layerify selected annotation(s)."
 
+            self.save_baker_cache()
             self.last_message = f"Layerified: {created_names[-1]}"
             return True, f"Layerified {len(created_names)} layer(s): {', '.join(created_names)}"
 
@@ -1691,6 +2171,7 @@ class WebAppEngine:
                 new_canvas = WebCanvasItem(name, self.canvas_config)
                 self.canvases.append(new_canvas)
                 self.current_canvas = new_canvas
+                self.save_baker_cache()
                 self.last_message = f"New canvas added: {name}"
                 return True, self.last_message
 
@@ -1699,6 +2180,7 @@ class WebAppEngine:
                 for c in self.canvases:
                     if c.canvas_id == cid:
                         self.current_canvas = c
+                        self.save_baker_cache()
                         self.last_message = f"Selected canvas: {c.layer_name}"
                         return True, self.last_message
                 return False, "Canvas not found."
@@ -1713,6 +2195,7 @@ class WebAppEngine:
                     fallback = WebCanvasItem("Canvas 1", self.canvas_config)
                     self.canvases.append(fallback)
                 self.current_canvas = self.canvases[-1]
+                self.save_baker_cache()
                 self.last_message = f"Deleted canvas: {target.layer_name}"
                 return True, self.last_message
 
@@ -1746,6 +2229,7 @@ class WebAppEngine:
             new_layer.position = QPointF(0, 0)
             new_layer.order = len(self.current_canvas.layers)
             self.current_canvas.layers.append(new_layer)
+            self.save_baker_cache()
             self.last_message = f"Added new layer: {new_layer.layer_name}"
             return True, self.last_message
 
@@ -1828,6 +2312,7 @@ class WebAppEngine:
 
             if message:
                 self.last_message = message
+            self.save_baker_cache()
             return True, self.last_message
 
     def reorder_baker_layers(self, payload: dict[str, Any]) -> tuple[bool, str]:
@@ -1848,6 +2333,7 @@ class WebAppEngine:
                 for idx, layer in enumerate(new_layers):
                     layer.order = idx
                 self.current_canvas.layers = new_layers
+                self.save_baker_cache()
                 self.last_message = "Reordered layers."
                 return True, self.last_message
 
@@ -1872,6 +2358,7 @@ class WebAppEngine:
 
             for i, layer in enumerate(layers):
                 layer.order = i
+            self.save_baker_cache()
             return True, self.last_message
 
     def baker_layer_action(self, payload: dict[str, Any]) -> tuple[bool, str]:
@@ -1883,11 +2370,15 @@ class WebAppEngine:
 
             if action == "undo":
                 ok, msg = canvas.undo()
+                if ok:
+                    self.save_baker_cache()
                 self.last_message = msg
                 return ok, msg
 
             elif action == "redo":
                 ok, msg = canvas.redo()
+                if ok:
+                    self.save_baker_cache()
                 self.last_message = msg
                 return ok, msg
 
@@ -1915,6 +2406,7 @@ class WebAppEngine:
                 new_layer.selected = True
                 new_layer.order = len(canvas.layers)
                 canvas.layers.append(new_layer)
+                self.save_baker_cache()
                 self.last_message = f"Pasted layer {new_layer.layer_name}."
                 return True, self.last_message
 
@@ -1932,14 +2424,21 @@ class WebAppEngine:
                 canvas.layers = [lyr for lyr in canvas.layers if lyr.layer_id not in target_ids]
                 for i, lyr in enumerate(canvas.layers):
                     lyr.order = i
+                self.save_baker_cache()
                 self.last_message = f"Deleted {targets[0].layer_name} layer."
                 return True, self.last_message
 
             elif action == "group":
-                return self._group_or_ungroup_selected_layers()
+                ok, msg = self._group_or_ungroup_selected_layers()
+                if ok:
+                    self.save_baker_cache()
+                return ok, msg
 
             elif action == "convert_ann_type":
-                return self._convert_selected_annotation_type()
+                ok, msg = self._convert_selected_annotation_type()
+                if ok:
+                    self.save_baker_cache()
+                return ok, msg
 
             return False, f"Unknown layer action: {action}"
 
@@ -2282,6 +2781,7 @@ class WebAppEngine:
                 for lyr in canvas.layers:
                     lyr.bump_revision()
 
+                self.save_baker_cache()
                 self.last_message = (
                     f"State saved. Total states: {len(canvas.states)} | "
                     f"Steps: {steps} | Current step: {canvas.current_step}"
@@ -2327,6 +2827,7 @@ class WebAppEngine:
                     canvas.states[step] = rand_states
 
                 self._seek_canvas_state(0)
+                self.save_baker_cache()
                 self.last_message = f"Created {num_states} randomized state(s)."
                 return True, self.last_message
 
@@ -2342,6 +2843,7 @@ class WebAppEngine:
                 for layer in canvas.layers:
                     layer.previous_state = None
                     layer.bump_revision()
+                self.save_baker_cache()
                 self.last_message = "All states cleared."
                 return True, self.last_message
 
@@ -2379,7 +2881,7 @@ class WebAppEngine:
     # -------------------------------------------------------------------------
     # Baking & Exporting (Exact BakerWorker + CanvasLayer.handle_baker_results)
     # -------------------------------------------------------------------------
-    def bake_and_export(self, mode: str) -> dict[str, Any]:
+    def bake_and_export(self, mode: str, annotation_format: str = "default") -> dict[str, Any]:
         """
         Modes:
         - "current_local": Export Current State locally to assets/exports
@@ -2394,6 +2896,11 @@ class WebAppEngine:
                     "ok": False,
                     "message": "No layers are available to export. Please add layers before exporting.",
                 }
+
+            fmt_norm = (annotation_format or "default").strip().lower()
+            if fmt_norm not in ("default", "coco", "yolo"):
+                fmt_norm = "default"
+            class_names = [lbl.name for lbl in self.layer_config.predefined_labels]
 
             is_current_only = mode in {"current_local", "predict_state"}
             export_to_annotation_tab = mode in {"predict_state", "annotate_states"}
@@ -2580,6 +3087,7 @@ class WebAppEngine:
                 return {"ok": False, "message": "Baking produced no visible output."}
 
             exported_files = []
+            annotation_exports = []
             for res in results:
                 if not export_to_annotation_tab:
                     res.image.save(str(res.filename))
@@ -2598,8 +3106,50 @@ class WebAppEngine:
                             write_to = res.filename.parent / f"annotated_{res.filename.name}"
                             cv2.imwrite(str(write_to), drawn)
 
-                    json_out = res.filename.parent / f"{res.filename.stem}.json"
-                    Annotation.save_as_json(res.annotations, str(json_out))
+                    if fmt_norm == "coco":
+                        ann_out = res.filename.parent / f"{res.filename.stem}_coco.json"
+                    elif fmt_norm == "yolo":
+                        ann_out = res.filename.parent / f"{res.filename.stem}.txt"
+                    else:
+                        ann_out = res.filename.parent / f"{res.filename.stem}.json"
+
+                    if fmt_norm == "default":
+                        Annotation.save_as_json(res.annotations, str(ann_out))
+                        content = ann_out.read_text(encoding="utf-8")
+                        classes_txt = None
+                    else:
+                        exported_data = export_annotations_data(
+                            annotations=res.annotations,
+                            fmt=fmt_norm,
+                            image_name=res.filename.name,
+                            image_width=res.image.width(),
+                            image_height=res.image.height(),
+                            class_names=class_names,
+                        )
+                        save_annotations_to_path(
+                            annotations=res.annotations,
+                            output_path=ann_out,
+                            fmt=fmt_norm,
+                            image_name=res.filename.name,
+                            image_width=res.image.width(),
+                            image_height=res.image.height(),
+                            class_names=class_names,
+                        )
+                        content = exported_data["content"]
+                        classes_txt = (
+                            exported_data["data"].get("classes_txt")
+                            if fmt_norm == "yolo"
+                            else None
+                        )
+                    annotation_exports.append(
+                        {
+                            "filename": ann_out.name,
+                            "path": str(ann_out),
+                            "format": fmt_norm,
+                            "content": content,
+                            "classes_txt": classes_txt,
+                        }
+                    )
                 else:
                     # Add to Layerify Tab (bake_dir + cache_dir)
                     self.save_current_image_annotations(delete_if_empty=False)
@@ -2624,13 +3174,18 @@ class WebAppEngine:
             if export_to_annotation_tab:
                 self.last_message = f"Baked result added ({len(results)} state(s))"
             else:
-                self.last_message = f"Exported {len(results)} baked state(s) to {self.canvas_config.export_folder}"
+                self.last_message = (
+                    f"Exported {len(results)} baked state(s) ({fmt_norm.upper()}) "
+                    f"to {self.canvas_config.export_folder}"
+                )
 
             return {
                 "ok": True,
                 "message": self.last_message,
                 "count": len(results),
+                "format": fmt_norm,
                 "exported_files": exported_files,
+                "annotation_exports": annotation_exports,
                 "switched_to_layerify": export_to_annotation_tab,
             }
 
@@ -2870,6 +3425,7 @@ class WebAppEngine:
 
             return {
                 "version": __version__,
+                "is_debug": bool(getattr(self, "is_debug", False) or self.canvas_config.is_debug),
                 "project_name": self.layer_config.project_name,
                 "project_dir": str(self.project_dir),
                 "theme_mode": self.theme_mode,

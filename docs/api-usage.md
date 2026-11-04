@@ -57,6 +57,13 @@ baker.save(result, "output.png", save_annotations=True)
 # Launch GUI (traditional mode)
 imagebaker gui --models-file examples/loaded_models.py
 
+# Launch Standalone Web Version
+imagebaker web --port 8000 --models-file examples/loaded_models.py
+
+# Launch Web Version in Debug Mode
+imagebaker web --debug --port 8000
+# (or: imagebaker web -d, or: imagebaker web debug)
+
 # Simple baking from command line
 imagebaker bake simple bg.png fg.png -o output.png \
     --positions "0,0;100,100" \
@@ -702,6 +709,131 @@ If you're used to the GUI, here's how operations map to the API:
 | Save State | `baker.save_state()` |
 | Bake | `baker.bake()` |
 | Export | `baker.save()` |
+
+## Dataset Generation and PyTorch Integration
+
+ImageBaker provides a dedicated dataset generation engine (`imagebaker.dataset`) that reads cached layers and canvases, automatically synthesizing training samples with ground-truth bounding boxes and instance segmentation polygons.
+
+### DatasetBakeConfig
+
+Configure dataset generation reproducibility, splits, layer dimensions, background handling, and selective labeling:
+
+```python
+from imagebaker import DatasetBakeConfig, CacheDatasetGenerator
+
+config = DatasetBakeConfig(
+    seed=42,  # Fully reproducible sampling
+    split_ratios={"train": 0.7, "val": 0.2, "test": 0.1},
+    prevent_background_leakage=True,  # Background images strictly isolated per split
+    background_size=(640, 640),  # Target output dimensions (W, H)
+    preserve_aspect_ratio=True,  # Keeps aspect ratio and pads to target size
+    crop_large_background=True,  # Optionally crops background if larger than target
+    crop_mode="random",  # "random" or "center"
+    layer_min_size=(32, 32),  # Min (width, height)
+    layer_max_size=(320, 320),  # Max (width, height)
+    rotation_range=(-30.0, 30.0),
+    scale_range=(0.7, 1.3),
+    opacity_range=(180.0, 255.0),
+    unlabeled_labels=["noise", "distractor"],  # Baked visually without annotations
+    export_format="yolo",  # "yolo", "coco", or "default"
+)
+```
+
+### Offline Dataset Extraction
+
+Export baked images and annotations to disk in YOLO, COCO, or default JSON format:
+
+```python
+generator = CacheDatasetGenerator(cache_dir=".imagebaker/cache", config=config)
+
+# Exports train/val/test splits, classes.txt, and data.yaml
+result = generator.extract_dataset(
+    output_dir="./datasets/baked_dataset",
+    num_samples=100,
+    format="yolo"  # or "coco", "default"
+)
+print("Splits created:", result["splits"])
+```
+
+### On-The-Fly PyTorch Dataset
+
+Synthesize fresh baked samples on the fly during training using `ImageBakerTorchDataset`:
+
+```python
+import torch
+from torch.utils.data import DataLoader
+from imagebaker import ImageBakerTorchDataset, DatasetBakeConfig
+
+config = DatasetBakeConfig(
+    seed=100,
+    background_size=(640, 640),
+    split_ratios={"train": 0.8, "val": 0.2},
+    prevent_background_leakage=True,
+)
+
+train_dataset = ImageBakerTorchDataset(
+    cache_dir=".imagebaker/cache",
+    config=config,
+    split="train",
+    length=1000,  # Number of samples per epoch
+)
+
+# Returns (image_tensor, target_dict)
+# image_tensor: [3, 640, 640] float in [0, 1]
+# target: {"boxes": Tensor, "labels": Tensor, "area": Tensor, "polygons": list}
+loader = DataLoader(train_dataset, batch_size=8, shuffle=True)
+for images, targets in loader:
+    # Train detection / instance segmentation model
+    pass
+```
+
+## Annotation Formats (Default, COCO, YOLO)
+
+ImageBaker supports exporting and importing annotations in multiple industry-standard formats across Python API, desktop GUI, and web UI:
+
+- **`default`**: ImageBaker rich JSON format with layer hierarchy, rotation, and bounding boxes.
+- **`coco`**: COCO JSON format (`images`, `annotations`, `categories`) compatible with Detectron2, MMDetection, and RF-DETR.
+- **`yolo`**: YOLO normalized bounding box format (`<class_id> <x_center> <y_center> <width> <height>`) with `classes.txt` / `data.yaml`.
+
+```python
+from imagebaker.utils.annotation_formats import export_annotations_data, load_annotations_from_path
+
+# Export in YOLO format
+yolo_payload = export_annotations_data(
+    annotations=annotations,
+    fmt="yolo",
+    image_width=640,
+    image_height=640,
+    class_names=["cat", "dog"],
+)
+
+# Load annotations from COCO or YOLO file
+loaded_annotations = load_annotations_from_path("annotations.json", fmt="coco")
+```
+
+## Deep Learning Model Integrations
+
+ImageBaker provides built-in model wrappers in `examples/models_yolo_rfdetr_sam2.py` and `examples/loaded_models.py`:
+
+- **YOLO (Ultralytics)**: Object detection and instance segmentation.
+- **RF-DETR**: Real-Time Detection Transformer for high-precision bounding box detection and instance segmentation.
+- **SAM 2**: Segment Anything Model 2 for interactive point and box prompt-guided segmentation.
+
+### Installation
+
+Install ImageBaker with all model dependencies:
+
+```bash
+pip install "imagebaker[all]"
+```
+
+Or install individual model dependencies:
+
+```bash
+pip install "imagebaker[yolo]"    # ultralytics
+pip install "imagebaker[rfdetr]"  # rfdetr
+pip install "imagebaker[sam2]"    # sam2
+```
 
 ## Troubleshooting
 

@@ -181,6 +181,24 @@ LOADED_MODELS = {
     "ClassificationModel": classification,
 }
 
+# Add YOLO, RF-DETR, and SAM 2 models
+try:
+    from examples.models_yolo_rfdetr_sam2 import (
+        RFDetrDetectionModel,
+        RFDetrSegmentationModel,
+        SAM2PromptModel,
+        YoloDetectionModel,
+        YoloSegmentationModel,
+    )
+
+    LOADED_MODELS["YOLO-Detection"] = YoloDetectionModel()
+    LOADED_MODELS["YOLO-Segmentation"] = YoloSegmentationModel()
+    LOADED_MODELS["RF-DETR-Detection"] = RFDetrDetectionModel()
+    LOADED_MODELS["RF-DETR-Segmentation"] = RFDetrSegmentationModel()
+    LOADED_MODELS["SAM2-Prompt"] = SAM2PromptModel()
+except Exception as exc:
+    logger.debug(f"Could not load YOLO/RF-DETR/SAM2 models into LOADED_MODELS: {exc}")
+
 # Optionally load heavy deep learning models (RTDetrV2, SAM, YOLO) when
 # IMAGEBAKER_LOAD_HEAVY_MODELS=1 is set and dependencies/weights are available.
 if os.environ.get("IMAGEBAKER_LOAD_HEAVY_MODELS", "0") == "1":

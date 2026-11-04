@@ -78,7 +78,7 @@ class LayerSettings(QDockWidget):
         self.edge_opacity_slider = self.create_slider("Edge Opacity:", 0, 255, 255, 1)
         self.main_layout.addWidget(self.edge_opacity_slider["widget"])
         self.edge_width_slider = self.create_slider(
-            "Edge Width:", 0, self.max_edge_width, 5, 1
+            "Edge Width:", 0, self.max_edge_width, 1, 1
         )
         self.main_layout.addWidget(self.edge_width_slider["widget"])
 

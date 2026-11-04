@@ -180,7 +180,11 @@ class CustomJitterPlugin(BasePlugin):
                 base_url, "/api/layerify/labels", {"action": "cleanup_defaults"}
             )
             assert clean_res["ok"] is True
-            print(f"  [OK] Created domain labels and cleaned placeholders: {clean_res['message']}")
+            labels_cache_file = workspace / ".imagebaker" / "cache" / "labels.json"
+            assert labels_cache_file.exists()
+            print(
+                f"  [OK] Created domain labels in {labels_cache_file.name}: {clean_res['message']}"
+            )
 
             # Annotate image 0 with Rectangle, Polygon, and Point annotations
             scene0_anns = [

@@ -66,7 +66,7 @@ class BaseConfig(BaseModel):
     zoom_out_factor: float = 0.9
     show_gridlines: bool = False
     grid_spacing: int = 48
-    grid_color: QColor = Field(default_factory=lambda: QColor(120, 120, 120, 80))
+    grid_color: QColor = Field(default_factory=lambda: QColor(140, 140, 140, 130))
 
     @property
     def assets_folder(self):
@@ -103,20 +103,86 @@ class LayerConfig(BaseConfig):
     drag_threshold: int = 3
 
     default_label: Label = Field(
-        default_factory=lambda: Label("Unlabeled", QColor(255, 255, 255))
+        default_factory=lambda: Label("Undefined", QColor(255, 255, 255))
     )
     predefined_labels: list[Label] = Field(
         default_factory=lambda: [
-            Label("Unlabeled", QColor(255, 255, 255)),
-            Label("Label 1", QColor(255, 0, 0)),
-            Label("Label 2", QColor(0, 255, 0)),
-            Label("Label 3", QColor(0, 0, 255)),
-            Label("Custom", QColor(128, 128, 128)),
+            Label("Undefined", QColor(255, 255, 255)),
         ]
     )
     # whether to search image in subfolders as well
     full_search: bool = False
     cleanup_on_exit: bool = False
+
+    @property
+    def labels_cache_file(self) -> Path:
+        return self.cache_dir / "labels.json"
+
+    def ensure_undefined_label(self):
+        if not any(lbl.name == "Undefined" for lbl in self.predefined_labels):
+            self.predefined_labels.insert(
+                0,
+                Label(
+                    self.default_label.name,
+                    QColor(
+                        self.default_label.color.red(),
+                        self.default_label.color.green(),
+                        self.default_label.color.blue(),
+                    ),
+                ),
+            )
+
+    def load_labels_from_cache(self) -> list[Label]:
+        import json
+
+        cache_file = self.labels_cache_file
+        if cache_file.exists():
+            try:
+                raw = json.loads(cache_file.read_text(encoding="utf-8"))
+                loaded: list[Label] = []
+                seen: set[str] = set()
+                if isinstance(raw, list):
+                    for item in raw:
+                        if not isinstance(item, dict):
+                            continue
+                        name = str(item.get("name", "")).strip()
+                        if not name or name in seen:
+                            continue
+                        col = item.get("color", [255, 255, 255])
+                        if isinstance(col, (list, tuple)) and len(col) >= 3:
+                            qcol = QColor(int(col[0]), int(col[1]), int(col[2]))
+                        else:
+                            qcol = QColor(255, 255, 255)
+                        loaded.append(Label(name, qcol))
+                        seen.add(name)
+                self.predefined_labels = loaded
+            except Exception as exc:
+                logger.warning(f"Failed to read labels cache {cache_file}: {exc}")
+        self.ensure_undefined_label()
+        self.save_labels_to_cache()
+        return self.predefined_labels
+
+    def save_labels_to_cache(self) -> Path:
+        import json
+
+        self.ensure_undefined_label()
+        cache_file = self.labels_cache_file
+        payload = [
+            {
+                "name": lbl.name,
+                "color": [
+                    int(lbl.color.red()),
+                    int(lbl.color.green()),
+                    int(lbl.color.blue()),
+                ],
+            }
+            for lbl in self.predefined_labels
+        ]
+        try:
+            cache_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        except Exception as exc:
+            logger.warning(f"Failed to write labels cache {cache_file}: {exc}")
+        return cache_file
 
     def get_label_color(self, label):
         for lbl in self.predefined_labels:

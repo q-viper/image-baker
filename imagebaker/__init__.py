@@ -1,6 +1,6 @@
+import logging
 from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
-import logging
 
 try:
     from loguru import logger  # type: ignore[import-not-found]
@@ -18,6 +18,9 @@ _LAZY_EXPORTS = {
     "Layer": ("imagebaker.api", "Layer"),
     "create_annotation": ("imagebaker.api", "create_annotation"),
     "load_model": ("imagebaker.api", "load_model"),
+    "DatasetBakeConfig": ("imagebaker.dataset", "DatasetBakeConfig"),
+    "CacheDatasetGenerator": ("imagebaker.dataset", "CacheDatasetGenerator"),
+    "ImageBakerTorchDataset": ("imagebaker.dataset", "ImageBakerTorchDataset"),
 }
 
 __all__ = ["logger", "__version__", *_LAZY_EXPORTS]

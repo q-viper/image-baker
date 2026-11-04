@@ -124,6 +124,12 @@ def main(layer_config, canvas_config, LOADED_MODELS):
 
     # Initialize the application
     app = QApplication([])
+    from imagebaker.window.main_window import get_app_icon
+
+    icon = get_app_icon()
+    if not icon.isNull():
+        app.setWindowIcon(icon)
+
     window = MainWindow(
         layerify_config=layer_config,
         canvas_config=canvas_config,

@@ -91,6 +91,7 @@ class LayerifyTab(QWidget):
 
         self.all_models = loaded_models
         self.current_model = list(self.all_models.values())[0]
+        self.config.load_labels_from_cache()
         self.current_label = self.config.default_label.name
         self.image_entries = []
         self.curr_image_idx = 0
@@ -152,6 +153,8 @@ class LayerifyTab(QWidget):
         # Set the annotation list to the first layer by default
         if self.annotable_layers:
             self.layer = self.annotable_layers[0]
+            self.layer.current_label = self.current_label
+            self.layer.current_color = self._label_color(self.current_label)
             self.layer.set_mode(MouseMode.RECTANGLE)
             self.annotation_list.layer = self.layer
 
@@ -182,6 +185,7 @@ class LayerifyTab(QWidget):
         self.config.predefined_labels.append(
             Label(name=label_name, color=color or QColor(255, 255, 255))
         )
+        self.config.save_labels_to_cache()
         return True
 
     def sync_labels_from_annotations(self, annotations: list[Annotation]):
@@ -261,6 +265,27 @@ class LayerifyTab(QWidget):
 
         return -1
 
+    def _load_image_into_layer_with_progress(
+        self, layer: AnnotableLayer, file_path: Path
+    ):
+        progress = QProgressDialog(
+            f"Loading {Path(file_path).name}...", None, 0, 0, self
+        )
+        progress.setWindowTitle("Loading Image")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setCancelButton(None)
+        progress.setMinimumDuration(0)
+        progress.show()
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.processEvents()
+        try:
+            layer.file_path = file_path
+            layer.set_image(file_path)
+            layer.file_path = file_path
+        finally:
+            QApplication.restoreOverrideCursor()
+            progress.close()
+
     def on_image_selected(self, image_entry: ImageEntry):
         """Handle image selection from the image list panel."""
         logger.info(f"Image selected: {image_entry}")
@@ -277,8 +302,8 @@ class LayerifyTab(QWidget):
         for _idx, layer in enumerate(self.annotable_layers):
             layer.setVisible(False)
             # logger.info(f"Layer {idx} hidden.")
-        current_label = self.layer.current_label
-        current_color = self.layer.current_color
+        current_label = self.layer.current_label or self.current_label or "Undefined"
+        current_color = self.layer.current_color or self._label_color(current_label)
 
         # Render selected entry into a deterministic visible slot to avoid
         # page-index/modulo remapping bugs.
@@ -291,8 +316,7 @@ class LayerifyTab(QWidget):
         selected_layer.setVisible(True)
 
         selected_path = self._entry_file_path(image_entry)
-        selected_layer.set_image(selected_path)
-        selected_layer.file_path = selected_path
+        self._load_image_into_layer_with_progress(selected_layer, selected_path)
 
         self.load_layer_annotations(selected_layer)
         if self.layer:
@@ -325,20 +349,16 @@ class LayerifyTab(QWidget):
         # Load images into layers if any are found
         if self.image_entries:
             for i, layer in enumerate(self.annotable_layers):
-                if i < len(self.image_entries):
-                    layer.set_image(self._entry_file_path(self.image_entries[i]))
+                if i == 0:
+                    entry_path = self._entry_file_path(self.image_entries[0])
+                    self._load_image_into_layer_with_progress(layer, entry_path)
                     self.load_layer_annotations(layer)
                     self.sync_labels_from_annotations(layer.annotations)
-                    layer.layer_name = f"Layer_{i + 1}"
-                    layer.setVisible(
-                        i == 0
-                    )  # Only the first layer is visible by default
-                    if i == 0:
-                        self.layer = layer  # Set the first layer as the current layer
-                        # Select the first item in the image list panel's list widget
-                        if self.image_list_panel.list_widget.count() > 0:
-                            self.image_list_panel.list_widget.setCurrentRow(0)
-
+                    layer.layer_name = "Layer_1"
+                    layer.setVisible(True)
+                    self.layer = layer
+                    if self.image_list_panel.list_widget.count() > 0:
+                        self.image_list_panel.list_widget.setCurrentRow(0)
                 else:
                     layer.setVisible(False)
                     layer.file_path = Path("Runtime")
@@ -368,15 +388,18 @@ class LayerifyTab(QWidget):
             save_dir = self.config.cache_dir
         save_dir = self._cache_path_for_file(file_path, save_dir)
 
-        # Keep annotation metadata aligned to the owning image.
+        # Keep annotation metadata aligned to the owning image without clearing live selection.
+        to_save = []
         for index, annotation in enumerate(layer.annotations):
             annotation.annotation_id = index
-            annotation.selected = False
             annotation.file_path = Path(file_path)
+            saved_copy = annotation.copy()
+            saved_copy.selected = False
+            to_save.append(saved_copy)
 
         # if there are annotations
-        if len(layer.annotations) > 0:
-            Annotation.save_as_json(layer.annotations, save_dir)
+        if len(to_save) > 0:
+            Annotation.save_as_json(to_save, save_dir)
             logger.info(f"Saved annotations for {layer.layer_name} to {save_dir}")
         elif delete_if_empty and save_dir.exists():
             # Remove the existing annotation file if no annotations
@@ -425,7 +448,7 @@ class LayerifyTab(QWidget):
 
         for cache_file in cache_dir.glob("*.json"):
             cache_file = cache_file.resolve()
-            if cache_file.name == "all_annotations.json":
+            if cache_file.name in {"all_annotations.json", "labels.json"}:
                 continue
             if cache_file in expected_cache_paths:
                 continue
@@ -579,26 +602,21 @@ class LayerifyTab(QWidget):
         for i, layer in enumerate(self.annotable_layers):
             layer.annotations = []
 
-            if i < len(image_entries):
-                # Use deterministic global index for the current page instead of
-                # value-based lookup, which can point to a wrong duplicate entry.
-                idx = page_start + i
+            if i == 0 and len(image_entries) > 0:
+                idx = page_start
                 if idx >= len(self.image_entries):
                     layer.setVisible(False)
                     continue
                 entry = self.image_entries[idx]
                 entry_path = self._entry_file_path(entry)
-                layer.set_image(entry_path)
-                layer.file_path = entry_path
+                self._load_image_into_layer_with_progress(layer, entry_path)
                 self.load_layer_annotations(layer)
 
                 layer.layer_name = f"Layer_{idx + 1}"
-                layer.setVisible(i == 0)
-                if i == 0:
-                    self.layer = layer
-                    # update annotation list to the first layer
-                    self.annotation_list.layer = self.layer
-                    self.annotation_list.update_list()
+                layer.setVisible(True)
+                self.layer = layer
+                self.annotation_list.layer = self.layer
+                self.annotation_list.update_list()
             else:
                 layer.setVisible(False)
                 layer.file_path = Path("Runtime")
@@ -684,8 +702,7 @@ class LayerifyTab(QWidget):
         self.sync_label_combo_to_selection()
 
     def get_default_label(self) -> Label:
-        if self.config.predefined_labels:
-            return self.config.predefined_labels[0]
+        self.config.ensure_undefined_label()
         return self.config.default_label
 
     def update_annotations_for_label_rename(self, old_label: str, new_label: str):
@@ -776,6 +793,11 @@ class LayerifyTab(QWidget):
         new_name = new_name.strip()
         if not current_label or not new_name or new_name == current_label:
             return False
+        if current_label == "Undefined":
+            QMessageBox.warning(
+                self, "Protected Label", "The 'Undefined' label cannot be renamed."
+            )
+            return False
 
         existing_names = [
             label.name
@@ -798,6 +820,7 @@ class LayerifyTab(QWidget):
             return False
 
         self.config.predefined_labels[target_index].name = new_name
+        self.config.save_labels_to_cache()
         self.update_annotations_for_label_rename(current_label, new_name)
         self.current_label = new_name
         if self.layer:
@@ -858,6 +881,7 @@ class LayerifyTab(QWidget):
             for label in self.config.predefined_labels
             if label.name not in set(label_names)
         ]
+        self.config.save_labels_to_cache()
         for label_name in label_names:
             self.replace_deleted_label_in_annotations(label_name, default_label)
         self.current_label = default_label.name
@@ -882,23 +906,32 @@ class LayerifyTab(QWidget):
         dialog = QDialog(self)
         dialog.setWindowTitle("Manage Labels")
         dialog.setModal(True)
-        dialog.resize(360, 420)
+        dialog.resize(380, 440)
 
         layout = QVBoxLayout(dialog)
 
         label_info = QLabel(
-            "Double-click a label to rename it. Select multiple labels to delete them together."
+            "Add, rename (double-click), recolor, or delete labels. Changes are saved directly to the label cache."
         )
         label_info.setWordWrap(True)
         layout.addWidget(label_info)
 
         label_list = QListWidget(dialog)
         label_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        for label in self.config.predefined_labels:
-            item = QListWidgetItem(label.name)
-            item.setData(Qt.UserRole, label.name)
-            item.setFlags(item.flags() | Qt.ItemIsEditable)
-            label_list.addItem(item)
+
+        def populate_list():
+            with QSignalBlocker(label_list):
+                label_list.clear()
+                for label in self.config.predefined_labels:
+                    pixmap = QPixmap(16, 16)
+                    pixmap.fill(label.color)
+                    item = QListWidgetItem(QIcon(pixmap), label.name)
+                    item.setData(Qt.UserRole, label.name)
+                    if label.name != "Undefined":
+                        item.setFlags(item.flags() | Qt.ItemIsEditable)
+                    label_list.addItem(item)
+
+        populate_list()
         layout.addWidget(label_list)
 
         def handle_item_changed(item: QListWidgetItem):
@@ -911,20 +944,53 @@ class LayerifyTab(QWidget):
                 item.setText(old_name)
                 return
             item.setData(Qt.UserRole, new_name)
+            populate_list()
 
         label_list.itemChanged.connect(handle_item_changed)
+
+        add_btn = QPushButton("Add New Label")
+        add_btn.clicked.connect(lambda: (self.add_new_label(), populate_list()))
+        layout.addWidget(add_btn)
+
+        def recolor_selected():
+            sel = label_list.selectedItems()
+            if not sel:
+                QMessageBox.information(
+                    dialog, "No Selection", "Select a label to change its color."
+                )
+                return
+            target_name = sel[0].data(Qt.UserRole)
+            lbl_info = next(
+                (lbl for lbl in self.config.predefined_labels if lbl.name == target_name),
+                None,
+            )
+            if lbl_info is None:
+                return
+            color = QColorDialog.getColor(lbl_info.color, dialog)
+            if color.isValid():
+                lbl_info.color = color
+                self.config.save_labels_to_cache()
+                self.update_annotations_for_label_color(target_name, color)
+                if self.layer:
+                    self.normalize_annotation_colors(
+                        self.layer.annotations, add_missing_labels=False
+                    )
+                    if self.layer.current_label == target_name:
+                        self.layer.current_color = color
+                    self.layer.update()
+                self.update_label_combo()
+                self.annotation_list.update_list()
+                populate_list()
+
+        color_btn = QPushButton("Change Selected Color")
+        color_btn.clicked.connect(recolor_selected)
+        layout.addWidget(color_btn)
 
         delete_button = QPushButton("Delete Selected")
         delete_button.clicked.connect(
             lambda: self._handle_label_manager_delete_selected(dialog, label_list)
         )
         layout.addWidget(delete_button)
-
-        cleanup_button = QPushButton("Delete Default Labels")
-        cleanup_button.clicked.connect(
-            lambda: self._handle_label_manager_cleanup_defaults(dialog, label_list)
-        )
-        layout.addWidget(cleanup_button)
 
         close_button = QPushButton("Close")
         close_button.clicked.connect(dialog.accept)
@@ -946,36 +1012,6 @@ class LayerifyTab(QWidget):
             )
             return
         if self.delete_labels(selected_names):
-            dialog.accept()
-
-    def _handle_label_manager_cleanup_defaults(
-        self, dialog: QDialog, label_list: QListWidget
-    ):
-        custom_labels = {
-            label.name
-            for label in self.config.predefined_labels
-            if label.name not in {"Unlabeled", "Label 1", "Label 2", "Label 3", "Custom"}
-        }
-        if not custom_labels:
-            QMessageBox.information(
-                dialog,
-                "No Custom Labels",
-                "Create your own labels first, then the default placeholders can be removed.",
-            )
-            return
-
-        default_cleanup_targets = [
-            label.name
-            for label in self.config.predefined_labels
-            if label.name in {"Label 1", "Label 2", "Label 3", "Custom"}
-        ]
-        if not default_cleanup_targets:
-            QMessageBox.information(
-                dialog, "Nothing To Delete", "No default placeholder labels remain."
-            )
-            return
-
-        if self.delete_labels(default_cleanup_targets):
             dialog.accept()
 
     def sync_label_combo_to_selection(self):
@@ -1007,23 +1043,10 @@ class LayerifyTab(QWidget):
             button.setChecked(mode == self.layer.mouse_mode)
 
     def on_label_update(self, old_new_label: tuple[str, str]):
-        new_labels = []
-        index = 0
-        for i, label in enumerate(self.config.predefined_labels):
-            if label.name == old_new_label[0]:
-                label.name = old_new_label[1]
-                index = i
-            new_labels.append(label)
-
-        self.config.predefined_labels = new_labels
-        logger.info(f"Updated label from {old_new_label[0]} to {old_new_label[1]}")
-        self.messageSignal.emit(
-            f"Updated label from {old_new_label[0]} to {old_new_label[1]}."
-        )
-
-        self.update_label_combo()
-        self.handle_label_change(index=index)
-        self.label_combo.update()
+        old_name, new_name = old_new_label
+        if not self.rename_label(old_name, new_name):
+            self.ensure_label_available(new_name)
+            self.update_label_combo()
 
     def load_default_image(self):
         """
@@ -1131,19 +1154,23 @@ class LayerifyTab(QWidget):
         Args:
             predictions (list[PredictionResult]): The list of prediction results.
         """
+        if predictions and self.layer:
+            self.layer._push_undo_state()
+
+        selected_label = (self.current_label or "").strip() or "Undefined"
+        if self.ensure_label_available(selected_label):
+            self.update_label_combo()
+        prediction_color = self._label_color(selected_label)
+
         # update canvas with predictions
         for prediction in predictions:
-            if self.ensure_label_available(prediction.class_name):
-                self.update_label_combo()
-
-            prediction_color = self._label_color(prediction.class_name)
             if prediction.rectangle:
                 # make sure the returned rectangle is within the image
 
                 self.layer.annotations.append(
                     Annotation(
                         annotation_id=len(self.layer.annotations),
-                        label=prediction.class_name,
+                        label=selected_label,
                         color=prediction_color,
                         rectangle=QRectF(*prediction.rectangle),
                         is_complete=True,
@@ -1155,13 +1182,15 @@ class LayerifyTab(QWidget):
                             else ""
                         ),
                         file_path=self.layer.file_path,
+                        is_model_generated=True,
+                        model_name=self.current_model.name,
                     )
                 )
             elif prediction.polygon is not None:
                 self.layer.annotations.append(
                     Annotation(
                         annotation_id=len(self.layer.annotations),
-                        label=prediction.class_name,
+                        label=selected_label,
                         color=prediction_color,
                         polygon=QPolygonF([QPointF(*p) for p in prediction.polygon]),
                         is_complete=True,
@@ -1169,6 +1198,8 @@ class LayerifyTab(QWidget):
                         annotator=self.current_model.name,
                         annotation_time=str(prediction.annotation_time),
                         file_path=self.layer.file_path,
+                        is_model_generated=True,
+                        model_name=self.current_model.name,
                     )
                 )
             else:
@@ -1177,7 +1208,7 @@ class LayerifyTab(QWidget):
                 self.layer.annotations.append(
                     Annotation(
                         annotation_id=len(self.layer.annotations),
-                        label=prediction.class_name,
+                        label=selected_label,
                         color=prediction_color,
                         points=[QPointF(x, y)],
                         is_complete=True,
@@ -1185,6 +1216,8 @@ class LayerifyTab(QWidget):
                         annotator=self.current_model.name,
                         annotation_time=str(prediction.annotation_time),
                         file_path=self.layer.file_path,
+                        is_model_generated=True,
+                        model_name=self.current_model.name,
                     )
                 )
 
@@ -1212,17 +1245,35 @@ class LayerifyTab(QWidget):
         QMessageBox.critical(self, "Error", f"Model error: {error}")
         self.loading_dialog.close()
 
-    def save_annotations(self):
-        """Save annotations to a JSON file."""
+    def _select_annotation_format(
+        self, title: str = "Select Annotation Format", allow_auto: bool = False
+    ) -> str | None:
+        items = (
+            ["auto (Detect)", "default (ImageBaker JSON)", "coco (COCO JSON)", "yolo (YOLO TXT/ZIP)"]
+            if allow_auto
+            else ["default (ImageBaker JSON)", "coco (COCO JSON)", "yolo (YOLO TXT/ZIP)"]
+        )
+        choice, ok = QInputDialog.getItem(
+            self, title, "Format:", items, 0, False
+        )
+        if not ok or not choice:
+            return None
+        return choice.split()[0].strip().lower()
+
+    def save_annotations(self, fmt: str | None = None):
+        """Save annotations to Default (ImageBaker JSON), COCO, or YOLO format."""
+        from imagebaker.utils.annotation_formats import save_annotations_to_path
+
         if not self.layer.annotations and not any(
             layer.annotations for layer in self.annotable_layers
         ):
             QMessageBox.warning(self, "Warning", "No annotations to save!")
             return
 
-        # an option to save all annotations (i.e. from all layers) or just the current layer
-        options = QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        # Change the "No" button text to "Just This Layer"
+        selected_fmt = fmt or self._select_annotation_format("Export Annotation Format")
+        if not selected_fmt:
+            return
+
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Save Annotations")
         msg_box.setText("Do you want to save annotations from all layers?")
@@ -1232,36 +1283,74 @@ class LayerifyTab(QWidget):
         msg_box.exec()
         save_all = msg_box.clickedButton() == yes_button
 
+        file_filter = (
+            "YOLO Files (*.txt *.zip);;All Files (*)"
+            if selected_fmt == "yolo"
+            else "JSON Files (*.json);;All Files (*)"
+        )
+        default_ext = ".txt" if selected_fmt == "yolo" else ".json"
+        class_names = [lbl.name for lbl in self.config.predefined_labels]
+        img_w = self.layer.image.width() if self.layer and not self.layer.image.isNull() else None
+        img_h = self.layer.image.height() if self.layer and not self.layer.image.isNull() else None
+        img_name = self.layer.file_path.name if self.layer and self.layer.file_path else "image.png"
+
         if save_all:
             options = QFileDialog.Options()
+            default_name = f"all_annotations_{selected_fmt}{default_ext}"
             file_name, _ = QFileDialog.getSaveFileName(
                 self,
-                "Save Merged Annotations",
-                str(self.config.cache_dir / "all_annotations.json"),
-                "JSON Files (*.json)",
+                f"Save Merged Annotations ({selected_fmt.upper()})",
+                str(self.config.cache_dir / default_name),
+                file_filter,
                 options=options,
             )
             if not file_name:
                 QMessageBox.warning(self, "Warning", "No file selected!")
                 return
             merged_annotations = self.get_all_annotations()
-            Annotation.save_as_json(merged_annotations, file_name)
+            if selected_fmt == "default":
+                Annotation.save_as_json(merged_annotations, file_name)
+            else:
+                save_annotations_to_path(
+                    merged_annotations,
+                    file_name,
+                    fmt=selected_fmt,
+                    image_name=img_name,
+                    image_width=img_w,
+                    image_height=img_h,
+                    class_names=class_names,
+                )
             QMessageBox.information(
-                self, "Success", "Merged annotations saved successfully!"
+                self, "Success", f"Merged annotations saved ({selected_fmt.upper()})!"
             )
             return
 
         options = QFileDialog.Options()
         file_name, _ = QFileDialog.getSaveFileName(
-            self, "Save Annotations", "", "JSON Files (*.json)", options=options
+            self,
+            f"Save Annotations ({selected_fmt.upper()})",
+            str(Path(img_name).stem + default_ext),
+            file_filter,
+            options=options,
         )
 
         if file_name:
             try:
-                Annotation.save_as_json(self.layer.annotations, file_name)
+                if selected_fmt == "default":
+                    Annotation.save_as_json(self.layer.annotations, file_name)
+                else:
+                    save_annotations_to_path(
+                        self.layer.annotations,
+                        file_name,
+                        fmt=selected_fmt,
+                        image_name=img_name,
+                        image_width=img_w,
+                        image_height=img_h,
+                        class_names=class_names,
+                    )
 
                 QMessageBox.information(
-                    self, "Success", "Annotations saved successfully!"
+                    self, "Success", f"Annotations saved ({selected_fmt.upper()})!"
                 )
 
             except Exception as e:
@@ -1269,13 +1358,18 @@ class LayerifyTab(QWidget):
                     self, "Error", f"Failed to save annotations: {str(e)}"
                 )
 
-    def load_annotations(self):
+    def load_annotations(self, fmt: str | None = None):
         """
-        Load annotations from a JSON file.
+        Load annotations from Default (ImageBaker JSON), COCO JSON, or YOLO (.txt/.zip).
         """
-        # dialog box to load all annotations or just the current layer
-        options = QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        # Change the "No" button text to "Just This Layer"
+        from imagebaker.utils.annotation_formats import load_annotations_from_path
+
+        selected_fmt = fmt or self._select_annotation_format(
+            "Load Annotation Format", allow_auto=True
+        )
+        if not selected_fmt:
+            return
+
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Load Annotations")
         msg_box.setText("Do you want to load annotations from all layers?")
@@ -1284,33 +1378,61 @@ class LayerifyTab(QWidget):
         msg_box.setDefaultButton(yes_button)
         msg_box.exec()
         load_all = msg_box.clickedButton() == yes_button
+
+        file_filter = "Annotation Files (*.json *.txt *.zip);;JSON Files (*.json);;YOLO Files (*.txt *.zip);;All Files (*)"
+        class_names = [lbl.name for lbl in self.config.predefined_labels]
+        img_w = self.layer.image.width() if self.layer and not self.layer.image.isNull() else None
+        img_h = self.layer.image.height() if self.layer and not self.layer.image.isNull() else None
+        img_name = self.layer.file_path.name if self.layer and self.layer.file_path else None
+
         if load_all:
             options = QFileDialog.Options()
             file_name, _ = QFileDialog.getOpenFileName(
                 self,
                 "Load Merged Annotations",
                 str(self.config.cache_dir),
-                "JSON Files (*.json)",
+                file_filter,
                 options=options,
             )
             if not file_name:
                 QMessageBox.warning(self, "Warning", "No file selected!")
                 return
-            annotations = Annotation.load_from_json(file_name)
+            if selected_fmt == "default" and file_name.lower().endswith(".json"):
+                annotations = Annotation.load_from_json(file_name)
+            else:
+                annotations = load_annotations_from_path(
+                    file_name,
+                    fmt=selected_fmt,
+                    image_name=None,
+                    image_width=img_w,
+                    image_height=img_h,
+                    class_names=class_names,
+                )
             self.load_merged_annotations(annotations)
             self.update_annotation_list()
             QMessageBox.information(
                 self, "Success", "Merged annotations loaded successfully!"
             )
             return
+
         options = QFileDialog.Options()
         file_name, _ = QFileDialog.getOpenFileName(
-            self, "Load Annotations", "", "JSON Files (*.json)", options=options
+            self, "Load Annotations", "", file_filter, options=options
         )
 
         if file_name:
             try:
-                self.layer.annotations = Annotation.load_from_json(file_name)
+                if selected_fmt == "default" and file_name.lower().endswith(".json"):
+                    self.layer.annotations = Annotation.load_from_json(file_name)
+                else:
+                    self.layer.annotations = load_annotations_from_path(
+                        file_name,
+                        fmt=selected_fmt,
+                        image_name=img_name,
+                        image_width=img_w,
+                        image_height=img_h,
+                        class_names=class_names,
+                    )
                 self.sync_labels_from_annotations(self.layer.annotations)
                 self.normalize_annotation_colors(self.layer.annotations, add_missing_labels=False)
                 self.save_layer_annotations(self.layer)
@@ -1348,6 +1470,7 @@ class LayerifyTab(QWidget):
             if color.isValid():
                 # Update label color
                 label_info.color = color
+                self.config.save_labels_to_cache()
                 # Update combo box display
                 index = self.label_combo.currentIndex()
                 pixmap = QPixmap(16, 16)
@@ -1389,20 +1512,23 @@ class LayerifyTab(QWidget):
     def handle_label_change(self, index):
         """Handle the label change event."""
         if index < 0 or index >= len(self.config.predefined_labels):
+            self.current_label = "Undefined"
+            if self.layer:
+                self.layer.current_label = "Undefined"
+                self.layer.current_color = self._label_color("Undefined")
             return
 
         label_info = self.config.predefined_labels[index]
-        self.current_label = label_info.name
+        self.current_label = label_info.name or "Undefined"
 
         self.layer.current_color = label_info.color
-        self.layer.current_label = (
-            self.current_label if self.current_label != "Custom" else None
-        )
+        self.layer.current_label = self.current_label
         msg = f"Label changed to {self.current_label}"
         self.messageSignal.emit(msg)
         selected_annotation = self.layer._get_selected_annotation()
         self.layer.selected_annotation = selected_annotation
-        if selected_annotation:
+        if selected_annotation and selected_annotation.label != label_info.name:
+            self.layer._push_undo_state()
             selected_annotation.label = label_info.name
             selected_annotation.color = label_info.color
             self.on_annotation_updated(selected_annotation)
@@ -1634,9 +1760,12 @@ class LayerifyTab(QWidget):
 
         # Debugging: Log the key press
         logger.info(f"Key pressed in LayerifyTab: {key}")
-        if event.modifiers() == Qt.ControlModifier:
+        if event.modifiers() & Qt.ControlModifier:
             if key == Qt.Key_Z:
-                self.layer.undo()
+                if event.modifiers() & Qt.ShiftModifier:
+                    self.layer.redo()
+                else:
+                    self.layer.undo()
                 self.annotation_list.update_list()
                 event.accept()
                 return
@@ -1728,7 +1857,9 @@ class LayerifyTab(QWidget):
                         self, "Edit Caption", "Enter caption:", current_caption
                     )
                     if ok:
+                        self.layer._push_undo_state()
                         self.layer.selected_annotation.caption = text
+                        self.on_annotation_updated(self.layer.selected_annotation)
                         self.layer.update()
 
             # Pass the event to the annotation list if it needs to handle it

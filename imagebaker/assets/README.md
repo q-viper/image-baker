@@ -1,0 +1,1 @@
+These favicons were generated from shopify logo maker.

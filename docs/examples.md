@@ -298,6 +298,72 @@ process_batch("assets", "output/processed")
 
 ---
 
+## Example 6: Dataset Generation & On-The-Fly PyTorch Dataset
+
+Extract offline datasets with strict background split isolation or synthesize samples dynamically during model training.
+
+**Script: `examples/dataset_and_pytorch_example.py`**
+
+```python
+from imagebaker import CacheDatasetGenerator, DatasetBakeConfig, ImageBakerTorchDataset
+
+# Configure reproducible generation
+config = DatasetBakeConfig(
+    seed=42,
+    split_ratios={"train": 0.7, "val": 0.2, "test": 0.1},
+    prevent_background_leakage=True,
+    background_size=(640, 640),
+    preserve_aspect_ratio=True,
+    crop_large_background=True,
+    unlabeled_labels=["noise", "distractor"],
+    export_format="yolo",
+)
+
+# 1. Offline extraction to YOLO format
+generator = CacheDatasetGenerator(cache_dir=".imagebaker/cache", config=config)
+generator.extract_dataset(output_dir="./baked_yolo", num_samples=50, format="yolo")
+
+# 2. On-the-fly PyTorch Dataset
+train_dataset = ImageBakerTorchDataset(
+    cache_dir=".imagebaker/cache",
+    config=config,
+    split="train",
+    length=500,
+)
+image_tensor, target = train_dataset[0]
+print(f"Sample boxes: {target['boxes'].shape}, labels: {target['labels']}")
+```
+
+---
+
+## Example 7: Model Integrations (YOLO, RF-DETR, SAM 2)
+
+Connect detection and segmentation models to ImageBaker via `LOADED_MODELS`.
+
+**Script: `examples/models_yolo_rfdetr_sam2.py`**
+
+```python
+from examples.models_yolo_rfdetr_sam2 import (
+    YoloDetectionModel,
+    YoloSegmentationModel,
+    RFDetrDetectionModel,
+    RFDetrSegmentationModel,
+    SAM2PromptModel,
+)
+
+# Initialize models
+yolo_det = YoloDetectionModel()
+rfdetr_seg = RFDetrSegmentationModel()
+sam2_prompt = SAM2PromptModel()
+
+# Run prediction on an image
+yolo_results = yolo_det.predict_boxes(image)
+rfdetr_results = rfdetr_seg.predict_mask(image)
+sam2_results = sam2_prompt.predict_prompt(image, rectangles=[[[50, 50, 200, 200]]])
+```
+
+---
+
 ## Running the Examples
 
 To run any of these examples:

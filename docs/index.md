@@ -30,6 +30,14 @@ This project is also available on the PyPI server.
 
 ```bash
 pip install imagebaker
+
+# Install with model extras (YOLO, RF-DETR, SAM 2, PyTorch)
+pip install "imagebaker[all]"
+
+# Or install specific model extras:
+pip install "imagebaker[yolo]"
+pip install "imagebaker[rfdetr]"
+pip install "imagebaker[sam2]"
 ```
 
 #### Developing
@@ -42,13 +50,22 @@ pip install -e .
 ```
 
 ### First Run
-Run the following command to launch the GUI:
+Launch the desktop GUI:
 
-`imagebaker`
+```bash
+imagebaker --models-file examples/loaded_models.py
+```
 
-By default, the above command will not run any models on the backend. So please take a look into the example of model definition at [examples/loaded_models.py](https://github.com/q-viper/image-baker/blob/main/examples/loaded_models.py). Then we need to pass it as:
+Or launch the standalone Web version:
 
-`imagebaker --models-file examples/loaded_models.py`
+```bash
+imagebaker web --port 8000 --models-file examples/loaded_models.py
+
+# Launch web server in debug mode (verbose logging and live debug indicators)
+imagebaker web --debug
+# Or: imagebaker web -d
+# Or: imagebaker web debug
+```
 
 For more options, please do: `imagebaker --help` It should give the following options.
 
@@ -61,10 +78,14 @@ After cloning and going to the project directory, the following code should work
 `imagebaker --models-file examples/loaded_models.py --configs-file examples/example_config.py`
 
 ## Features
-- **Annotating Images**: Load a folder of images and annotate them using bounding boxes or polygons.
-- **Model Testing**: Define models for detection, segmentation, and prompts (e.g., points or rectangles) by following the base model structure in [imagebaker/models/base_model.py](https://github.com/q-viper/image-baker/blob/main/imagebaker/models/base_model.py). See [examples/loaded_models.py](https://github.com/q-viper/image-baker/blob/main/examples/loaded_models.py) for a working example.
-- **Layerifying**: Crop images based on annotations to create reusable layers. Each cropped image represents a single layer.
-- **Baking States**: Arrange layers to create image variations by dragging, rotating, adjusting opacity, and more. Save the state using the Save State button or Ctrl + S.
+- **Cross-Platform**: Run as a desktop application (PySide6 Qt) or as a modern browser-based web application (`imagebaker web`).
+- **Annotating Images**: Load images and annotate with bounding boxes, points, and polygons. Mode-specific mouse cursor indicators.
+- **Model Support**: Integrate with YOLO (detection & segmentation), RF-DETR (detection & instance segmentation), and SAM 2 (prompt-guided segmentation) via `imagebaker[all]`.
+- **Annotation Formats**: Export and import annotations directly in **COCO**, **YOLO**, and ImageBaker **JSON** formats.
+- **Layerifying**: Crop images based on annotations to create reusable layers with a single click ("Layerify All").
+- **Baking States & Caching**: Arrange layers by dragging, rotating, scaling, adjusting opacity, and drawing. Caching is persistent across sessions for both Layerify and Baker tabs with direct state download prompts.
+- **Dataset Generation**: Extract reproducible train/val/test splits (`CacheDatasetGenerator`) with background isolation (zero background data leakage across splits), aspect-ratio preserving resizing, optional cropping, layer min/max bounds, and selective unlabeled noise layers.
+- **On-the-Fly PyTorch Dataset**: Synthesize training samples dynamically during training via `ImageBakerTorchDataset`.
 - **Playing States**: Replay saved states, export them locally, or use them for further predictions.
 - **Exporting States**: Export the final annotated JSON and the baked multilayer image.
 - **Drawing On Layers**: First select a layer then draw upon it. Only selected layer will be drawn. And if no layers are selected, then the drawing will not be exported.

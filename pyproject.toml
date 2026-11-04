@@ -41,6 +41,26 @@ plugins = [
     "numpy>=1.24.0,<2",
     "opencv-python>=4.8.0,<4.10",
 ]
+torch = [
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+]
+yolo = [
+    "ultralytics>=8.0.0",
+]
+rfdetr = [
+    "rfdetr",
+]
+sam2 = [
+    "sam2",
+]
+models = [
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "ultralytics>=8.0.0",
+    "rfdetr",
+    "sam2",
+]
 dev = [
     "ruff>=0.1.0",
     "pytest>=7.0.0",
@@ -52,6 +72,19 @@ docs = [
     "mkdocstrings[python]>=0.24.0",
     "pymdown-extensions>=10.0",
     "mkdocs-awesome-pages-plugin>=2.9.0",
+]
+all = [
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "ultralytics>=8.0.0",
+    "rfdetr",
+    "sam2",
+    "smokesim==0.0.33",
+    "ruff>=0.1.0",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.0.0",
 ]
 
 [project.scripts]
@@ -72,7 +105,12 @@ exclude = ["docs*", "site*", "assets*", "examples*", "tests*", "experiments*", "
 write_to = "imagebaker/_version.py"
 
 [tool.setuptools.package-data]
-imagebaker = ["*.json", "web/static/*.html", "web/static/*.css", "web/static/*.js"]
+imagebaker = [
+    "*.json",
+    "assets/*",
+    "web/static/*",
+    "web/static/*/*",
+]
 
 [tool.ruff]
 line-length = 100

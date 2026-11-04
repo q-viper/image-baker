@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import cv2
 from PySide6.QtCore import (
     QLineF,
     QPoint,
@@ -34,6 +35,7 @@ from imagebaker.core.configs import CanvasConfig, CursorDef, LayerConfig
 from imagebaker.core.defs import Annotation, MouseMode
 from imagebaker.layers.base_layer import BaseLayer
 from imagebaker.layers.canvas_layer import CanvasLayer
+from imagebaker.utils import mask_to_polygons
 from imagebaker.workers import LayerifyWorker
 
 
@@ -62,10 +64,85 @@ class AnnotableLayer(BaseLayer):
         # Brush annotation state
         self._brush_mask = None  # Numpy array for brush mask
         self._brush_last_pos = None
-        self._undo_stack = []
-        self._redo_stack = []
+        self._history_by_file: dict[str, tuple[list, list]] = {}
         self._max_history = 100
         self._drag_start_snapshot = None
+
+    def _history_pair(self) -> tuple[list, list]:
+        key = str(self.file_path or "Runtime")
+        if key not in self._history_by_file:
+            self._history_by_file[key] = ([], [])
+        return self._history_by_file[key]
+
+    @property
+    def _undo_stack(self) -> list:
+        return self._history_pair()[0]
+
+    @_undo_stack.setter
+    def _undo_stack(self, value: list):
+        key = str(self.file_path or "Runtime")
+        _, redo_s = self._history_pair()
+        self._history_by_file[key] = (list(value), redo_s)
+
+    @property
+    def _redo_stack(self) -> list:
+        return self._history_pair()[1]
+
+    @_redo_stack.setter
+    def _redo_stack(self, value: list):
+        key = str(self.file_path or "Runtime")
+        undo_s, _ = self._history_pair()
+        self._history_by_file[key] = (undo_s, list(value))
+
+    @staticmethod
+    def _annotation_signature(ann: Annotation) -> tuple:
+        pts = tuple((round(p.x(), 3), round(p.y(), 3)) for p in (ann.points or []))
+        rect = (
+            (
+                round(ann.rectangle.x(), 3),
+                round(ann.rectangle.y(), 3),
+                round(ann.rectangle.width(), 3),
+                round(ann.rectangle.height(), 3),
+            )
+            if ann.rectangle
+            else None
+        )
+        poly = (
+            tuple((round(p.x(), 3), round(p.y(), 3)) for p in ann.polygon)
+            if ann.polygon
+            else None
+        )
+        mask_sig = (
+            (ann.mask.shape, int(ann.mask.sum()))
+            if ann.mask is not None
+            else None
+        )
+        col = (
+            (ann.color.red(), ann.color.green(), ann.color.blue())
+            if ann.color
+            else (255, 255, 255)
+        )
+        return (
+            ann.label,
+            col,
+            pts,
+            rect,
+            poly,
+            mask_sig,
+            bool(ann.visible),
+            getattr(ann, "caption", ""),
+        )
+
+    @classmethod
+    def _annotations_equal(
+        cls, before: list[Annotation], after: list[Annotation]
+    ) -> bool:
+        if len(before) != len(after):
+            return False
+        return all(
+            cls._annotation_signature(a) == cls._annotation_signature(b)
+            for a, b in zip(before, after, strict=False)
+        )
 
     def _snapshot_annotations(self):
         return [ann.copy() for ann in self.annotations]
@@ -80,7 +157,11 @@ class AnnotableLayer(BaseLayer):
         self.update()
 
     def _push_undo_state(self):
-        self._undo_stack.append(self._snapshot_annotations())
+        snapshot = self._snapshot_annotations()
+        if self._undo_stack and self._annotations_equal(self._undo_stack[-1], snapshot):
+            self._redo_stack.clear()
+            return
+        self._undo_stack.append(snapshot)
         if len(self._undo_stack) > self._max_history:
             self._undo_stack.pop(0)
         self._redo_stack.clear()
@@ -108,6 +189,8 @@ class AnnotableLayer(BaseLayer):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
     def clear_annotations(self):
+        if self.annotations:
+            self._push_undo_state()
         self.annotations.clear()
         self.selected_annotation = None
         self.current_annotation = None
@@ -153,7 +236,10 @@ class AnnotableLayer(BaseLayer):
             event.accept()
             return
         if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_Z:
-            self.undo()
+            if event.modifiers() & Qt.ShiftModifier:
+                self.redo()
+            else:
+                self.undo()
             event.accept()
             return
         if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_Y:
@@ -177,6 +263,8 @@ class AnnotableLayer(BaseLayer):
                 if not selected_annotations and self.selected_annotation is not None:
                     selected_annotations = [self.selected_annotation]
 
+                if selected_annotations:
+                    self._push_undo_state()
                 for annotation in selected_annotations:
                     annotation.label = label_info.name
                     annotation.color = label_info.color
@@ -236,7 +324,6 @@ class AnnotableLayer(BaseLayer):
         self._paste_annotation()
 
     def delete_selected_annotations(self):
-        self._push_undo_state()
         selected_annotations = [ann for ann in self.annotations if ann.selected]
         if not selected_annotations and self.selected_annotation is not None:
             selected_annotations = [self.selected_annotation]
@@ -245,6 +332,7 @@ class AnnotableLayer(BaseLayer):
             self.messageSignal.emit("No annotation selected to delete.")
             return
 
+        self._push_undo_state()
         selected_ids = {id(ann) for ann in selected_annotations}
         removed_count = len(selected_annotations)
         self.annotations = [
@@ -643,6 +731,42 @@ class AnnotableLayer(BaseLayer):
 
     def handle_mouse_release(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
+            if self.mouse_mode == MouseMode.DRAW and self._brush_mask is not None:
+                import numpy as np
+
+                mask = self._brush_mask.copy()
+                if np.any(mask):
+                    self._push_undo_state()
+                    label = self.current_label or self.config.default_label.name
+                    color = self.current_color or self.config.get_label_color(label)
+
+                    # Extract bounding box and polygon from brush mask
+                    mask_uint8 = (mask > 0).astype(np.uint8) * 255
+                    bx, by, bw, bh = cv2.boundingRect(mask_uint8)
+                    rect = QRectF(bx, by, bw, bh) if bw > 0 and bh > 0 else None
+                    polys = mask_to_polygons(mask_uint8, merge_polygons=True)
+                    poly = (
+                        QPolygonF([QPointF(p[0], p[1]) for p in polys[0]])
+                        if polys and len(polys[0]) >= 3
+                        else None
+                    )
+
+                    ann = Annotation(
+                        file_path=self.file_path,
+                        annotation_id=len(self.annotations),
+                        label=label,
+                        color=color,
+                        mask=mask,
+                        rectangle=rect,
+                        polygon=poly,
+                        is_complete=True,
+                    )
+                    self.annotations.append(ann)
+                    self.annotationAdded.emit(ann)
+                self._brush_mask = None
+                self._brush_last_pos = None
+                self.update()
+                return
             if self.mouse_mode == MouseMode.RECTANGLE and self.current_annotation:
                 rect = self.current_annotation.rectangle
                 # Ignore click-only rectangle annotations (no meaningful drag).
@@ -686,7 +810,7 @@ class AnnotableLayer(BaseLayer):
         if self._drag_start_snapshot is not None:
             before = self._drag_start_snapshot
             after = self._snapshot_annotations()
-            if str(before) != str(after):
+            if not self._annotations_equal(before, after):
                 self._undo_stack.append(before)
                 if len(self._undo_stack) > self._max_history:
                     self._undo_stack.pop(0)
@@ -768,6 +892,24 @@ class AnnotableLayer(BaseLayer):
                 self.update()
                 return
 
+            if self.mouse_mode == MouseMode.DRAW and event.buttons() & Qt.LeftButton:
+                if self._brush_mask is not None and self._brush_last_pos is not None:
+                    import cv2
+
+                    x0, y0 = self._brush_last_pos
+                    x1, y1 = int(clamped_pos.x()), int(clamped_pos.y())
+                    brush_size = getattr(self, "brush_size", 5)
+                    cv2.line(
+                        self._brush_mask,
+                        (x0, y0),
+                        (x1, y1),
+                        color=1,
+                        thickness=brush_size,
+                    )
+                    self._brush_last_pos = (x1, y1)
+                    self.update()
+                return
+
             if self.mouse_mode == MouseMode.PAN and event.buttons() & Qt.LeftButton:
                 if self.pan_start:
                     delta = event.position() - self.pan_start
@@ -792,10 +934,30 @@ class AnnotableLayer(BaseLayer):
 
         if annotation.rectangle:
             annotation.rectangle.translate(delta)
-        elif annotation.polygon:
+        if annotation.polygon:
             annotation.polygon.translate(delta)
-        elif annotation.points:
+        if annotation.points:
             annotation.points = [p + delta for p in annotation.points]
+
+        if annotation.mask is not None:
+            import numpy as np
+
+            dx = int(round(delta.x()))
+            dy = int(round(delta.y()))
+            if dx != 0 or dy != 0:
+                h, w = annotation.mask.shape[:2]
+                shifted = np.zeros_like(annotation.mask)
+                sx1 = max(0, -dx)
+                sy1 = max(0, -dy)
+                sx2 = min(w, w - dx)
+                sy2 = min(h, h - dy)
+                dx1 = max(0, dx)
+                dy1 = max(0, dy)
+                dx2 = min(w, dx + (sx2 - sx1))
+                dy2 = min(h, dy + (sy2 - sy1))
+                if sx2 > sx1 and sy2 > sy1 and dx2 > dx1 and dy2 > dy1:
+                    shifted[dy1:dy2, dx1:dx2] = annotation.mask[sy1:sy2, sx1:sx2]
+                annotation.mask = shifted
 
     def handle_mouse_press(self, event: QMouseEvent):
         # logger.info(f"Mouse press event: {event.position()} with {self.mouse_mode}")
@@ -829,53 +991,43 @@ class AnnotableLayer(BaseLayer):
 
         # If left-clicked
         if event.button() == Qt.LeftButton:
-            self._drag_start_snapshot = self._snapshot_annotations()
+            self._drag_start_snapshot = None
             if self.mouse_mode == MouseMode.DRAW:
+                import cv2
                 import numpy as np
 
                 self._brush_mask = np.zeros(
                     (self.image.height(), self.image.width()), dtype=np.uint8
                 )
-                self._brush_last_pos = (int(clamped_pos.x()), int(clamped_pos.y()))
-                self.current_label = self.current_label or "Brush"
-                self.current_color = self.current_color or QColor(255, 0, 0)
-                return
-        # Brush drawing
-        if event.buttons() & Qt.LeftButton and self.mouse_mode == MouseMode.DRAW:
-            if self._brush_mask is not None and self._brush_last_pos is not None:
-                import cv2
-
-                x0, y0 = self._brush_last_pos
-                x1, y1 = int(clamped_pos.x()), int(clamped_pos.y())
+                pt = (int(clamped_pos.x()), int(clamped_pos.y()))
+                self._brush_last_pos = pt
                 brush_size = getattr(self, "brush_size", 5)
-                cv2.line(
-                    self._brush_mask, (x0, y0), (x1, y1), color=1, thickness=brush_size
+                cv2.circle(self._brush_mask, pt, max(1, brush_size // 2), 1, -1)
+                self.current_label = (
+                    self.current_label or self.config.default_label.name
                 )
-                self._brush_last_pos = (x1, y1)
-                self.update()
-            return
-        if event.button() == Qt.LeftButton:
-            if self.mouse_mode == MouseMode.DRAW and self._brush_mask is not None:
-                mask = self._brush_mask.copy()
-                if np.any(mask):
-                    ann = Annotation(
-                        annotation_id=len(self.annotations),
-                        label=self.current_label or "Brush",
-                        color=self.current_color or QColor(255, 0, 0),
-                        mask=mask,
-                        is_complete=True,
-                    )
-                    self.annotations.append(ann)
-                    self.annotationAdded.emit(ann)
-                self._brush_mask = None
-                self._brush_last_pos = None
+                self.current_color = (
+                    self.current_color
+                    or self.config.get_label_color(self.current_label)
+                )
                 self.update()
                 return
-            self.selected_annotation, self.active_handle = (
-                self.find_annotation_and_handle_at(img_pos)
-            )
+
+            # Check if clicked on any label badge in screen space
+            widget_pos = event.position()
+            for lrect, ann in reversed(self.label_rects):
+                if lrect.contains(widget_pos):
+                    self.selected_annotation = ann
+                    self.active_handle = "move"
+                    break
+
+            if not self.selected_annotation:
+                self.selected_annotation, self.active_handle = (
+                    self.find_annotation_and_handle_at(img_pos)
+                )
             # Handle dragging later on
             if self.selected_annotation:
+                self._drag_start_snapshot = self._snapshot_annotations()
                 is_multi_select = bool(event.modifiers() & Qt.ControlModifier)
                 self.drag_offset = img_pos - self.get_annotation_position(
                     self.selected_annotation
@@ -1004,6 +1156,13 @@ class AnnotableLayer(BaseLayer):
                 if (annotation.points[0] - pos).manhattanLength() < margin:
                     return annotation, "point_0"
 
+            # Check mask
+            elif annotation.mask is not None:
+                ix, iy = int(round(pos.x())), int(round(pos.y()))
+                mh, mw = annotation.mask.shape[:2]
+                if 0 <= ix < mw and 0 <= iy < mh and annotation.mask[iy, ix] > 0:
+                    return annotation, "move"
+
         return None, None
 
     def handle_mouse_double_click(self, event: QMouseEvent, pos: QPoint):
@@ -1026,14 +1185,16 @@ class AnnotableLayer(BaseLayer):
                         index = int(self.active_handle.split("_")[1])
                         # Remove the point at the clicked index
                         polygon = self.selected_annotation.polygon
-                        polygon = QPolygonF(
-                            [p for i, p in enumerate(polygon) if i != index]
-                        )
+                        if len(polygon) > 3:
+                            self._push_undo_state()
+                            polygon = QPolygonF(
+                                [p for i, p in enumerate(polygon) if i != index]
+                            )
 
-                        self.selected_annotation.polygon = polygon
-                        self.annotationUpdated.emit(self.selected_annotation)
-                        self.update()
-                        logger.info(f"Removed point at index {index}")
+                            self.selected_annotation.polygon = polygon
+                            self.annotationUpdated.emit(self.selected_annotation)
+                            self.update()
+                            logger.info(f"Removed point at index {index}")
                         return
 
                 # Check if an edge was double-clicked
@@ -1076,6 +1237,7 @@ class AnnotableLayer(BaseLayer):
                         # Check if the perpendicular distance is within the margin
                         if perpendicular_distance < 10:  # Margin of 10
                             # Insert a new point at the projection point
+                            self._push_undo_state()
                             polygon.insert(i + 1, projection_point)
                             self.annotationUpdated.emit(self.selected_annotation)
                             self.update()
@@ -1137,33 +1299,22 @@ class AnnotableLayer(BaseLayer):
             self.update()
 
     def finalize_annotation(self):
+        if self.current_annotation is None:
+            return
         self._push_undo_state()
-        if self.current_label:
-            # Use predefined label
-            self.current_annotation.annotation_id = len(self.annotations)
-            self.current_annotation.label = self.current_label
-            self.current_annotation.color = self.current_color
-            self.current_annotation.is_complete = True
-            self.annotations.append(self.current_annotation)
+        label_name = (self.current_label or "").strip() or self.config.default_label.name
+        label_color = self.current_color or self.config.get_label_color(label_name)
+        self.current_annotation.annotation_id = len(self.annotations)
+        self.current_annotation.label = label_name
+        self.current_annotation.color = label_color
+        self.current_annotation.file_path = self.file_path
+        self.current_annotation.is_complete = True
+        self.annotations.append(self.current_annotation)
 
-            self.thumbnails[self.current_annotation.annotation_id] = self.get_thumbnail(
-                self.current_annotation
-            )
-            self.annotationAdded.emit(self.current_annotation)
-        else:
-            # Show custom label dialog
-            label, ok = QInputDialog.getText(self, "Label", "Enter label name:")
-            if ok:
-                if self.current_annotation:
-                    self.current_annotation.annotation_id = len(self.annotations)
-                    self.current_annotation.label = label or "Unlabeled"
-                    self.current_annotation.is_complete = True
-                    self.annotations.append(self.current_annotation)
-                    self.thumbnails[self.current_annotation.annotation_id] = (
-                        self.get_thumbnail(self.current_annotation)
-                    )
-                    self.annotationAdded.emit(self.current_annotation)
-                    self.current_annotation.annotation_id = len(self.annotations)
+        self.thumbnails[self.current_annotation.annotation_id] = self.get_thumbnail(
+            self.current_annotation
+        )
+        self.annotationAdded.emit(self.current_annotation)
         self.current_annotation = None
         self.update()
 

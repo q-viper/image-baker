@@ -81,6 +81,10 @@ def test_web_engine_end_to_end(tmp_path: Path):
         project_dir=str(tmp_path),
         configs_file=None,
     )
+    initial_labels = [item["name"] for item in engine.get_state()["layerify"]["labels"]]
+    assert initial_labels == ["Undefined"]
+    labels_cache_path = tmp_path / ".imagebaker" / "cache" / "labels.json"
+    assert labels_cache_path.exists()
 
     # 1. Select folder & check loaded images
     ok, _msg = engine.select_folder(str(img_dir))
@@ -144,24 +148,40 @@ def test_web_engine_end_to_end(tmp_path: Path):
     assert ok is True
     assert len(engine.get_state()["layerify"]["annotations"]) == 3
 
-    # 4. Label management
+    # 4. Label management & labels.json cache persistence
     ok, _ = engine.manage_labels({"action": "add", "label": "CustomLabel", "color": [12, 34, 56]})
     assert ok is True
+    cached_labels = json.loads(labels_cache_path.read_text(encoding="utf-8"))
+    assert any(item["name"] == "CustomLabel" for item in cached_labels)
+
     ok, _ = engine.manage_labels(
         {"action": "rename", "old_label": "CustomLabel", "new_label": "RenamedLabel"}
     )
     assert ok is True
     labels = {item["name"] for item in engine.get_state()["layerify"]["labels"]}
     assert "RenamedLabel" in labels
-    ok, _ = engine.manage_labels({"action": "delete", "label": "RenamedLabel"})
-    assert ok is True
+    cached_labels = json.loads(labels_cache_path.read_text(encoding="utf-8"))
+    assert any(item["name"] == "RenamedLabel" for item in cached_labels)
 
-    # 5. Model prediction
+    # 5. Model prediction assigns currently selected label (or Undefined if none selected)
     engine.current_model_name = "DummyDetectionModel"
+    engine.manage_labels({"action": "select", "label": "RenamedLabel"})
     ok, _ = engine.run_prediction()
     assert ok is True
     cur_anns = engine.get_state()["layerify"]["annotations"]
     assert len(cur_anns) >= 4
+    assert cur_anns[-1]["label"] == "RenamedLabel"
+
+    # Deselect label -> defaults to Undefined on prediction
+    engine.manage_labels({"action": "select", "label": ""})
+    assert engine.get_state()["layerify"]["selected_label"] == "Undefined"
+    ok, _ = engine.run_prediction()
+    assert ok is True
+    cur_anns = engine.get_state()["layerify"]["annotations"]
+    assert cur_anns[-1]["label"] == "Undefined"
+
+    ok, _ = engine.manage_labels({"action": "delete", "label": "RenamedLabel"})
+    assert ok is True
     for a in cur_anns:
         a["visible"] = True
     engine.update_annotations(cur_anns, push_undo=False)
@@ -234,6 +254,11 @@ def test_http_server_endpoints(tmp_path: Path):
             assert "btn-top-theme" in html
             assert "ls-label-bar" in html
             assert "strip-mode-rectangle" in html
+            assert "btn-layerify-all" in html
+            assert "layerify-loading-overlay" in html
+            assert 'id="dock-layerify-tools"' not in html
+            assert 'id="strip-btn-layerify"' not in html
+            assert 'id="btn-insp-bake"' not in html
 
         # GET /api/layerify/browse-folders (verify images list & quick_paths)
         from urllib.parse import quote
@@ -414,7 +439,71 @@ LOADED_MODELS = {
     assert engine.get_state()["layerify"]["current_image"]["is_baked_result"] is True
     ok, _ = engine.run_prediction()
     assert ok is True
-    assert any(a["label"] == "baked_det" for a in engine.get_state()["layerify"]["annotations"])
+    assert any(a["label"] == "Undefined" for a in engine.get_state()["layerify"]["annotations"])
+
+
+def test_desktop_parity_and_undo_redo(tmp_path: Path):
+    """Verify Desktop LayerConfig labels.json cache, BaseLayer.copy(), and AnnotableLayer undo/redo."""
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QColor, QImage
+    from PySide6.QtWidgets import QApplication
+
+    from imagebaker.core.configs import CanvasConfig, LayerConfig
+    from imagebaker.core.defs import Annotation, Label
+    from imagebaker.layers.annotable_layer import AnnotableLayer
+
+    _app = QApplication.instance() or QApplication([])
+
+    cfg = LayerConfig(project_dir=tmp_path)
+    canvas_cfg = CanvasConfig(project_dir=tmp_path)
+    cfg.load_labels_from_cache()
+    assert [lbl.name for lbl in cfg.predefined_labels] == ["Undefined"]
+    assert cfg.labels_cache_file.exists()
+
+    cfg.predefined_labels.append(Label("Car", QColor(255, 0, 0)))
+    cfg.save_labels_to_cache()
+
+    cfg2 = LayerConfig(project_dir=tmp_path)
+    cfg2.load_labels_from_cache()
+    assert [lbl.name for lbl in cfg2.predefined_labels] == ["Undefined", "Car"]
+
+    layer = AnnotableLayer(None, cfg, canvas_cfg)
+    img = QImage(100, 100, QImage.Format_RGBA8888)
+    img.fill(QColor(50, 100, 150))
+    layer.set_image(img)
+    layer.file_path = tmp_path / "img1.png"
+
+    # Default label when none selected is Undefined
+    layer.selected_label = ""
+    layer.current_annotation = Annotation(
+        annotation_id=1, label="", rectangle=QRectF(10, 10, 30, 30)
+    )
+    layer.finalize_annotation()
+    assert len(layer.annotations) == 1
+    assert layer.annotations[0].label == "Undefined"
+
+    # Undo and Redo on img1
+    layer.undo()
+    assert len(layer.annotations) == 0
+    layer.redo()
+    assert len(layer.annotations) == 1
+    assert layer.annotations[0].label == "Undefined"
+
+    # Switching file_path isolates undo/redo stacks per image
+    layer.file_path = tmp_path / "img2.png"
+    layer.annotations = []
+    layer.undo()
+    assert len(layer.annotations) == 0
+
+    # BaseLayer.copy() preserves layer_state
+    layer.caption = "test_caption"
+    layer.edge_width = 7
+    copied_layer = layer.copy()
+    assert copied_layer.caption == "test_caption"
+    assert copied_layer.edge_width == 7
 
 
 def test_real_world_workflows_example():
@@ -439,6 +528,9 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as d3:
         test_edge_cases_and_formats(Path(d3))
     print("  [PASS] test_edge_cases_and_formats")
+    with tempfile.TemporaryDirectory() as d4:
+        test_desktop_parity_and_undo_redo(Path(d4))
+    print("  [PASS] test_desktop_parity_and_undo_redo")
     test_real_world_workflows_example()
     print("  [PASS] test_real_world_workflows_example")
     print("All tests passed!")

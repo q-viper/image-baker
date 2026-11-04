@@ -78,10 +78,37 @@ body {
 .brand-badge {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   font-size: 13.5px;
   font-weight: 700;
   color: var(--text);
+  user-select: none;
+}
+
+.brand-logo {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  object-fit: contain;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  display: block;
+}
+
+.badge-debug {
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 9.5px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  animation: pulse-debug 2.5s infinite;
+}
+
+@keyframes pulse-debug {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 
 .brand-dot {
@@ -1162,4 +1189,90 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* ==================== IMAGE LOADING PROGRESS OVERLAY ==================== */
+.canvas-loading-overlay {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+}
+
+.canvas-loading-card {
+  background-color: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 26px;
+  min-width: 240px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.canvas-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: ib-spin 0.75s linear infinite;
+}
+
+.canvas-loading-text {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  text-align: center;
+}
+
+.canvas-loading-bar {
+  width: 100%;
+  height: 5px;
+  border-radius: 999px;
+  background-color: var(--panel-alt);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.canvas-loading-bar-fill {
+  width: 45%;
+  height: 100%;
+  background-color: var(--accent);
+  border-radius: 999px;
+  animation: ib-indeterminate 1.1s ease-in-out infinite;
+}
+
+@keyframes ib-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ib-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(65%);
+  }
+  100% {
+    transform: translateX(220%);
+  }
+}
+
+.manage-label-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background-color: var(--panel-alt);
+  border: 1px solid var(--border);
 }

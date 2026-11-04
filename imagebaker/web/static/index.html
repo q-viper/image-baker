@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ImageBaker</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png" />
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png" />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body class="theme-dark">
@@ -11,9 +15,10 @@
     <!-- Top Tab Bar (matching MainWindow QTabBar + Top-Right Controls & Theme Button) -->
     <header id="top-tab-bar">
       <div class="header-left">
-        <div class="brand-badge">
-          <span class="brand-dot"></span>
+        <div class="brand-badge" title="ImageBaker">
+          <img src="/static/logo.png" alt="ImageBaker Logo" class="brand-logo" />
           <span>ImageBaker</span>
+          <span class="badge badge-debug hidden" id="header-debug-badge">DEBUG</span>
         </div>
         <div class="tab-buttons">
           <button class="tab-btn active" data-tab="Layerify" id="tab-btn-layerify">Layerify</button>
@@ -74,16 +79,25 @@
 
           <!-- Center Area: Label Studio Bar + Left Tool Strip + AnnotableLayer Canvas -->
           <div class="center-studio-column">
-            <!-- Label Studio-Style Interactive Label Chips Bar -->
+            <!-- Label Studio-Style Interactive Label Chips & Model Action Bar -->
             <div class="ls-label-bar" id="ls-label-bar">
               <div class="ls-label-bar-left">
                 <span class="ls-bar-tag">Labels</span>
                 <div class="ls-label-chips" id="ls-label-chips"></div>
+                <button class="btn btn-sm" id="btn-quick-add-label" title="Add a new label (+)">+ Add Label</button>
+                <button class="btn btn-sm" id="btn-quick-label-color" title="Change color of selected label">🎨</button>
+                <input type="color" id="input-label-color-picker" class="hidden-color-input" value="#ffffff" />
+                <button class="btn btn-sm" id="btn-quick-manage-label" title="Edit, rename, recolor, or delete labels">⚙️ Labels</button>
               </div>
               <div class="ls-label-bar-right">
-                <button class="btn btn-sm" id="btn-quick-add-label" title="Add a new label (+)">+ Label</button>
-                <button class="btn btn-sm" id="btn-quick-label-color" title="Change color of selected label">🎨</button>
-                <button class="btn btn-sm" id="btn-quick-manage-label" title="Manage / Rename / Delete labels">⚙️</button>
+                <span class="ls-bar-tag">Model</span>
+                <select id="select-model" class="combo-box" title="Select a model for prediction."></select>
+                <button class="btn btn-sm btn-primary" id="btn-predict" title="Run model prediction on the current image (P).">🔮 Predict (P)</button>
+                <span class="top-divider"></span>
+                <button class="btn btn-sm" id="btn-layerify-all" title="Create layers from all visible annotations (L).">🧅 Layerify All</button>
+                <button class="btn btn-sm" id="btn-save-annotations" title="Save annotations to file.">💾 Save</button>
+                <button class="btn btn-sm" id="btn-load-annotations" title="Load annotations from file.">📂 Load</button>
+                <button class="btn btn-sm" id="btn-clear-annotations" title="Clear all annotations from the current image.">🗑️ Clear</button>
               </div>
             </div>
 
@@ -127,7 +141,7 @@
                   <span class="ls-tool-icon">↶</span>
                   <span class="ls-tool-label">Undo</span>
                 </button>
-                <button class="ls-tool-btn" id="strip-btn-redo" title="Redo Annotation (Ctrl+Y)">
+                <button class="ls-tool-btn" id="strip-btn-redo" title="Redo Annotation (Ctrl+Y / Ctrl+Shift+Z)">
                   <span class="ls-tool-icon">↷</span>
                   <span class="ls-tool-label">Redo</span>
                 </button>
@@ -141,11 +155,6 @@
                   <span class="ls-tool-label">Hide</span>
                   <kbd class="ls-tool-kbd">H</kbd>
                 </button>
-                <button class="ls-tool-btn" id="strip-btn-layerify" title="Layerify Selected or All Regions (L)">
-                  <span class="ls-tool-icon">🧅</span>
-                  <span class="ls-tool-label">Layerify</span>
-                  <kbd class="ls-tool-kbd">L</kbd>
-                </button>
                 <button class="ls-tool-btn ls-tool-danger" id="strip-btn-delete" title="Delete Selected Region (Delete)">
                   <span class="ls-tool-icon">🗑️</span>
                   <span class="ls-tool-label">Delete</span>
@@ -155,6 +164,15 @@
               <!-- Canvas Container -->
               <div class="center-canvas-container" id="layerify-canvas-wrap">
                 <canvas id="layerify-canvas" tabindex="0"></canvas>
+
+                <!-- Image Loading Progress Overlay -->
+                <div id="layerify-loading-overlay" class="canvas-loading-overlay hidden" role="status" aria-live="polite">
+                  <div class="canvas-loading-card">
+                    <div class="canvas-loading-spinner"></div>
+                    <div class="canvas-loading-text" id="layerify-loading-text">Loading image…</div>
+                    <div class="canvas-loading-bar"><div class="canvas-loading-bar-fill"></div></div>
+                  </div>
+                </div>
 
                 <!-- Floating Mode & Context HUD -->
                 <div class="canvas-hud-bar" id="layerify-hud-bar">
@@ -195,7 +213,6 @@
                     <strong id="inspector-region-name">Region #1</strong>
                     <div class="inspector-actions">
                       <button class="btn btn-xs" id="btn-insp-caption" title="Edit Caption / Label (C)">💬 Caption</button>
-                      <button class="btn btn-xs" id="btn-insp-bake" title="Bake Layer from Selected (L)">🖨 Bake</button>
                     </div>
                   </div>
                   <div class="inspector-sub" id="inspector-region-sub"></div>
@@ -220,33 +237,6 @@
             </div>
           </aside>
         </div>
-
-        <!-- Bottom Dock: Layerify Tools (Full Windows LayerifyTab Parity) -->
-        <footer class="dock-widget dock-bottom" id="dock-layerify-tools">
-          <div class="dock-title">Tools</div>
-          <div class="dock-content tools-toolbar">
-            <button class="btn" id="btn-select-folder" title="Select a folder containing images to annotate.">Select Folder</button>
-            <button class="btn" id="btn-upload-images" title="Upload image files from your computer.">Upload Images</button>
-            <button class="btn mode-btn" id="btn-mode-point" data-mode="Point" title="Switch to Point annotation mode (Q).">📍Point (Q)</button>
-            <button class="btn mode-btn" id="btn-mode-polygon" data-mode="Polygon" title="Switch to Polygon annotation mode (W).">🔷Polygon (W)</button>
-            <button class="btn mode-btn active" id="btn-mode-rectangle" data-mode="Rectangle" title="Switch to Rectangle annotation mode (E).">🔳Rectangle (E)</button>
-            <button class="btn mode-btn" id="btn-mode-brush" data-mode="Brush" title="Switch to Brush Mask annotation mode (B).">🖌️Brush (B)</button>
-            <button class="btn mode-btn" id="btn-mode-idle" data-mode="Idle" title="Switch to Select / Idle mode (V or Esc).">⏳Select (V)</button>
-            <button class="btn" id="btn-save-annotations" title="Save current annotations to file.">💾Annotations</button>
-            <button class="btn" id="btn-load-annotations" title="Load annotations from file.">📂Annotations</button>
-            <button class="btn btn-primary" id="btn-predict" title="Run model prediction on the current image (P).">🔮Predict (P)</button>
-            <button class="btn" id="btn-label-color" title="Choose a color for the selected label.">🎨Color</button>
-            <input type="color" id="input-label-color-picker" class="hidden-color-input" value="#ff8000" />
-            <button class="btn" id="btn-layerify-all" title="Create layers from selected or all current annotations (L).">🧅Layerify (L)</button>
-            <button class="btn" id="btn-add-label" title="Add a new label to the label list.">🏷️Add Label</button>
-            <button class="btn" id="btn-clear-annotations" title="Clear all annotations from the current image.">🗑️Clear</button>
-            <button class="btn toggle-btn active hidden" id="btn-layerify-grid" title="Show or hide canvas gridlines.">Grid: On</button>
-            <button class="btn hidden" id="btn-layerify-theme" title="Switch between light and dark theme.">Theme: Dark</button>
-            <select id="select-label" class="combo-box" title="Select a label for annotation (or press 0-9)."></select>
-            <button class="btn" id="btn-manage-label" title="Edit, delete, or clean up labels.">Manage Label</button>
-            <select id="select-model" class="combo-box" title="Select a model for prediction."></select>
-          </div>
-        </footer>
       </section>
 
       <!-- ==================== BAKER VIEW ==================== -->
@@ -351,9 +341,9 @@
 
                 <div class="setting-row">
                   <div class="setting-header">
-                    <span>Edge Width: <strong id="val-edge-width">0</strong></span>
+                    <span>Edge Width: <strong id="val-edge-width">1</strong></span>
                   </div>
-                  <input type="range" id="slider-edge-width" min="0" max="50" value="0" />
+                  <input type="range" id="slider-edge-width" min="0" max="50" value="1" />
                 </div>
 
                 <div class="setting-row">
@@ -371,6 +361,8 @@
         <footer class="dock-widget dock-bottom" id="dock-baker-tools">
           <div class="dock-title">Tools</div>
           <div class="dock-content tools-toolbar">
+            <button class="btn" id="btn-baker-undo" title="Undo layer change (Ctrl+Z).">↶ Undo</button>
+            <button class="btn" id="btn-baker-redo" title="Redo layer change (Ctrl+Y / Ctrl+Shift+Z).">↷ Redo</button>
             <label class="inline-spin-label" for="input-bake-steps">Steps:</label>
             <input type="number" id="input-bake-steps" class="spin-box" min="1" max="100" value="1" title="Number of states to interpolate on Save State or generate on Randomize States." />
             <button class="btn" id="btn-export-current-state" title="Export only the currently visible canvas state and transfer it to Layerify.">Export Current State</button>
@@ -509,7 +501,7 @@
       </div>
     </div>
 
-    <!-- Save / Load Annotations Scope Modal -->
+    <!-- Save / Load Annotations Scope & Format Modal -->
     <div id="modal-annotations-io" class="modal-dialog hidden">
       <div class="modal-header">
         <h3 id="modal-ann-io-title">Save Annotations</h3>
@@ -517,13 +509,22 @@
       </div>
       <div class="modal-body">
         <p id="modal-ann-io-desc">Do you want to save annotations for all layers or just the current layer?</p>
+        <div class="field-group">
+          <label for="select-ann-io-format">Annotation Format:</label>
+          <select id="select-ann-io-format" class="combo-box w-full">
+            <option value="default">Default (ImageBaker JSON)</option>
+            <option value="coco">COCO Format (.json)</option>
+            <option value="yolo">YOLO Format (.txt)</option>
+            <option value="auto" id="opt-ann-format-auto" class="hidden">Auto-Detect (Default / COCO / YOLO)</option>
+          </select>
+        </div>
         <div class="field-group" id="group-ann-file-path">
           <label for="input-ann-file-path">File Path (in project or absolute):</label>
           <input type="text" id="input-ann-file-path" class="text-input w-full" value="annotations.json" />
         </div>
         <div class="field-group hidden" id="group-ann-file-upload">
-          <label for="input-ann-upload-json">Or Upload a Local JSON File:</label>
-          <input type="file" id="input-ann-upload-json" accept=".json,application/json" class="text-input w-full" />
+          <label for="input-ann-upload-json">Or Upload a Local Annotation File (.json, .txt, .zip):</label>
+          <input type="file" id="input-ann-upload-json" accept=".json,.txt,.zip,application/json,text/plain,application/zip" class="text-input w-full" />
         </div>
       </div>
       <div class="modal-footer">
@@ -533,28 +534,56 @@
       </div>
     </div>
 
-    <!-- Manage Label Modal -->
-    <div id="modal-manage-label" class="modal-dialog hidden">
+    <!-- Baker Save State Download & Export Format Modal -->
+    <div id="modal-baker-export-prompt" class="modal-dialog hidden">
       <div class="modal-header">
-        <h3>Manage Labels</h3>
+        <h3 id="modal-baker-export-title">Download / Export Baked States</h3>
         <button class="modal-close" data-close-modal>&times;</button>
       </div>
       <div class="modal-body">
-        <p>Current Label: <strong id="manage-label-current-name"></strong></p>
+        <p id="modal-baker-export-desc" style="margin-bottom: 12px;">
+          State saved! Do you want to download and export the baked annotations now?
+        </p>
         <div class="field-group">
-          <label for="input-rename-label">Rename to:</label>
-          <div class="row-gap">
-            <input type="text" id="input-rename-label" class="text-input flex-1" />
-            <button class="btn" id="btn-do-rename-label">Rename</button>
-          </div>
-        </div>
-        <div class="modal-action-stack">
-          <button class="btn" id="btn-do-delete-label">Delete Current Label</button>
-          <button class="btn" id="btn-do-cleanup-labels">Remove Unused Default Labels</button>
+          <label for="select-baker-export-format">Annotation Download Format:</label>
+          <select id="select-baker-export-format" class="combo-box w-full">
+            <option value="default">Default (ImageBaker JSON)</option>
+            <option value="coco">COCO Format (.json)</option>
+            <option value="yolo">YOLO Format (.txt + classes.txt)</option>
+          </select>
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn" data-close-modal>Close</button>
+        <button class="btn" id="btn-baker-export-skip" data-close-modal>Skip Download</button>
+        <button class="btn btn-primary" id="btn-baker-export-confirm">⬇ Export & Download</button>
+      </div>
+    </div>
+
+    <!-- Manage Label Modal -->
+    <div id="modal-manage-label" class="modal-dialog modal-dialog-lg hidden">
+      <div class="modal-header">
+        <h3>Manage Labels (Stored in labels.json)</h3>
+        <button class="modal-close" data-close-modal>&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="item-subtitle" style="margin-bottom: 10px;">
+          All labels are stored in a single cache file (<code>labels.json</code>). Add, rename, change color, or delete labels directly below.
+        </p>
+        <div class="field-group">
+          <label for="input-manage-new-label">Add New Label:</label>
+          <div class="row-gap">
+            <input type="color" id="input-manage-new-color" value="#3b82f6" style="width: 38px; height: 32px; padding: 2px; border-radius: 5px; border: 1px solid var(--border); cursor: pointer;" />
+            <input type="text" id="input-manage-new-label" class="text-input flex-1" placeholder="Enter new label name..." />
+            <button class="btn btn-primary" id="btn-manage-add-label">+ Add Label</button>
+          </div>
+        </div>
+        <div class="field-group">
+          <label>Existing Labels:</label>
+          <div id="manage-labels-list" class="folder-list" style="max-height: 260px;"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close-modal>Done</button>
       </div>
     </div>
 

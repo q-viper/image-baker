@@ -1,9 +1,26 @@
+from pathlib import Path
+
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QMainWindow, QMessageBox, QTabWidget
 
 from imagebaker import __version__, logger
 from imagebaker.core.configs import CanvasConfig, LayerConfig
 from imagebaker.tabs import BakerTab, HelpTab, LayerifyTab
+
+
+def get_app_icon() -> QIcon:
+    """Find and return the ImageBaker application logo icon."""
+    candidates = [
+        Path(__file__).resolve().parent.parent / "assets" / "favicon.ico",
+        Path(__file__).resolve().parent.parent / "assets" / "logo.png",
+        Path(__file__).resolve().parent.parent.parent / "assets" / "favicon_io" / "favicon.ico",
+        Path(__file__).resolve().parent.parent.parent / "assets" / "favicon_io" / "android-chrome-192x192.png",
+    ]
+    for c in candidates:
+        if c.exists():
+            return QIcon(str(c))
+    return QIcon()
 
 
 class MainWindow(QMainWindow):
@@ -37,6 +54,9 @@ class MainWindow(QMainWindow):
         """Initialize the main window and set up tabs."""
         try:
             self.setWindowTitle(f"Image Baker v{__version__}")
+            icon = get_app_icon()
+            if not icon.isNull():
+                self.setWindowIcon(icon)
             self.setGeometry(100, 100, 1200, 800)
 
             self.status_bar = self.statusBar()
