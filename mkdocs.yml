@@ -28,6 +28,9 @@ nav:
   - API Usage: api-usage.md
   - API Reference: api-reference.md
 
+exclude_docs: |
+  assets/favicon_io/README.md
+
 # Plugins
 plugins:
   - search

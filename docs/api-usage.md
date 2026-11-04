@@ -396,7 +396,7 @@ imagebaker cli bake simple img1.png img2.png -o output.png --json
 
 **Output:**
 
-![CLI Simple Bake](../assets/demo/api_samples/cli_simple_bake.png)
+![CLI Simple Bake](assets/demo/api_samples/cli_simple_bake.png)
 
 *CLI simple bake: Two images composited with positioning and opacity settings*
 
@@ -443,7 +443,7 @@ imagebaker cli bake from-config examples/bake_config.py
 
 **Output:**
 
-![CLI Config Bake](../assets/demo/api_samples/cli_config_bake.png)
+![CLI Config Bake](assets/demo/api_samples/cli_config_bake.png)
 
 *CLI from-config: Multi-layer composition with position, rotation, and opacity from Python config file*
 
@@ -492,7 +492,7 @@ baker.save(result, "composed.png")
 
 **Output:**
 
-![Simple Composition](../assets/demo/api_samples/ImageBaker_20260214_234822.png)
+![Simple Composition](assets/demo/api_samples/ImageBaker_20260214_234822.png)
 
 *Two-layer composition: desk background with pen overlay at position (50, 50) scaled to 50%*
 
@@ -525,9 +525,9 @@ for i in range(10):
 
 <table>
 <tr>
-<td><img src="../assets/demo/api_samples/frame_0.png" width="300"/><br/><i>Frame 0: Initial position</i></td>
-<td><img src="../assets/demo/api_samples/frame_1.png" width="300"/><br/><i>Frame 1: Moved & rotated 15°</i></td>
-<td><img src="../assets/demo/api_samples/frame_2.png" width="300"/><br/><i>Frame 2: Moved & rotated 30°</i></td>
+<td><img src="assets/demo/api_samples/frame_0.png" width="300"/><br/><i>Frame 0: Initial position</i></td>
+<td><img src="assets/demo/api_samples/frame_1.png" width="300"/><br/><i>Frame 1: Moved & rotated 15°</i></td>
+<td><img src="assets/demo/api_samples/frame_2.png" width="300"/><br/><i>Frame 2: Moved & rotated 30°</i></td>
 </tr>
 </table>
 
