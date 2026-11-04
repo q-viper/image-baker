@@ -182,6 +182,7 @@
 
   // Export to window.ImageBaker
   window.ImageBaker = window.ImageBaker || {};
+  window.ImageBaker.escapeHtml = escapeHtml;
   window.ImageBaker.utils = {
     pointInPolygon,
     distToSegment,

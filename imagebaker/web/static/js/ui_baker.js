@@ -6,6 +6,7 @@
 
   const { state, bkrView, showToast, openModal, closeAllModals } = window.ImageBaker;
   const utils = window.ImageBaker.utils;
+  const escapeHtml = (utils && utils.escapeHtml) ? utils.escapeHtml : (s => s);
   const api = window.ImageBaker.api;
 
   let canvasPage = 0;
@@ -536,8 +537,8 @@
       const lbl = document.createElement("label");
       lbl.className = "dropdown-item";
       lbl.innerHTML = `
-        <input type="checkbox" value="${escapeHtml(pName)}" ${selectedSet.has(pName) ? "checked" : ""} />
-        <span>${escapeHtml(pName)}</span>
+        <input type="checkbox" value="${utils.escapeHtml(pName)}" ${selectedSet.has(pName) ? "checked" : ""} />
+        <span>${utils.escapeHtml(pName)}</span>
       `;
       lbl.querySelector("input").addEventListener("change", async () => {
         const checked = Array.from(
