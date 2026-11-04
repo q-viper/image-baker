@@ -728,26 +728,41 @@ def test_web_copy_paste_annotations_and_layers(tmp_path: Path):
     assert canvas.layers[5].position.x() == pos1.x() + 15.0
     assert canvas.layers[5].position.y() == pos1.y() + 15.0
 
-    # --- 3. Multi-layer Grouping (>= 2 layers) and Ungrouping ---
-    # Select 3 layers to group
+    # --- 3. Two-layer Grouping and Ungrouping with Individual Annotations & States ---
+    # Attempting to group 3 layers must fail (grouping only pairs 2 layers together)
     canvas.layers[0].selected = True
     canvas.layers[1].selected = True
     canvas.layers[2].selected = True
+    ok, msg = engine.baker_layer_action({"action": "group"})
+    assert ok is False
+    assert "Select exactly 2 layers" in msg
+
+    # Select exactly 2 layers to group
+    canvas.layers[0].selected = True
+    canvas.layers[1].selected = True
+    canvas.layers[2].selected = False
     canvas.layers[3].selected = False
     canvas.layers[4].selected = False
     canvas.layers[5].selected = False
 
-    group_lids = [canvas.layers[0].layer_id, canvas.layers[1].layer_id, canvas.layers[2].layer_id]
+    group_lids = [canvas.layers[0].layer_id, canvas.layers[1].layer_id]
     ok, msg = engine.baker_layer_action({"action": "group", "layer_ids": group_lids})
     assert ok is True
-    # 6 layers originally - 3 grouped + 1 group = 4 layers
-    assert len(canvas.layers) == 4
+    # 6 layers originally - 2 grouped + 1 group = 5 layers
+    assert len(canvas.layers) == 5
     grouped_layer = next(lyr for lyr in canvas.layers if len(lyr.layers) >= 2)
-    assert len(grouped_layer.layers) == 3
+    assert len(grouped_layer.layers) == 2
     assert grouped_layer.selected is True
 
-    # Ungroup the grouped layer
-    ok, msg = engine.baker_layer_action({"action": "group"})
+    # Child layers maintain individual annotations, layer_states, and captions
+    child0, child1 = grouped_layer.layers[0], grouped_layer.layers[1]
+    assert child0.layer_state is not None
+    assert child1.layer_state is not None
+    assert len(child0.annotations) > 0
+    assert len(child1.annotations) > 0
+
+    # Ungroup via explicit "ungroup" action
+    ok, msg = engine.baker_layer_action({"action": "ungroup", "layer_id": str(grouped_layer.layer_id)})
     assert ok is True
     # Back to 6 layers
     assert len(canvas.layers) == 6

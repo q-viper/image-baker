@@ -94,21 +94,44 @@
         row.dataset.index = String(idx);
 
         const thumbSrc = lyr.thumb_url || lyr.thumbnail || lyr.image_url || "";
+        const isGroup = Boolean(lyr.is_group || (lyr.grouped_layers && lyr.grouped_layers.length >= 2));
+        const subtitle = isGroup
+          ? `📦 Group of ${lyr.grouped_layers ? lyr.grouped_layers.length : 2} layers • ${lyr.grouped_layers ? lyr.grouped_layers.map(g => g.label).join(", ") : '2 sublayers'}`
+          : utils.escapeHtml(lyr.label || 'Unlabeled');
         row.innerHTML = `
           <div class="item-drag-handle" title="Drag to reorder layer" style="cursor: grab; padding: 2px 4px; color: var(--text-dim); font-size: 14px; user-select: none;">⋮⋮</div>
           <img class="item-thumb" src="${thumbSrc}" alt="${utils.escapeHtml(lyr.layer_name || lyr.name || '')}" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
-          <div class="item-thumb-fallback" style="display: ${thumbSrc ? 'none' : 'flex'}; width: 44px; height: 44px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;">🧅</div>
+          <div class="item-thumb-fallback" style="display: ${thumbSrc ? 'none' : 'flex'}; width: 44px; height: 44px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;">${isGroup ? '📦' : '🧅'}</div>
           <div class="item-text-col">
             <div class="item-title">${utils.escapeHtml(lyr.layer_name || lyr.name || `Layer ${idx + 1}`)}</div>
-            <div class="item-subtitle">${utils.escapeHtml(lyr.label || 'Unlabeled')}</div>
+            <div class="item-subtitle">${subtitle}</div>
           </div>
           <div class="item-actions">
+            ${isGroup ? `<button class="icon-btn-xs btn-lyr-ungroup" title="Ungroup this layer into individual layers">📤</button>` : ''}
             <button class="icon-btn-xs btn-lyr-up" title="Move layer up (Bring Forward)" ${idx === 0 ? "disabled" : ""}>▲</button>
             <button class="icon-btn-xs btn-lyr-down" title="Move layer down (Send Backward)" ${idx === layers.length - 1 ? "disabled" : ""}>▼</button>
             <button class="icon-btn-xs btn-lyr-vis" title="Toggle layer visibility">${lyr.visible !== false ? "👀" : "🚫"}</button>
             <button class="icon-btn-xs btn-lyr-del" title="Delete layer">🗑️</button>
           </div>
         `;
+
+        const btnUngroup = row.querySelector(".btn-lyr-ungroup");
+        if (btnUngroup) {
+          btnUngroup.addEventListener("click", async e => {
+            e.stopPropagation();
+            try {
+              const res = await api.performBakerLayerAction("ungroup", { layer_id: lyr.layer_id });
+              if (res && res.state) {
+                window.ImageBaker.applyServerState(res.state);
+                showToast("baker", res.message || "Layer ungrouped");
+              } else if (res && !res.ok) {
+                showToast("baker", res.message || "Failed to ungroup layer");
+              }
+            } catch (err) {
+              console.error("Ungroup failed:", err);
+            }
+          });
+        }
 
         row.addEventListener("click", e => {
           if (e.target.closest(".item-actions") || e.target.closest(".item-drag-handle")) return;
@@ -521,6 +544,24 @@
             showToast("baker", res.message || "Layers grouped");
           } else if (res && !res.ok) {
             showToast("baker", res.message || "Failed to group layers");
+          }
+        });
+      }
+    });
+
+    // Ungroup Layers
+    ["btn-ungroup-layers-baker", "btn-ungroup-layers-tool", "btn-ungroup-layers-layerify"].forEach(id => {
+      const ungroupBtn = document.getElementById(id);
+      if (ungroupBtn) {
+        ungroupBtn.addEventListener("click", async () => {
+          const selected = (state.baker.layers || []).filter(l => l.selected);
+          const selIds = selected.map(l => l.layer_id);
+          const res = await api.performBakerLayerAction("ungroup", { layer_ids: selIds });
+          if (res.ok && res.state) {
+            window.ImageBaker.applyServerState(res.state);
+            showToast("baker", res.message || "Layers ungrouped");
+          } else if (res && !res.ok) {
+            showToast("baker", res.message || "Failed to ungroup layers");
           }
         });
       }

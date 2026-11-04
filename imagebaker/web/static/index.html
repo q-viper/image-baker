@@ -236,8 +236,9 @@
               <div class="dock-content list-panel">
                 <div id="layerify-layer-list-items" class="scroll-list"></div>
                 <div class="dock-bottom-action row-gap">
-                  <button class="btn flex-1" id="btn-group-layers-layerify" title="Merge selected layers into a single layer.">Group Layers</button>
-                  <button class="btn btn-primary flex-1" id="btn-goto-baker" title="Switch to Baker Tab to compose and bake layers.">Open Baker →</button>
+                  <button class="btn flex-1" id="btn-group-layers-layerify" title="Merge 2 selected layers into a single layer (Ctrl+G).">Group</button>
+                  <button class="btn flex-1" id="btn-ungroup-layers-layerify" title="Ungroup selected grouped layer back into individual layers.">Ungroup</button>
+                  <button class="btn btn-primary flex-1" id="btn-goto-baker" title="Switch to Baker Tab to compose and bake layers.">Baker →</button>
                 </div>
               </div>
             </div>
@@ -290,8 +291,9 @@
               </div>
               <div class="dock-content list-panel">
                 <div id="baker-layer-list-items" class="scroll-list"></div>
-                <div class="dock-bottom-action">
-                  <button class="btn w-full" id="btn-group-layers-baker" title="Merge selected layers into a single layer.">Group Layers</button>
+                <div class="dock-bottom-action row-gap">
+                  <button class="btn flex-1" id="btn-group-layers-baker" title="Merge 2 selected layers into a single layer (Ctrl+G).">Group Layers</button>
+                  <button class="btn flex-1" id="btn-ungroup-layers-baker" title="Ungroup selected grouped layer back into individual layers.">Ungroup</button>
                 </div>
               </div>
             </div>
@@ -418,7 +420,8 @@
             <!-- Group 3: Composition, Plugins & Tools -->
             <div class="toolbar-group">
               <span class="toolbar-group-tag">Layer Tools</span>
-              <button class="btn btn-sm" id="btn-group-layers-tool" title="Merge selected layers into a single layer (Ctrl+G).">Group Layers</button>
+              <button class="btn btn-sm" id="btn-group-layers-tool" title="Merge 2 selected layers into a single layer (Ctrl+G).">Group</button>
+              <button class="btn btn-sm" id="btn-ungroup-layers-tool" title="Ungroup selected grouped layer back into individual layers.">Ungroup</button>
               <button class="btn btn-sm" id="btn-convert-ann-type" title="Convert selected layer annotation geometry between rectangle and polygon.">Convert Ann Type</button>
 
               <!-- Plugin Options Dropdown -->

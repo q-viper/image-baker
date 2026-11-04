@@ -1905,6 +1905,26 @@ class WebAppEngine:
                     self.save_baker_cache()
                 return ok, msg
 
+            elif action == "ungroup":
+                lid = payload.get("layer_id")
+                lids = payload.get("layer_ids")
+                if lids is not None and isinstance(lids, (list, tuple)) and len(lids) > 0:
+                    target_ids = {str(x) for x in lids}
+                    targets = [lyr for lyr in canvas.layers if str(lyr.layer_id) in target_ids and len(lyr.layers) >= 2]
+                elif lid is not None:
+                    targets = [lyr for lyr in canvas.layers if str(lyr.layer_id) == str(lid) and len(lyr.layers) >= 2]
+                else:
+                    targets = [lyr for lyr in canvas.layers if lyr.selected and len(lyr.layers) >= 2]
+                if not targets:
+                    self.last_message = "No grouped layer selected to ungroup."
+                    return False, self.last_message
+                canvas.push_undo_state()
+                for lyr in list(targets):
+                    self._ungroup_layer(lyr, push_undo=False)
+                self.save_baker_cache()
+                self.last_message = f"Ungrouped {len(targets)} group layer(s)."
+                return True, self.last_message
+
             elif action in ("convert_ann_type", "convert_annotation_type"):
                 ok, msg = self._convert_selected_annotation_type()
                 if ok:
@@ -1952,17 +1972,18 @@ class WebAppEngine:
         selected_layers = [lyr for lyr in canvas.layers if lyr.selected]
         # If single layer selected and it's a group, or all selected layers are groups, ungroup them
         if selected_layers and all(len(lyr.layers) >= 2 for lyr in selected_layers):
+            canvas.push_undo_state()
             messages = []
             for lyr in list(selected_layers):
-                ok, msg = self._ungroup_layer(lyr)
+                ok, msg = self._ungroup_layer(lyr, push_undo=False)
                 if ok:
                     messages.append(msg)
             if messages:
                 self.last_message = "; ".join(messages)
                 return True, self.last_message
 
-        if len(selected_layers) < 2:
-            self.last_message = "Select at least 2 layers to group (or a grouped layer to ungroup)."
+        if len(selected_layers) != 2:
+            self.last_message = "Select exactly 2 layers to group (or a grouped layer to ungroup)."
             return False, self.last_message
 
         indices = sorted(canvas.layers.index(lyr) for lyr in selected_layers)
@@ -2025,12 +2046,8 @@ class WebAppEngine:
         grouped.allow_annotation_export = any(
             lyr.allow_annotation_export for lyr in ordered_layers
         )
-        names = [lyr.layer_name for lyr in ordered_layers]
-        if len(names) <= 2:
-            grouped.layer_name = f"Group({', '.join(names)})"
-        else:
-            grouped.layer_name = f"Group({names[0]}, {names[1]}... +{len(names)-2})"
-        grouped.caption = f"Grouped: {', '.join(names)}"
+        grouped.layer_name = f"Group({ordered_layers[0].layer_name}, {ordered_layers[1].layer_name})"
+        grouped.caption = f"Grouped: {ordered_layers[0].layer_name}, {ordered_layers[1].layer_name}"
         grouped.layers = []
         grouped.plugins = []
 
@@ -2075,14 +2092,17 @@ class WebAppEngine:
         for order, lyr in enumerate(canvas.layers):
             lyr.order = order
 
-        self.last_message = f"Grouped {len(ordered_layers)} layers: {grouped.layer_name}"
+        self.last_message = f"Grouped layers: {ordered_layers[0].layer_name} + {ordered_layers[1].layer_name}"
         return True, self.last_message
 
-    def _ungroup_layer(self, grouped_layer: WebLayerItem) -> tuple[bool, str]:
+    def _ungroup_layer(self, grouped_layer: WebLayerItem, push_undo: bool = True) -> tuple[bool, str]:
         canvas = self.current_canvas
         if grouped_layer not in canvas.layers:
             return False, "Grouped layer not found in canvas."
-        canvas.push_undo_state()
+        if len(grouped_layer.layers) < 2:
+            return False, "Selected layer is not a grouped layer."
+        if push_undo:
+            canvas.push_undo_state()
         group_idx = canvas.layers.index(grouped_layer)
         group_tf = self._compose_layer_transform(grouped_layer)
 
@@ -2098,7 +2118,7 @@ class WebAppEngine:
             child.scale_y = sy
             child.opacity = int(round((child.opacity * grouped_layer.opacity) / 255.0))
             child.visible = grouped_layer.visible and child.visible
-            child.selected = False
+            child.selected = True
             restored.append(child)
 
         del canvas.layers[group_idx]
@@ -2108,7 +2128,8 @@ class WebAppEngine:
         for lyr in canvas.layers:
             lyr.selected = False
         if restored:
-            restored[0].selected = True
+            for child in restored:
+                child.selected = True
         for order, lyr in enumerate(canvas.layers):
             lyr.order = order
 
@@ -2530,11 +2551,51 @@ class WebAppEngine:
                             mask_names.append(layer.layer_name)
 
                             if layer.allow_annotation_export:
-                                base_ann = layer.annotations[0] if layer.annotations else None
-                                if base_ann is not None:
-                                    gen_ann = self._generate_annotation_from_mask(base_ann, alpha_ch)
-                                    gen_ann.caption = layer.caption
-                                    new_annotations.append(gen_ann)
+                                base_ann = (
+                                    layer.annotations[0]
+                                    if layer.annotations
+                                    else (
+                                        layer.layers[0].annotations[0]
+                                        if (layer.layers and layer.layers[0].annotations)
+                                        else None
+                                    )
+                                )
+                                if layer.layers and len(layer.layers) >= 2:
+                                    # Grouped layer keeps two layers together for state transitions,
+                                    # but retains individual annotations and states for each child layer.
+                                    for child in layer.layers:
+                                        if not child.annotations:
+                                            continue
+                                        child_mask_img = QImage(width, height, QImage.Format_ARGB32)
+                                        child_mask_img.fill(Qt.transparent)
+                                        cmp = QPainter(child_mask_img)
+                                        cmp.setRenderHints(
+                                            QPainter.Antialiasing | QPainter.SmoothPixmapTransform
+                                        )
+                                        cmp.translate(layer.position - top_left)
+                                        cmp.rotate(layer.rotation)
+                                        cmp.scale(layer.scale_x, layer.scale_y)
+                                        cmp.translate(child.position.x(), child.position.y())
+                                        cmp.rotate(child.rotation)
+                                        cmp.scale(child.scale_x, child.scale_y)
+                                        cmp.drawPixmap(0, 0, child.image)
+                                        cmp.end()
+
+                                        c_mask_arr = qpixmap_to_numpy(child_mask_img)
+                                        c_alpha = c_mask_arr[:, :, 3].copy()
+                                        c_alpha[c_alpha > 0] = 255
+                                        masks.append(c_alpha)
+                                        mask_names.append(child.layer_name)
+
+                                        for child_ann in child.annotations:
+                                            gen_ann = self._generate_annotation_from_mask(child_ann, c_alpha)
+                                            gen_ann.caption = child.caption or layer.caption
+                                            new_annotations.append(gen_ann)
+                                else:
+                                    for base_ann in layer.annotations:
+                                        gen_ann = self._generate_annotation_from_mask(base_ann, alpha_ch)
+                                        gen_ann.caption = layer.caption
+                                        new_annotations.append(gen_ann)
 
                                 brush_mask = self._render_brush_mask(
                                     width, height, layer, st, top_left
@@ -2862,6 +2923,23 @@ class WebAppEngine:
                             "width": int(layer.original_size.width()),
                             "height": int(layer.original_size.height()),
                             "is_group": len(layer.layers) >= 2,
+                            "grouped_layers": [
+                                {
+                                    "layer_id": child.layer_id,
+                                    "layer_name": child.layer_name,
+                                    "label": child.annotations[0].label if child.annotations else child.layer_name,
+                                    "caption": child.caption or "",
+                                    "visible": bool(child.visible),
+                                    "opacity": float(child.opacity),
+                                    "annotations": [
+                                        self.serialize_annotation(a) for a in child.annotations
+                                    ],
+                                }
+                                for child in layer.layers
+                            ] if len(layer.layers) >= 2 else [],
+                            "annotations": [
+                                self.serialize_annotation(a) for a in layer.annotations
+                            ],
                             "plugins": plugin_names,
                             "annotation_type": (
                                 "polygon"
