@@ -36,6 +36,8 @@ from imagebaker.models.base_model import (  # noqa: E402
     BaseSegmentationModel,
     DefaultModelConfig,
     ModelType,
+    normalize_boxes,
+    normalize_points,
 )
 from imagebaker.utils import mask_to_polygons  # noqa: E402
 
@@ -372,14 +374,177 @@ class RFDetrSegmentationModel(BaseSegmentationModel):
             )
             self.rfdetr_model = None
 
-    def predict_mask(self, image: np.ndarray) -> list[PredictionResult]:
+    def predict_mask(
+        self,
+        image: np.ndarray,
+        rectangles: list[Any] | None = None,
+        points: list[Any] | None = None,
+        polygons: list[Any] | None = None,
+        label_hints: list[Any] | None = None,
+        text_prompt: str | None = None,
+        prompt: str | None = None,
+        **kwargs,
+    ) -> list[PredictionResult]:
         h, w = image.shape[:2]
+        boxes = normalize_boxes(rectangles)
+        if not boxes and polygons:
+            # Derive bounding boxes from polygon annotations
+            for poly in polygons:
+                poly_arr = np.array(poly)
+                if poly_arr.ndim == 2 and poly_arr.shape[0] >= 3:
+                    min_x, min_y = float(np.min(poly_arr[:, 0])), float(np.min(poly_arr[:, 1]))
+                    max_x, max_y = float(np.max(poly_arr[:, 0])), float(np.max(poly_arr[:, 1]))
+                    boxes.append([min_x, min_y, max_x, max_y])
+
+        results: list[PredictionResult] = []
+
+        # If annotation of kind rectangle/bounding box is provided, do crop/masking processing inside model file
+        if boxes:
+            for idx, box in enumerate(boxes):
+                x1 = max(0, min(int(round(min(box[0], box[2]))), w - 1))
+                y1 = max(0, min(int(round(min(box[1], box[3]))), h - 1))
+                x2 = max(x1 + 1, min(int(round(max(box[0], box[2]))), w))
+                y2 = max(y1 + 1, min(int(round(max(box[1], box[3]))), h))
+                cw, ch = x2 - x1, y2 - y1
+                crop = image[y1:y2, x1:x2]
+
+                crop_instances: list[dict[str, Any]] = []
+                if self.rfdetr_model is not None:
+                    try:
+                        preds = self.rfdetr_model.predict(
+                            crop, threshold=self.config.confidence_threshold, return_masks=True
+                        )
+                        for p in preds:
+                            p_mask = p.get("mask")
+                            p_box = p.get("box") or p.get("bbox")
+                            p_cls = p.get("class", "rfdetr_object")
+                            p_cid = int(p.get("class_id", idx))
+                            p_score = float(p.get("score", 0.94))
+                            crop_instances.append(
+                                {
+                                    "mask": p_mask,
+                                    "box": p_box,
+                                    "class": p_cls,
+                                    "class_id": p_cid,
+                                    "score": p_score,
+                                }
+                            )
+                    except Exception as e:
+                        logger.error(f"Error executing RF-DETR instance segmentation on crop: {e}")
+
+                if not crop_instances:
+                    # Simulation mode on cropped region
+                    gray_crop = cv2.cvtColor(crop, cv2.COLOR_RGB2GRAY) if crop.ndim == 3 else crop
+                    edges_crop = cv2.Canny(gray_crop, 30, 110)
+                    contours, _ = cv2.findContours(edges_crop, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    valid_contours = [
+                        c for c in sorted(contours, key=cv2.contourArea, reverse=True) if cv2.contourArea(c) >= 30
+                    ]
+                    if valid_contours:
+                        for c_idx, cnt in enumerate(valid_contours[:2]):
+                            cnt_mask = np.zeros((ch, cw), dtype=np.uint8)
+                            cv2.drawContours(cnt_mask, [cnt], -1, 1, thickness=-1)
+                            bx, by, bw, bh = cv2.boundingRect(cnt)
+                            crop_instances.append(
+                                {
+                                    "mask": cnt_mask,
+                                    "box": [bx, by, bx + bw, by + bh],
+                                    "class": f"rfdetr_instance_{idx + 1}_{c_idx + 1}",
+                                    "class_id": idx,
+                                    "score": round(0.96 - c_idx * 0.04, 2),
+                                }
+                            )
+                    else:
+                        # Smooth elliptical instance fitting the crop region
+                        cx, cy = cw / 2.0, ch / 2.0
+                        rx, ry = max(3.0, cw * 0.44), max(3.0, ch * 0.44)
+                        c_mask = np.zeros((ch, cw), dtype=np.uint8)
+                        cv2.ellipse(c_mask, (int(cx), int(cy)), (int(rx), int(ry)), 0, 0, 360, 1, -1)
+                        crop_instances.append(
+                            {
+                                "mask": c_mask,
+                                "box": [
+                                    max(0, int(cx - rx)),
+                                    max(0, int(cy - ry)),
+                                    min(cw, int(cx + rx)),
+                                    min(ch, int(cy + ry)),
+                                ],
+                                "class": f"rfdetr_instance_{idx + 1}",
+                                "class_id": idx,
+                                "score": 0.95,
+                            }
+                        )
+
+                # Assemble results with crop/masking processing
+                for inst in crop_instances:
+                    inst_mask = inst.get("mask")
+                    inst_box = inst.get("box")
+                    cls_name = inst.get("class", "rfdetr_instance")
+                    cls_id = int(inst.get("class_id", idx))
+                    score = float(inst.get("score", 0.95))
+
+                    if inst_mask is not None:
+                        inst_mask_bin = (inst_mask > 0).astype(np.uint8)
+                        polys = mask_to_polygons(inst_mask_bin * 255)
+                        local_poly = polys[0] if polys else None
+                    else:
+                        inst_mask_bin = np.zeros((ch, cw), dtype=np.uint8)
+                        local_poly = None
+
+                    if local_poly is None and inst_box:
+                        bx1, by1, bx2, by2 = inst_box
+                        local_poly = [[bx1, by1], [bx2, by1], [bx2, by2], [bx1, by2]]
+                    elif local_poly is None:
+                        local_poly = [[0, 0], [cw, 0], [cw, ch], [0, ch]]
+
+                    # Map coordinates back to original image
+                    full_mask = np.zeros((h, w), dtype=np.uint8)
+                    full_mask[y1:y2, x1:x2] = inst_mask_bin
+                    full_poly = np.array([[float(p[0] + x1), float(p[1] + y1)] for p in local_poly], dtype=np.float32)
+
+                    if inst_box:
+                        ibx1, iby1, ibx2, iby2 = inst_box
+                        full_rect = [
+                            int(ibx1 + x1),
+                            int(iby1 + y1),
+                            int(max(1, ibx2 - ibx1)),
+                            int(max(1, iby2 - iby1)),
+                        ]
+                        lx1, ly1 = max(0, int(ibx1)), max(0, int(iby1))
+                        lx2, ly2 = min(cw, int(ibx2)), min(ch, int(iby2))
+                    else:
+                        full_rect = [x1, y1, cw, ch]
+                        lx1, ly1, lx2, ly2 = 0, 0, cw, ch
+
+                    # Crop/masking: extract cropped RGBA instance with transparent background
+                    lw = max(1, lx2 - lx1)
+                    lh = max(1, ly2 - ly1)
+                    rgba = np.zeros((lh, lw, 4), dtype=np.uint8)
+                    crop_patch = crop[ly1:ly2, lx1:lx2]
+                    if crop_patch.ndim == 3 and crop_patch.shape[2] >= 3:
+                        rgba[..., :3] = crop_patch[..., :3]
+                    rgba[..., 3] = inst_mask_bin[ly1:ly2, lx1:lx2] * 255
+
+                    results.append(
+                        PredictionResult(
+                            class_name=cls_name,
+                            class_id=cls_id,
+                            score=round(score, 4),
+                            rectangle=full_rect,
+                            polygon=full_poly,
+                            mask=full_mask,
+                            annotated_image=rgba,
+                            prompt="box_crop",
+                        )
+                    )
+            return results
+
+        # Full image inference when no bounding box annotation was provided
         if self.rfdetr_model is not None:
             try:
                 preds = self.rfdetr_model.predict(
                     image, threshold=self.config.confidence_threshold, return_masks=True
                 )
-                results: list[PredictionResult] = []
                 for p in preds:
                     cls_name = p.get("class", "object")
                     cls_id = int(p.get("class_id", 0))
@@ -388,12 +553,24 @@ class RFDetrSegmentationModel(BaseSegmentationModel):
                     box = p.get("box")
 
                     if mask is not None:
-                        polys = mask_to_polygons(mask.astype(np.uint8))
-                        poly = polys[0] if polys else None
+                        bin_mask = (mask > 0).astype(np.uint8)
+                        polys = mask_to_polygons(bin_mask * 255)
+                        poly = np.array(polys[0], dtype=np.float32) if polys else None
                     else:
+                        bin_mask = np.zeros((h, w), dtype=np.uint8)
                         poly = None
 
                     rect = [int(box[0]), int(box[1]), int(box[2] - box[0]), int(box[3] - box[1])] if box else None
+                    if rect:
+                        rx, ry, rw, rh = rect
+                        rgba = np.zeros((rh, rw, 4), dtype=np.uint8)
+                        patch = image[ry : ry + rh, rx : rx + rw]
+                        if patch.ndim == 3 and patch.shape[2] >= 3:
+                            rgba[..., :3] = patch[..., :3]
+                        rgba[..., 3] = bin_mask[ry : ry + rh, rx : rx + rw] * 255
+                    else:
+                        rgba = None
+
                     results.append(
                         PredictionResult(
                             class_name=cls_name,
@@ -401,22 +578,32 @@ class RFDetrSegmentationModel(BaseSegmentationModel):
                             score=round(score, 4),
                             rectangle=rect,
                             polygon=poly,
+                            mask=bin_mask,
+                            annotated_image=rgba,
                         )
                     )
                 return results
             except Exception as e:
                 logger.error(f"Error executing RF-DETR instance segmentation: {e}")
 
-        # Fallback simulation
+        # Fallback simulation on full image
         gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY) if image.ndim == 3 else image
         edges = cv2.Canny(gray, 40, 120)
         contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        results: list[PredictionResult] = []
         for idx, cnt in enumerate(sorted(contours, key=cv2.contourArea, reverse=True)[:3]):
             if cv2.contourArea(cnt) > 150:
                 x, y, bw, bh = cv2.boundingRect(cnt)
                 approx = cv2.approxPolyDP(cnt, 2.5, True)
                 poly = approx.reshape(-1, 2).astype(np.float32)
+                mask = np.zeros((h, w), dtype=np.uint8)
+                cv2.drawContours(mask, [cnt], -1, 1, thickness=-1)
+
+                rgba = np.zeros((bh, bw, 4), dtype=np.uint8)
+                patch = image[y : y + bh, x : x + bw]
+                if patch.ndim == 3 and patch.shape[2] >= 3:
+                    rgba[..., :3] = patch[..., :3]
+                rgba[..., 3] = mask[y : y + bh, x : x + bw] * 255
+
                 results.append(
                     PredictionResult(
                         class_name=f"rfdetr_instance_{idx + 1}",
@@ -424,19 +611,33 @@ class RFDetrSegmentationModel(BaseSegmentationModel):
                         score=round(0.96 - idx * 0.03, 2),
                         rectangle=[int(x), int(y), int(bw), int(bh)],
                         polygon=poly,
+                        mask=mask,
+                        annotated_image=rgba,
                     )
                 )
         if not results:
             cx, cy, rx, ry = w / 2, h / 2, w * 0.2, h * 0.2
             angles = np.linspace(0, 2 * np.pi, 14, endpoint=False)
             poly = np.array([[cx + rx * np.cos(a), cy + ry * np.sin(a)] for a in angles], dtype=np.float32)
+            mask = np.zeros((h, w), dtype=np.uint8)
+            cv2.ellipse(mask, (int(cx), int(cy)), (int(rx), int(ry)), 0, 0, 360, 1, -1)
+            rect = [int(cx - rx), int(cy - ry), int(rx * 2), int(ry * 2)]
+            rx_i, ry_i, rw_i, rh_i = rect
+            rgba = np.zeros((rh_i, rw_i, 4), dtype=np.uint8)
+            patch = image[ry_i : ry_i + rh_i, rx_i : rx_i + rw_i]
+            if patch.ndim == 3 and patch.shape[2] >= 3:
+                rgba[..., :3] = patch[..., :3]
+            rgba[..., 3] = mask[ry_i : ry_i + rh_i, rx_i : rx_i + rw_i] * 255
+
             results.append(
                 PredictionResult(
                     class_name="rfdetr_instance_1",
                     class_id=0,
                     score=0.95,
-                    rectangle=[int(cx - rx), int(cy - ry), int(rx * 2), int(ry * 2)],
+                    rectangle=rect,
                     polygon=poly,
+                    mask=mask,
+                    annotated_image=rgba,
                 )
             )
         return results
@@ -496,50 +697,82 @@ class SAM2PromptModel(BasePromptModel):
         points: list[Any] | None = None,
         rectangles: list[Any] | None = None,
         label_hints: list[str] | None = None,
+        **kwargs,
     ) -> list[PredictionResult]:
         h, w = image.shape[:2]
         results: list[PredictionResult] = []
 
+        boxes = normalize_boxes(rectangles)
+        pts = normalize_points(points)
+
         # Prompt with bounding boxes
-        if rectangles and len(rectangles) > 0 and len(rectangles[0]) > 0:
-            for idx, box in enumerate(rectangles[0]):
-                x1, y1, x2, y2 = [float(v) for v in box]
-                mx, my = (x1 + x2) / 2.0, (y1 + y2) / 2.0
-                rx, ry = max(4.0, abs(x2 - x1) * 0.46), max(4.0, abs(y2 - y1) * 0.46)
+        if boxes:
+            for idx, box in enumerate(boxes):
+                x1, y1, x2, y2 = box
+                bx1, by1 = max(0, int(min(x1, x2))), max(0, int(min(y1, y2)))
+                bx2, by2 = min(w, int(max(x1, x2))), min(h, int(max(y1, y2)))
+                bw, bh = max(1, bx2 - bx1), max(1, by2 - by1)
+                mx, my = (bx1 + bx2) / 2.0, (by1 + by2) / 2.0
+                rx, ry = max(4.0, bw * 0.46), max(4.0, bh * 0.46)
                 angles = np.linspace(0, 2 * np.pi, 12, endpoint=False)
                 poly = np.array(
                     [[float(np.clip(mx + rx * np.cos(a), 0, w)), float(np.clip(my + ry * np.sin(a), 0, h))] for a in angles],
                     dtype=np.float32,
                 )
+                mask = np.zeros((h, w), dtype=np.uint8)
+                cv2.fillPoly(mask, [poly.astype(np.int32)], 1)
+
+                rgba = np.zeros((bh, bw, 4), dtype=np.uint8)
+                patch = image[by1:by2, bx1:bx2]
+                if patch.ndim == 3 and patch.shape[2] >= 3:
+                    rgba[..., :3] = patch[..., :3]
+                rgba[..., 3] = mask[by1:by2, bx1:bx2] * 255
+
                 results.append(
                     PredictionResult(
                         class_name=label_hints[idx] if label_hints and idx < len(label_hints) else "sam2_mask",
                         prompt="box_prompt",
                         class_id=idx,
                         score=0.98,
-                        rectangle=[int(min(x1, x2)), int(min(y1, y2)), int(abs(x2 - x1)), int(abs(y2 - y1))],
+                        rectangle=[bx1, by1, bw, bh],
                         polygon=poly,
+                        mask=mask,
+                        annotated_image=rgba,
                     )
                 )
 
         # Prompt with points
-        elif points and len(points) > 0:
-            for idx, pt_group in enumerate(points):
-                px, py = float(pt_group[0][0]), float(pt_group[0][1])
+        elif pts:
+            for idx, pt in enumerate(pts):
+                px, py = pt[0], pt[1]
                 r = max(12.0, min(w, h) * 0.15)
                 angles = np.linspace(0, 2 * np.pi, 10, endpoint=False)
                 poly = np.array(
                     [[float(np.clip(px + r * np.cos(a), 0, w)), float(np.clip(py + r * np.sin(a), 0, h))] for a in angles],
                     dtype=np.float32,
                 )
+                bx1, by1 = max(0, int(px - r)), max(0, int(py - r))
+                bx2, by2 = min(w, int(px + r)), min(h, int(py + r))
+                bw, bh = max(1, bx2 - bx1), max(1, by2 - by1)
+                mask = np.zeros((h, w), dtype=np.uint8)
+                cv2.fillPoly(mask, [poly.astype(np.int32)], 1)
+
+                rgba = np.zeros((bh, bw, 4), dtype=np.uint8)
+                patch = image[by1:by2, bx1:bx2]
+                if patch.ndim == 3 and patch.shape[2] >= 3:
+                    rgba[..., :3] = patch[..., :3]
+                rgba[..., 3] = mask[by1:by2, bx1:bx2] * 255
+
                 results.append(
                     PredictionResult(
                         class_name="sam2_prompt_mask",
                         prompt="point_prompt",
                         class_id=idx,
                         score=0.95,
-                        rectangle=[int(px - r), int(py - r), int(r * 2), int(r * 2)],
+                        rectangle=[bx1, by1, bw, bh],
                         polygon=poly,
+                        mask=mask,
+                        annotated_image=rgba,
                     )
                 )
         else:
@@ -548,14 +781,28 @@ class SAM2PromptModel(BasePromptModel):
             rx, ry = w * 0.2, h * 0.2
             angles = np.linspace(0, 2 * np.pi, 8, endpoint=False)
             poly = np.array([[cx + rx * np.cos(a), cy + ry * np.sin(a)] for a in angles], dtype=np.float32)
+            bx1, by1 = max(0, int(cx - rx)), max(0, int(cy - ry))
+            bx2, by2 = min(w, int(cx + rx)), min(h, int(cy + ry))
+            bw, bh = max(1, bx2 - bx1), max(1, by2 - by1)
+            mask = np.zeros((h, w), dtype=np.uint8)
+            cv2.fillPoly(mask, [poly.astype(np.int32)], 1)
+
+            rgba = np.zeros((bh, bw, 4), dtype=np.uint8)
+            patch = image[by1:by2, bx1:bx2]
+            if patch.ndim == 3 and patch.shape[2] >= 3:
+                rgba[..., :3] = patch[..., :3]
+            rgba[..., 3] = mask[by1:by2, bx1:bx2] * 255
+
             results.append(
                 PredictionResult(
                     class_name="sam2_mask",
                     prompt="default_prompt",
                     class_id=0,
                     score=0.92,
-                    rectangle=[int(cx - rx), int(cy - ry), int(rx * 2), int(ry * 2)],
+                    rectangle=[bx1, by1, bw, bh],
                     polygon=poly,
+                    mask=mask,
+                    annotated_image=rgba,
                 )
             )
 

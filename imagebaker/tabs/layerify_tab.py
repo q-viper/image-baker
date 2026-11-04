@@ -45,6 +45,7 @@ from imagebaker.core.defs import (
 from imagebaker.layers.annotable_layer import AnnotableLayer
 from imagebaker.list_views import AnnotationList
 from imagebaker.list_views.image_list import ImageListPanel
+from imagebaker.utils import mask_to_polygons
 from imagebaker.utils.image import qpixmap_to_numpy
 from imagebaker.workers import ModelPredictionWorker
 
@@ -1076,12 +1077,20 @@ class LayerifyTab(QWidget):
         image = qpixmap_to_numpy(self.layer.image)
         if image is None:
             return
-        # get annotations from canvas
-        annotations = [
+        # get annotations from canvas: prioritize user-selected annotations if any
+        selected_anns = [
             ann
             for ann in self.layer.annotations
-            if not ann.is_model_generated and ann.visible
+            if ann.selected and ann.visible
         ]
+        if selected_anns:
+            annotations = selected_anns
+        else:
+            annotations = [
+                ann
+                for ann in self.layer.annotations
+                if not ann.is_model_generated and ann.visible
+            ]
 
         if len(annotations) == 0:
             logger.warning("No annotations to predict passing image to model")
@@ -1177,17 +1186,26 @@ class LayerifyTab(QWidget):
             self.update_label_combo()
         prediction_color = self._label_color(selected_label)
 
-        # update canvas with predictions
+        # update canvas with predictions: prioritize instance segmentation (polygon/mask) over pure bbox
         for prediction in predictions:
-            if prediction.rectangle:
-                # make sure the returned rectangle is within the image
+            rect = None
+            if prediction.rectangle and len(prediction.rectangle) == 4:
+                rect = QRectF(
+                    float(prediction.rectangle[0]),
+                    float(prediction.rectangle[1]),
+                    float(prediction.rectangle[2]),
+                    float(prediction.rectangle[3]),
+                )
 
+            if prediction.polygon is not None and len(prediction.polygon) >= 3:
                 self.layer.annotations.append(
                     Annotation(
                         annotation_id=len(self.layer.annotations),
                         label=selected_label,
                         color=prediction_color,
-                        rectangle=QRectF(*prediction.rectangle),
+                        polygon=QPolygonF([QPointF(float(p[0]), float(p[1])) for p in prediction.polygon]),
+                        rectangle=rect,
+                        mask=prediction.mask,
                         is_complete=True,
                         score=prediction.score,
                         annotator=self.current_model.name,
@@ -1201,17 +1219,51 @@ class LayerifyTab(QWidget):
                         model_name=self.current_model.name,
                     )
                 )
-            elif prediction.polygon is not None:
+            elif prediction.mask is not None:
+                mask_arr = np.asarray(prediction.mask)
+                bin_mask = (mask_arr > 0).astype(np.uint8)
+                polys = mask_to_polygons(bin_mask * 255, merge_polygons=True)
+                poly = (
+                    QPolygonF([QPointF(float(p[0]), float(p[1])) for p in polys[0]])
+                    if polys and len(polys[0]) >= 3
+                    else None
+                )
                 self.layer.annotations.append(
                     Annotation(
                         annotation_id=len(self.layer.annotations),
                         label=selected_label,
                         color=prediction_color,
-                        polygon=QPolygonF([QPointF(*p) for p in prediction.polygon]),
+                        polygon=poly,
+                        rectangle=rect,
+                        mask=bin_mask,
                         is_complete=True,
                         score=prediction.score,
                         annotator=self.current_model.name,
-                        annotation_time=str(prediction.annotation_time),
+                        annotation_time=str(
+                            prediction.annotation_time
+                            if prediction.annotation_time
+                            else ""
+                        ),
+                        file_path=self.layer.file_path,
+                        is_model_generated=True,
+                        model_name=self.current_model.name,
+                    )
+                )
+            elif rect is not None:
+                self.layer.annotations.append(
+                    Annotation(
+                        annotation_id=len(self.layer.annotations),
+                        label=selected_label,
+                        color=prediction_color,
+                        rectangle=rect,
+                        is_complete=True,
+                        score=prediction.score,
+                        annotator=self.current_model.name,
+                        annotation_time=str(
+                            prediction.annotation_time
+                            if prediction.annotation_time
+                            else ""
+                        ),
                         file_path=self.layer.file_path,
                         is_model_generated=True,
                         model_name=self.current_model.name,

@@ -18,6 +18,8 @@ from imagebaker.models.base_model import (
     DefaultModelConfig,
     ModelType,
     get_dummy_prediction_result,
+    normalize_boxes,
+    normalize_points,
 )
 
 
@@ -90,14 +92,27 @@ class DummyPromptModel(BasePromptModel):
     def __init__(self, config: DefaultModelConfig):
         super().__init__(config)
 
-    def predict_prompt(self, image: np.ndarray, points=None, rectangles=None, label_hints=None):
+    def predict_prompt(
+        self,
+        image: np.ndarray,
+        points=None,
+        rectangles=None,
+        label_hints=None,
+        **kwargs,
+    ):
         h, w = image.shape[:2]
         results: list[PredictionResult] = []
-        if rectangles and len(rectangles) > 0 and len(rectangles[0]) > 0:
-            for idx, box in enumerate(rectangles[0]):
-                x1, y1, x2, y2 = [float(v) for v in box]
-                mx, my = (x1 + x2) / 2.0, (y1 + y2) / 2.0
-                rx, ry = max(4.0, abs(x2 - x1) * 0.45), max(4.0, abs(y2 - y1) * 0.45)
+        boxes = normalize_boxes(rectangles)
+        pts = normalize_points(points)
+
+        if boxes:
+            for idx, box in enumerate(boxes):
+                x1, y1, x2, y2 = box
+                bx1, by1 = max(0, int(min(x1, x2))), max(0, int(min(y1, y2)))
+                bx2, by2 = min(w, int(max(x1, x2))), min(h, int(max(y1, y2)))
+                bw, bh = max(1, bx2 - bx1), max(1, by2 - by1)
+                mx, my = (bx1 + bx2) / 2.0, (by1 + by2) / 2.0
+                rx, ry = max(4.0, bw * 0.45), max(4.0, bh * 0.45)
                 poly = np.array(
                     [
                         [mx - rx, my - ry * 0.5],
@@ -109,18 +124,30 @@ class DummyPromptModel(BasePromptModel):
                     ],
                     dtype=np.float32,
                 )
+                mask = np.zeros((h, w), dtype=np.uint8)
+                cv2.fillPoly(mask, [poly.astype(np.int32)], 1)
+
+                rgba = np.zeros((bh, bw, 4), dtype=np.uint8)
+                patch = image[by1:by2, bx1:bx2]
+                if patch.ndim == 3 and patch.shape[2] >= 3:
+                    rgba[..., :3] = patch[..., :3]
+                rgba[..., 3] = mask[by1:by2, bx1:bx2] * 255
+
                 results.append(
                     PredictionResult(
                         class_name="prompt_segment",
                         prompt="box_prompt",
                         class_id=idx,
                         score=0.96,
+                        rectangle=[bx1, by1, bw, bh],
                         polygon=poly,
+                        mask=mask,
+                        annotated_image=rgba,
                     )
                 )
-        elif points and len(points) > 0:
-            for idx, pt_group in enumerate(points):
-                px, py = float(pt_group[0][0]), float(pt_group[0][1])
+        elif pts:
+            for idx, pt in enumerate(pts):
+                px, py = pt[0], pt[1]
                 r = max(10.0, min(w, h) * 0.18)
                 angles = np.linspace(0, 2 * np.pi, 8, endpoint=False)
                 poly = np.array(
@@ -133,13 +160,28 @@ class DummyPromptModel(BasePromptModel):
                     ],
                     dtype=np.float32,
                 )
+                bx1, by1 = max(0, int(px - r)), max(0, int(py - r))
+                bx2, by2 = min(w, int(px + r)), min(h, int(py + r))
+                bw, bh = max(1, bx2 - bx1), max(1, by2 - by1)
+                mask = np.zeros((h, w), dtype=np.uint8)
+                cv2.fillPoly(mask, [poly.astype(np.int32)], 1)
+
+                rgba = np.zeros((bh, bw, 4), dtype=np.uint8)
+                patch = image[by1:by2, bx1:bx2]
+                if patch.ndim == 3 and patch.shape[2] >= 3:
+                    rgba[..., :3] = patch[..., :3]
+                rgba[..., 3] = mask[by1:by2, bx1:bx2] * 255
+
                 results.append(
                     PredictionResult(
                         class_name="prompt_segment",
                         prompt="point_prompt",
                         class_id=idx,
                         score=0.93,
+                        rectangle=[bx1, by1, bw, bh],
                         polygon=poly,
+                        mask=mask,
+                        annotated_image=rgba,
                     )
                 )
         else:

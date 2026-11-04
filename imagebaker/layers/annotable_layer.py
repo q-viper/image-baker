@@ -472,10 +472,10 @@ class AnnotableLayer(BaseLayer):
                     )
                 )
             )
-            if annotation.rectangle:
-                painter.drawRect(annotation.rectangle)
-            elif annotation.polygon:
+            if annotation.polygon:
                 painter.drawPolygon(annotation.polygon)
+            elif annotation.rectangle:
+                painter.drawRect(annotation.rectangle)
             elif annotation.points:
                 painter.drawEllipse(
                     annotation.points[0],
@@ -492,24 +492,24 @@ class AnnotableLayer(BaseLayer):
 
         # Draw main shape if no mask
         if annotation.mask is None:
-            if annotation.points:
+            if annotation.points and not annotation.polygon and not annotation.rectangle:
                 for point in annotation.points:
                     painter.drawEllipse(
                         point,
                         self.config.normal_draw_config.point_size / self.scale,
                         self.config.normal_draw_config.point_size / self.scale,
                     )
-            elif annotation.rectangle:
-                painter.drawRect(annotation.rectangle)
             elif annotation.polygon:
                 if len(annotation.polygon) > 1:
                     if annotation.is_complete:
                         painter.drawPolygon(annotation.polygon)
                     else:
                         painter.drawPolyline(annotation.polygon)
+            elif annotation.rectangle:
+                painter.drawRect(annotation.rectangle)
 
         # Draw control points
-        if annotation.rectangle:
+        if not annotation.polygon and annotation.rectangle:
             rect = annotation.rectangle
             corners = [
                 rect.topLeft(),

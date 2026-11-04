@@ -1262,11 +1262,19 @@ class WebAppEngine:
                 return False, "Failed to read image for prediction."
 
             image_np = qpixmap_to_numpy(pixmap)
-            prompt_anns = [
+            selected_anns = [
                 ann
                 for ann in self.current_annotations
-                if not ann.is_model_generated and ann.visible
+                if getattr(ann, "selected", False) and ann.visible
             ]
+            if selected_anns:
+                prompt_anns = selected_anns
+            else:
+                prompt_anns = [
+                    ann
+                    for ann in self.current_annotations
+                    if not ann.is_model_generated and ann.visible
+                ]
 
             points = []
             polygons = []
@@ -1317,13 +1325,14 @@ class WebAppEngine:
             pred_color = self._label_color(selected_label)
             for pred in predictions or []:
                 cls_name = selected_label
+                rect: QRectF | None = None
                 if pred.rectangle:
                     r = pred.rectangle
                     # Handle xywh from PredictionResult and clamp into image bounds if out-of-range
                     if len(r) == 4:
                         rx, ry, rw, rh = float(r[0]), float(r[1]), float(r[2]), float(r[3])
-                        rect = QRectF(rx, ry, rw, rh).normalized()
-                        intersected = rect.intersected(QRectF(0, 0, img_w, img_h))
+                        rect_candidate = QRectF(rx, ry, rw, rh).normalized()
+                        intersected = rect_candidate.intersected(QRectF(0, 0, img_w, img_h))
                         if intersected.width() >= 2 and intersected.height() >= 2:
                             rect = intersected
                         else:
@@ -1336,22 +1345,8 @@ class WebAppEngine:
                             )
                     else:
                         rect = QRectF(0, 0, min(50, img_w), min(50, img_h))
-                    self.current_annotations.append(
-                        Annotation(
-                            annotation_id=len(self.current_annotations),
-                            label=cls_name,
-                            color=pred_color,
-                            rectangle=rect,
-                            is_complete=True,
-                            score=pred.score,
-                            annotator=model_name,
-                            annotation_time=str(pred.annotation_time or ""),
-                            file_path=entry.file_path,
-                            is_model_generated=True,
-                            model_name=model_name,
-                        )
-                    )
-                elif pred.polygon is not None and len(pred.polygon) >= 3:
+
+                if pred.polygon is not None and len(pred.polygon) >= 3:
                     self.current_annotations.append(
                         Annotation(
                             annotation_id=len(self.current_annotations),
@@ -1360,6 +1355,8 @@ class WebAppEngine:
                             polygon=QPolygonF(
                                 [QPointF(float(p[0]), float(p[1])) for p in pred.polygon]
                             ),
+                            rectangle=rect,
+                            mask=pred.mask,
                             is_complete=True,
                             score=pred.score,
                             annotator=model_name,
@@ -1399,7 +1396,24 @@ class WebAppEngine:
                             label=cls_name,
                             color=pred_color,
                             polygon=poly_q,
+                            rectangle=rect,
                             mask=bin_mask,
+                            is_complete=True,
+                            score=pred.score,
+                            annotator=model_name,
+                            annotation_time=str(pred.annotation_time or ""),
+                            file_path=entry.file_path,
+                            is_model_generated=True,
+                            model_name=model_name,
+                        )
+                    )
+                elif rect is not None:
+                    self.current_annotations.append(
+                        Annotation(
+                            annotation_id=len(self.current_annotations),
+                            label=cls_name,
+                            color=pred_color,
+                            rectangle=rect,
                             is_complete=True,
                             score=pred.score,
                             annotator=model_name,

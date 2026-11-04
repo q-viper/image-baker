@@ -325,8 +325,8 @@
         }
       }
 
-      // Draw Rectangle
-      if (ann.rectangle && ann.rectangle.length === 4) {
+      // Draw Rectangle (only if not a polygon annotation)
+      if ((!ann.polygon || ann.polygon.length < 3) && ann.rectangle && ann.rectangle.length === 4) {
         const [x1, y1, x2, y2] = ann.rectangle;
         const s1 = imageToScreen(Math.min(x1, x2), Math.min(y1, y2));
         const s2 = imageToScreen(Math.max(x1, x2), Math.max(y1, y2));
