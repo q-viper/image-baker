@@ -488,6 +488,27 @@
     ctx.restore();
   }
 
+  let drawLayerifyPending = false;
+  function requestDrawLayerify() {
+    if (drawLayerifyPending) return;
+    drawLayerifyPending = true;
+    requestAnimationFrame(() => {
+      drawLayerifyPending = false;
+      drawLayerifyCanvas();
+    });
+  }
+
+  function getCursorForMode(mode) {
+    switch (mode) {
+      case "Pan": return CURSORS.PAN;
+      case "Rectangle":
+      case "Point":
+      case "Polygon": return CURSORS.RECTANGLE;
+      case "Brush": return CURSORS.BRUSH;
+      default: return CURSORS.IDLE;
+    }
+  }
+
   function setLayerifyMode(mode) {
     lyrView.activeMode = mode;
     lyrView.activeRectDraft = null;
@@ -519,14 +540,7 @@
     }
 
     if (lyrCanvas) {
-      switch (mode) {
-        case "Pan": lyrCanvas.style.cursor = CURSORS.PAN; break;
-        case "Rectangle":
-        case "Point":
-        case "Polygon": lyrCanvas.style.cursor = CURSORS.RECTANGLE; break;
-        case "Brush": lyrCanvas.style.cursor = CURSORS.BRUSH; break;
-        default: lyrCanvas.style.cursor = CURSORS.IDLE; break;
-      }
+      lyrCanvas.style.cursor = getCursorForMode(mode);
     }
     drawLayerifyCanvas();
   }
@@ -541,7 +555,8 @@
       const sy = e.clientY - rect.top;
       const imgPt = screenToImage(sx, sy);
 
-      if (e.button === 1 || lyrView.activeMode === "Pan" || (e.button === 0 && e.spaceKey)) {
+      const isPanModifier = e.button === 1 || lyrView.activeMode === "Pan" || (e.button === 0 && (e.spaceKey || e.ctrlKey || e.metaKey));
+      if (isPanModifier) {
         lyrView.isPanning = true;
         lyrView.panStartX = sx;
         lyrView.panStartY = sy;
@@ -609,7 +624,7 @@
       if (lyrView.isPanning) {
         lyrView.offsetX = lyrView.panStartOffX + (sx - lyrView.panStartX);
         lyrView.offsetY = lyrView.panStartOffY + (sy - lyrView.panStartY);
-        drawLayerifyCanvas();
+        requestDrawLayerify();
         return;
       }
 
@@ -624,7 +639,7 @@
           const maxH = lyrView.imgH || 2000;
           utils.moveAnnotationByDelta(ann, dx, dy, maxW, maxH);
           lyrView.dragStartImg = { ...imgPt };
-          drawLayerifyCanvas();
+          requestDrawLayerify();
         }
         return;
       }
@@ -633,18 +648,18 @@
       if (lyrView.activeRectDraft) {
         lyrView.activeRectDraft[2] = imgPt.x;
         lyrView.activeRectDraft[3] = imgPt.y;
-        drawLayerifyCanvas();
+        requestDrawLayerify();
       } else if (lyrView.activeBrushStroke && lyrView.activeBrushStroke.length > 0) {
         lyrView.activeBrushStroke.push({ x: imgPt.x, y: imgPt.y });
-        drawLayerifyCanvas();
+        requestDrawLayerify();
       } else if (lyrView.activePolyDraft && lyrView.activePolyDraft.length > 0) {
-        drawLayerifyCanvas();
+        requestDrawLayerify();
       } else {
         // Hover test
         const prevHover = lyrView.hoverAnnIdx;
         lyrView.hoverAnnIdx = hitTestAnnotation(imgPt.x, imgPt.y);
         if (prevHover !== lyrView.hoverAnnIdx) {
-          drawLayerifyCanvas();
+          requestDrawLayerify();
         }
       }
     });
@@ -656,7 +671,7 @@
 
       if (lyrView.isPanning) {
         lyrView.isPanning = false;
-        lyrCanvas.style.cursor = lyrView.activeMode === "Pan" ? CURSORS.PAN : CURSORS.IDLE;
+        lyrCanvas.style.cursor = (e.ctrlKey || e.metaKey || e.spaceKey) ? CURSORS.PAN : getCursorForMode(lyrView.activeMode);
         return;
       }
 
@@ -725,6 +740,20 @@
         drawLayerifyCanvas();
       } else {
         setLayerifyMode("Idle");
+      }
+    });
+
+    window.addEventListener("keydown", e => {
+      if (window.ImageBaker.isTypingInTextField && window.ImageBaker.isTypingInTextField(e.target)) return;
+      if (window.ImageBaker.isModalOpen && window.ImageBaker.isModalOpen()) return;
+      if (state.active_tab === "Layerify" && (e.key === "Control" || e.key === "Meta" || e.key === " ") && !lyrView.isPanning) {
+        if (lyrCanvas) lyrCanvas.style.cursor = CURSORS.PAN;
+      }
+    });
+
+    window.addEventListener("keyup", e => {
+      if (state.active_tab === "Layerify" && (e.key === "Control" || e.key === "Meta" || e.key === " ") && !lyrView.isPanning) {
+        if (lyrCanvas) lyrCanvas.style.cursor = getCursorForMode(lyrView.activeMode);
       }
     });
   }

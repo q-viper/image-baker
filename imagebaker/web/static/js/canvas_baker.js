@@ -99,6 +99,16 @@
     return null;
   }
 
+  let drawBakerPending = false;
+  function requestDrawBaker() {
+    if (drawBakerPending) return;
+    drawBakerPending = true;
+    requestAnimationFrame(() => {
+      drawBakerPending = false;
+      drawBakerCanvas();
+    });
+  }
+
   function drawBakerCanvas() {
     if (!bkrCanvas || !bkrView.ctx) return;
     const ctx = bkrView.ctx;
@@ -241,7 +251,8 @@
       const sceneY = (sy - bkrView.offsetY) / bkrView.zoom;
       const scenePt = { x: sceneX, y: sceneY };
 
-      if (e.button === 1 || (e.button === 0 && e.spaceKey)) {
+      const isPanModifier = e.button === 1 || (e.button === 0 && (e.spaceKey || e.ctrlKey || e.metaKey));
+      if (isPanModifier) {
         bkrView.isPanning = true;
         bkrView.panStartX = sx;
         bkrView.panStartY = sy;
@@ -293,7 +304,7 @@
       if (bkrView.isPanning) {
         bkrView.offsetX = bkrView.panStartOffX + (sx - bkrView.panStartX);
         bkrView.offsetY = bkrView.panStartOffY + (sy - bkrView.panStartY);
-        drawBakerCanvas();
+        requestDrawBaker();
         return;
       }
 
@@ -310,7 +321,7 @@
             ];
           }
           bkrView.dragStartScene = { x: sceneX, y: sceneY };
-          drawBakerCanvas();
+          requestDrawBaker();
           window.ImageBaker.uiBaker.renderLayerSettings();
         }
       }
@@ -323,7 +334,7 @@
 
       if (bkrView.isPanning) {
         bkrView.isPanning = false;
-        bkrCanvas.style.cursor = CURSORS.IDLE;
+        bkrCanvas.style.cursor = (e.ctrlKey || e.metaKey || e.spaceKey) ? CURSORS.PAN : CURSORS.IDLE;
         return;
       }
 
@@ -350,6 +361,20 @@
       bkrView.offsetY = sy - (sy - bkrView.offsetY) * (newZoom / bkrView.zoom);
       bkrView.zoom = newZoom;
       drawBakerCanvas();
+    });
+
+    window.addEventListener("keydown", e => {
+      if (window.ImageBaker.isTypingInTextField && window.ImageBaker.isTypingInTextField(e.target)) return;
+      if (window.ImageBaker.isModalOpen && window.ImageBaker.isModalOpen()) return;
+      if (state.active_tab === "Baker" && (e.key === "Control" || e.key === "Meta" || e.key === " ") && !bkrView.isPanning) {
+        if (bkrCanvas) bkrCanvas.style.cursor = CURSORS.PAN;
+      }
+    });
+
+    window.addEventListener("keyup", e => {
+      if (state.active_tab === "Baker" && (e.key === "Control" || e.key === "Meta" || e.key === " ") && !bkrView.isPanning) {
+        if (bkrCanvas) bkrCanvas.style.cursor = CURSORS.IDLE;
+      }
     });
   }
 
