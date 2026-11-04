@@ -728,6 +728,42 @@ def test_web_copy_paste_annotations_and_layers(tmp_path: Path):
     assert canvas.layers[5].position.x() == pos1.x() + 15.0
     assert canvas.layers[5].position.y() == pos1.y() + 15.0
 
+    # --- 3. Multi-layer Grouping (>= 2 layers) and Ungrouping ---
+    # Select 3 layers to group
+    canvas.layers[0].selected = True
+    canvas.layers[1].selected = True
+    canvas.layers[2].selected = True
+    canvas.layers[3].selected = False
+    canvas.layers[4].selected = False
+    canvas.layers[5].selected = False
+
+    group_lids = [canvas.layers[0].layer_id, canvas.layers[1].layer_id, canvas.layers[2].layer_id]
+    ok, msg = engine.baker_layer_action({"action": "group", "layer_ids": group_lids})
+    assert ok is True
+    # 6 layers originally - 3 grouped + 1 group = 4 layers
+    assert len(canvas.layers) == 4
+    grouped_layer = next(lyr for lyr in canvas.layers if len(lyr.layers) >= 2)
+    assert len(grouped_layer.layers) == 3
+    assert grouped_layer.selected is True
+
+    # Ungroup the grouped layer
+    ok, msg = engine.baker_layer_action({"action": "group"})
+    assert ok is True
+    # Back to 6 layers
+    assert len(canvas.layers) == 6
+
+    # --- 4. Multi-layer Deletion via layer_ids ---
+    del_ids = [canvas.layers[0].layer_id, canvas.layers[1].layer_id]
+    ok, msg = engine.baker_layer_action({"action": "delete", "layer_ids": del_ids})
+    assert ok is True
+    assert len(canvas.layers) == 4
+
+    # --- 5. Annotation Multi-Deletion via delete_annotations ---
+    assert len(engine.current_annotations) == 3
+    ok, msg = engine.delete_annotations(annotation_ids=[engine.current_annotations[0].annotation_id, engine.current_annotations[1].annotation_id])
+    assert ok is True
+    assert len(engine.current_annotations) == 1
+
 
 if __name__ == "__main__":
     import tempfile

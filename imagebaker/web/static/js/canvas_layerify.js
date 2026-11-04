@@ -588,12 +588,19 @@
       const annHitIdx = hitTestAnnotation(imgPt.x, imgPt.y);
       if (annHitIdx !== null) {
         const annotations = state.layerify.annotations || [];
+        const multi = e.ctrlKey || e.metaKey || e.shiftKey;
         annotations.forEach((a, idx) => {
-          a.selected = (idx === annHitIdx);
+          if (multi) {
+            if (idx === annHitIdx) a.selected = !a.selected;
+          } else {
+            a.selected = (idx === annHitIdx);
+          }
         });
         lyrView.draggingAnnIdx = annHitIdx;
         lyrView.dragStartImg = { ...imgPt };
         drawLayerifyCanvas();
+        window.ImageBaker.uiLayerify.renderAnnotationList();
+        syncAnnotationsToServer(false, "Selected annotation");
         return;
       }
 
@@ -611,6 +618,8 @@
         // Deselect all
         (state.layerify.annotations || []).forEach(a => a.selected = false);
         drawLayerifyCanvas();
+        window.ImageBaker.uiLayerify.renderAnnotationList();
+        syncAnnotationsToServer(false, "Deselected all annotations");
       }
     });
 
@@ -640,11 +649,17 @@
         const dx = imgPt.x - lyrView.dragStartImg.x;
         const dy = imgPt.y - lyrView.dragStartImg.y;
         const annotations = state.layerify.annotations || [];
-        const ann = annotations[lyrView.draggingAnnIdx];
-        if (ann) {
+        const draggingAnn = annotations[lyrView.draggingAnnIdx];
+        if (draggingAnn) {
           const maxW = lyrView.imgW || 2000;
           const maxH = lyrView.imgH || 2000;
-          utils.moveAnnotationByDelta(ann, dx, dy, maxW, maxH);
+          if (draggingAnn.selected) {
+            annotations.filter(a => a.selected).forEach(a => {
+              utils.moveAnnotationByDelta(a, dx, dy, maxW, maxH);
+            });
+          } else {
+            utils.moveAnnotationByDelta(draggingAnn, dx, dy, maxW, maxH);
+          }
           lyrView.dragStartImg = { ...imgPt };
           requestDrawLayerify();
         }

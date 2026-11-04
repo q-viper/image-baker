@@ -350,8 +350,13 @@
       const hit = hitTestBakerLayer(scenePt);
       if (hit) {
         const layers = state.baker.layers || [];
+        const multi = e.ctrlKey || e.metaKey || e.shiftKey;
         layers.forEach(l => {
-          l.selected = (l.layer_id === hit.layerId);
+          if (multi) {
+            if (l.layer_id === hit.layerId) l.selected = !l.selected;
+          } else {
+            l.selected = (l.layer_id === hit.layerId);
+          }
         });
         const lyr = layers.find(l => l.layer_id === hit.layerId);
         const img = getLayerImageElement(lyr);
@@ -364,6 +369,7 @@
         const cx = (lw * sx) / 2;
         const cy = (lh * sy) / 2;
 
+        const selectedLayers = layers.filter(l => l.selected);
         bkrView.draggingLayerId = hit.layerId;
         bkrView.activeHandle = hit.part === "scale" || hit.part === "rotate" ? hit.handleId : null;
         bkrView.dragStartScene = { ...scenePt };
@@ -380,10 +386,15 @@
           u: hit.u ?? 0.5,
           v: hit.v ?? 0.5,
           part: hit.part,
+          selectedLayersStarts: selectedLayers.map(l => ({
+            layer_id: l.layer_id,
+            position: l.position ? [...l.position] : [0, 0]
+          }))
         };
         drawBakerCanvas();
         window.ImageBaker.uiBaker.renderLayerSettings();
         window.ImageBaker.uiBaker.renderLayerLists();
+        syncLayersToServer(false, "Selected layer");
       } else {
         // Deselect all
         (state.baker.layers || []).forEach(l => l.selected = false);
@@ -393,6 +404,7 @@
         drawBakerCanvas();
         window.ImageBaker.uiBaker.renderLayerSettings();
         window.ImageBaker.uiBaker.renderLayerLists();
+        syncLayersToServer(false, "Deselected all layers");
       }
     });
 
@@ -436,10 +448,22 @@
           if (!bkrView.activeHandle || start.part === "body") {
             const dx = sceneX - start.startScenePt.x;
             const dy = sceneY - start.startScenePt.y;
-            lyr.position = [
-              Math.round(start.position[0] + dx),
-              Math.round(start.position[1] + dy)
-            ];
+            if (start.selectedLayersStarts && start.selectedLayersStarts.length > 1) {
+              start.selectedLayersStarts.forEach(s => {
+                const targetLyr = layers.find(l => l.layer_id === s.layer_id);
+                if (targetLyr) {
+                  targetLyr.position = [
+                    Math.round(s.position[0] + dx),
+                    Math.round(s.position[1] + dy)
+                  ];
+                }
+              });
+            } else {
+              lyr.position = [
+                Math.round(start.position[0] + dx),
+                Math.round(start.position[1] + dy)
+              ];
+            }
             requestDrawBaker();
             window.ImageBaker.uiBaker.renderLayerSettings();
           } else if (start.part === "rotate") {

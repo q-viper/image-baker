@@ -779,8 +779,12 @@ class WebAppEngine:
             self.last_message = "Redo applied."
             return True, self.last_message
 
-    def copy_annotations(self) -> tuple[bool, str]:
+    def copy_annotations(self, annotation_ids: list[int] | None = None) -> tuple[bool, str]:
         with self.lock:
+            if annotation_ids:
+                target_ids = {int(i) for i in annotation_ids}
+                for ann in self.current_annotations:
+                    ann.selected = ann.annotation_id in target_ids
             selected = [ann for ann in self.current_annotations if ann.selected]
             if not selected:
                 self.last_message = "No annotation selected to copy."
@@ -790,6 +794,25 @@ class WebAppEngine:
                 ann.selected = False
             self.annotation_clipboard = copied
             self.last_message = f"Copied {len(copied)} annotation(s)"
+            return True, self.last_message
+
+    def delete_annotations(self, annotation_ids: list[int] | None = None) -> tuple[bool, str]:
+        with self.lock:
+            if annotation_ids:
+                target_ids = {int(i) for i in annotation_ids}
+                targets = [ann for ann in self.current_annotations if ann.annotation_id in target_ids]
+            else:
+                targets = [ann for ann in self.current_annotations if ann.selected]
+            if not targets:
+                self.last_message = "No annotations selected to delete."
+                return False, self.last_message
+            self._current_history().push(self.current_annotations)
+            target_ids = {ann.annotation_id for ann in targets}
+            self.current_annotations = [ann for ann in self.current_annotations if ann.annotation_id not in target_ids]
+            for idx, ann in enumerate(self.current_annotations):
+                ann.annotation_id = idx
+            self.save_current_image_annotations()
+            self.last_message = f"Deleted {len(targets)} annotation(s)."
             return True, self.last_message
 
     def paste_annotations(self) -> tuple[bool, str]:
@@ -1812,6 +1835,11 @@ class WebAppEngine:
                 return ok, msg
 
             elif action == "copy":
+                lids = payload.get("layer_ids")
+                if lids is not None and isinstance(lids, (list, tuple)) and len(lids) > 0:
+                    target_ids = {str(x) for x in lids}
+                    for lyr in canvas.layers:
+                        lyr.selected = str(lyr.layer_id) in target_ids
                 selected = [lyr for lyr in canvas.layers if lyr.selected]
                 if not selected:
                     self.last_message = "No layer selected to copy."
@@ -1846,7 +1874,11 @@ class WebAppEngine:
 
             elif action == "delete":
                 lid = payload.get("layer_id")
-                if lid is not None:
+                lids = payload.get("layer_ids")
+                if lids is not None and isinstance(lids, (list, tuple)) and len(lids) > 0:
+                    target_ids = {str(x) for x in lids}
+                    targets = [lyr for lyr in canvas.layers if str(lyr.layer_id) in target_ids]
+                elif lid is not None:
                     targets = [lyr for lyr in canvas.layers if str(lyr.layer_id) == str(lid)]
                 else:
                     targets = [lyr for lyr in canvas.layers if lyr.selected]
@@ -1859,10 +1891,15 @@ class WebAppEngine:
                 for i, lyr in enumerate(canvas.layers):
                     lyr.order = i
                 self.save_baker_cache()
-                self.last_message = f"Deleted {targets[0].layer_name} layer."
+                self.last_message = f"Deleted {len(targets)} layer(s)."
                 return True, self.last_message
 
             elif action == "group":
+                lids = payload.get("layer_ids")
+                if lids is not None and isinstance(lids, (list, tuple)) and len(lids) > 0:
+                    target_ids = {str(x) for x in lids}
+                    for lyr in canvas.layers:
+                        lyr.selected = str(lyr.layer_id) in target_ids
                 ok, msg = self._group_or_ungroup_selected_layers()
                 if ok:
                     self.save_baker_cache()
@@ -1913,11 +1950,19 @@ class WebAppEngine:
     def _group_or_ungroup_selected_layers(self) -> tuple[bool, str]:
         canvas = self.current_canvas
         selected_layers = [lyr for lyr in canvas.layers if lyr.selected]
-        if len(selected_layers) == 1 and len(selected_layers[0].layers) >= 2:
-            return self._ungroup_layer(selected_layers[0])
+        # If single layer selected and it's a group, or all selected layers are groups, ungroup them
+        if selected_layers and all(len(lyr.layers) >= 2 for lyr in selected_layers):
+            messages = []
+            for lyr in list(selected_layers):
+                ok, msg = self._ungroup_layer(lyr)
+                if ok:
+                    messages.append(msg)
+            if messages:
+                self.last_message = "; ".join(messages)
+                return True, self.last_message
 
-        if len(selected_layers) != 2:
-            self.last_message = "Select exactly 2 layers to group."
+        if len(selected_layers) < 2:
+            self.last_message = "Select at least 2 layers to group (or a grouped layer to ungroup)."
             return False, self.last_message
 
         indices = sorted(canvas.layers.index(lyr) for lyr in selected_layers)
@@ -1980,8 +2025,12 @@ class WebAppEngine:
         grouped.allow_annotation_export = any(
             lyr.allow_annotation_export for lyr in ordered_layers
         )
-        grouped.layer_name = f"Group({ordered_layers[0].layer_name}, {ordered_layers[1].layer_name})"
-        grouped.caption = f"Grouped: {ordered_layers[0].layer_name}, {ordered_layers[1].layer_name}"
+        names = [lyr.layer_name for lyr in ordered_layers]
+        if len(names) <= 2:
+            grouped.layer_name = f"Group({', '.join(names)})"
+        else:
+            grouped.layer_name = f"Group({names[0]}, {names[1]}... +{len(names)-2})"
+        grouped.caption = f"Grouped: {', '.join(names)}"
         grouped.layers = []
         grouped.plugins = []
 
@@ -2026,7 +2075,7 @@ class WebAppEngine:
         for order, lyr in enumerate(canvas.layers):
             lyr.order = order
 
-        self.last_message = f"Grouped layers: {ordered_layers[0].layer_name} + {ordered_layers[1].layer_name}"
+        self.last_message = f"Grouped {len(ordered_layers)} layers: {grouped.layer_name}"
         return True, self.last_message
 
     def _ungroup_layer(self, grouped_layer: WebLayerItem) -> tuple[bool, str]:

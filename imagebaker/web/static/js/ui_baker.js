@@ -123,6 +123,7 @@
           window.ImageBaker.canvasBaker.drawBakerCanvas();
           renderLayerLists();
           renderLayerSettings();
+          window.ImageBaker.canvasBaker.syncLayersToServer(false, "Selected layer(s)");
         });
 
         // Move Up
@@ -512,10 +513,14 @@
       const groupBtn = document.getElementById(id);
       if (groupBtn) {
         groupBtn.addEventListener("click", async () => {
-          const res = await api.performBakerLayerAction("group");
+          const selected = (state.baker.layers || []).filter(l => l.selected);
+          const selIds = selected.map(l => l.layer_id);
+          const res = await api.performBakerLayerAction("group", { layer_ids: selIds });
           if (res.ok && res.state) {
             window.ImageBaker.applyServerState(res.state);
             showToast("baker", res.message || "Layers grouped");
+          } else if (res && !res.ok) {
+            showToast("baker", res.message || "Failed to group layers");
           }
         });
       }

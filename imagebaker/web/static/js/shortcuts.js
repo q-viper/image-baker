@@ -30,7 +30,14 @@
           e.preventDefault();
           if (state.active_tab === "Layerify") {
             try {
-              const res = await api.performAnnotationAction("copy");
+              const sel = (state.layerify?.annotations || []).filter(a => a.selected);
+              if (sel.length === 0) {
+                showToast("layerify", "No annotation selected to copy.");
+                return;
+              }
+              const res = await api.performAnnotationAction("copy", {
+                annotation_ids: sel.map(a => a.annotation_id)
+              });
               if (res && res.state) {
                 window.ImageBaker.applyServerState(res.state);
                 showToast("layerify", res.message || "Copied annotation(s)");
@@ -40,7 +47,14 @@
             }
           } else if (state.active_tab === "Baker") {
             try {
-              const res = await api.performBakerLayerAction("copy");
+              const sel = (state.baker?.layers || []).filter(l => l.selected);
+              if (sel.length === 0) {
+                showToast("baker", "No layer selected to copy.");
+                return;
+              }
+              const res = await api.performBakerLayerAction("copy", {
+                layer_ids: sel.map(l => l.layer_id)
+              });
               if (res && res.state) {
                 window.ImageBaker.applyServerState(res.state);
                 showToast("baker", res.message || "Copied layer(s)");
@@ -121,14 +135,18 @@
         if (key === "a") {
           e.preventDefault();
           if (state.active_tab === "Layerify") {
-            (state.layerify?.annotations || []).forEach(a => a.selected = true);
+            const annotations = state.layerify?.annotations || [];
+            annotations.forEach(a => a.selected = true);
             window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
             window.ImageBaker.uiLayerify.renderAnnotationList();
+            await window.ImageBaker.canvasLayerify.syncAnnotationsToServer(false, "Selected all annotations");
           } else if (state.active_tab === "Baker") {
-            (state.baker?.layers || []).forEach(l => l.selected = true);
+            const layers = state.baker?.layers || [];
+            layers.forEach(l => l.selected = true);
             window.ImageBaker.canvasBaker.drawBakerCanvas();
             window.ImageBaker.uiBaker.renderLayerLists();
             window.ImageBaker.uiBaker.renderLayerSettings();
+            await window.ImageBaker.canvasBaker.syncLayersToServer(false, "Selected all layers");
           }
           return;
         }
@@ -146,10 +164,14 @@
           e.preventDefault();
           if (state.active_tab === "Baker") {
             try {
-              const res = await api.performBakerLayerAction("group");
+              const selected = (state.baker?.layers || []).filter(l => l.selected);
+              const selIds = selected.map(l => l.layer_id);
+              const res = await api.performBakerLayerAction("group", { layer_ids: selIds });
               if (res && res.state) {
                 window.ImageBaker.applyServerState(res.state);
                 showToast("baker", res.message || "Group/Ungroup layers");
+              } else if (res && !res.ok) {
+                showToast("baker", res.message || "Failed to group/ungroup layers");
               }
             } catch (err) {
               console.error("Group layers error:", err);
@@ -288,13 +310,15 @@
             if (state.active_tab === "Baker") {
               e.preventDefault();
               const layers = state.baker?.layers || [];
-              const sel = layers.find(l => l.selected);
-              if (sel) {
+              const sel = layers.filter(l => l.selected);
+              if (sel.length > 0) {
                 const delta = e.shiftKey ? -5 : 5;
-                sel.rotation = (((sel.rotation || 0) + delta) % 360 + 360) % 360;
+                sel.forEach(l => {
+                  l.rotation = (((l.rotation || 0) + delta) % 360 + 360) % 360;
+                });
                 window.ImageBaker.canvasBaker.drawBakerCanvas();
                 window.ImageBaker.uiBaker.renderLayerSettings();
-                window.ImageBaker.canvasBaker.syncLayersToServer(true, `Rotated layer to ${sel.rotation}°`);
+                window.ImageBaker.canvasBaker.syncLayersToServer(true, `Rotated ${sel.length} layer(s) by ${delta}°`);
               }
             }
             break;
@@ -305,9 +329,10 @@
             if (state.active_tab === "Layerify") {
               const annotations = state.layerify?.annotations || [];
               const sel = annotations.filter(a => a.selected);
-              if (sel.length > 0) {
-                const anyVis = sel.some(a => a.visible !== false);
-                sel.forEach(a => a.visible = !anyVis);
+              const targets = sel.length > 0 ? sel : annotations;
+              if (targets.length > 0) {
+                const anyVis = targets.some(a => a.visible !== false);
+                targets.forEach(a => a.visible = !anyVis);
                 window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
                 window.ImageBaker.uiLayerify.renderAnnotationList();
                 window.ImageBaker.canvasLayerify.syncAnnotationsToServer(false, "Toggled visibility");
@@ -315,9 +340,10 @@
             } else if (state.active_tab === "Baker") {
               const layers = state.baker?.layers || [];
               const sel = layers.filter(l => l.selected);
-              if (sel.length > 0) {
-                const anyVis = sel.some(l => l.visible !== false);
-                sel.forEach(l => l.visible = !anyVis);
+              const targets = sel.length > 0 ? sel : layers;
+              if (targets.length > 0) {
+                const anyVis = targets.some(l => l.visible !== false);
+                targets.forEach(l => l.visible = !anyVis);
                 window.ImageBaker.canvasBaker.drawBakerCanvas();
                 window.ImageBaker.uiBaker.renderLayerLists();
                 window.ImageBaker.canvasBaker.syncLayersToServer(false, "Toggled layer visibility");
@@ -396,23 +422,35 @@
             e.preventDefault();
             if (state.active_tab === "Layerify") {
               const annotations = state.layerify.annotations || [];
-              const selIndices = annotations.map((a, i) => a.selected ? i : -1).filter(i => i >= 0);
-              if (selIndices.length > 0) {
+              const sel = annotations.filter(a => a.selected);
+              if (sel.length > 0) {
                 state.layerify.annotations = annotations.filter(a => !a.selected);
                 window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
                 window.ImageBaker.uiLayerify.renderAnnotationList();
-                window.ImageBaker.canvasLayerify.syncAnnotationsToServer(true, "Deleted annotation(s)");
+                const selIds = sel.map(a => a.annotation_id);
+                api.performAnnotationAction("delete", { annotation_ids: selIds }).then(res => {
+                  if (res && res.state) {
+                    window.ImageBaker.applyServerState(res.state);
+                  }
+                }).catch(() => {
+                  window.ImageBaker.canvasLayerify.syncAnnotationsToServer(true, "Deleted annotation(s)");
+                });
               }
             } else if (state.active_tab === "Baker") {
               const layers = state.baker?.layers || [];
-              const sel = layers.find(l => l.selected);
-              if (sel) {
-                api.performBakerLayerAction("delete", { layer_id: sel.layer_id }).then(res => {
+              const sel = layers.filter(l => l.selected);
+              if (sel.length > 0) {
+                state.baker.layers = layers.filter(l => !l.selected);
+                window.ImageBaker.canvasBaker.drawBakerCanvas();
+                window.ImageBaker.uiBaker.renderLayerLists();
+                window.ImageBaker.uiBaker.renderLayerSettings();
+                const selIds = sel.map(l => l.layer_id);
+                api.performBakerLayerAction("delete", { layer_ids: selIds }).then(res => {
                   if (res && res.state) {
                     window.ImageBaker.applyServerState(res.state);
                   }
                 }).catch(err => {
-                  console.error("Failed to delete selected layer:", err);
+                  console.error("Failed to delete selected layers:", err);
                 });
               }
             }

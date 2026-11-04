@@ -235,9 +235,11 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
                 elif action == "redo":
                     ok, msg = engine.redo_annotation()
                 elif action == "copy":
-                    ok, msg = engine.copy_annotations()
+                    ok, msg = engine.copy_annotations(payload.get("annotation_ids"))
                 elif action == "paste":
                     ok, msg = engine.paste_annotations()
+                elif action == "delete":
+                    ok, msg = engine.delete_annotations(payload.get("annotation_ids"))
                 elif action == "clear":
                     ok, msg = engine.clear_all_annotations_and_layers()
                 else:
