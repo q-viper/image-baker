@@ -268,3 +268,4 @@
   window.ImageBaker.isTypingInTextField = isTypingInTextField;
   window.ImageBaker.getCurrentSelectedLabelColor = getCurrentSelectedLabelColor;
 })(window);
+

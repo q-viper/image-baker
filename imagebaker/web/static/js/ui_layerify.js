@@ -480,3 +480,4 @@
     openManageLabelsModal,
   };
 })(window);
+

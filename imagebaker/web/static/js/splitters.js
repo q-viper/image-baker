@@ -162,3 +162,4 @@
     initSplitters,
   };
 })(window);
+

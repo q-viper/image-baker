@@ -169,3 +169,4 @@
   window.ImageBaker = window.ImageBaker || {};
   window.ImageBaker.api = api;
 })(window);
+
