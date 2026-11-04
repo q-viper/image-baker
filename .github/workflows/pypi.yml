@@ -1,9 +1,12 @@
-name: Publish to PyPI
+name: Publish to PyPI and GitHub Release
 
 on:
   push:
     tags:  # Trigger the workflow only on tag pushes
       - "*"  # Match all tags
+
+permissions:
+  contents: write
 
 jobs:
   build-and-publish:
@@ -43,3 +46,12 @@ jobs:
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: |
           python -m twine upload dist/* --skip-existing --verbose
+
+      # Step 7: Create GitHub Release
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
