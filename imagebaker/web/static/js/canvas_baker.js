@@ -562,6 +562,13 @@
 
     bkrCanvas.addEventListener("wheel", e => {
       e.preventDefault();
+      if (bkrView.drawingMode || bkrView.eraseMode) {
+        const delta = e.deltaY < 0 ? 2 : -2;
+        bkrView.brushSize = Math.max(1, Math.min(200, (bkrView.brushSize || 12) + delta));
+        showToast("baker", `Brush size: ${bkrView.brushSize}px`);
+        return;
+      }
+
       const rect = bkrCanvas.getBoundingClientRect();
       const sx = e.clientX - rect.left;
       const sy = e.clientY - rect.top;

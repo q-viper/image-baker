@@ -617,6 +617,118 @@ def test_web_layerify_icons_and_layer_deletion(tmp_path: Path):
     assert len(engine.current_canvas.layers) == 0
 
 
+def test_web_copy_paste_annotations_and_layers(tmp_path: Path):
+    """Test copy and paste of annotations (Layerify) and layers (Baker) with offsets and selection."""
+    from PIL import Image as PILImage
+    from PySide6.QtCore import QPointF, QRectF
+    from imagebaker.core.defs import Annotation
+    from imagebaker.web.engine import WebAppEngine
+
+    img_path = tmp_path / "copy_paste_test.png"
+    PILImage.new("RGB", (500, 400), color=(80, 120, 160)).save(str(img_path))
+
+    engine = WebAppEngine(project_dir=tmp_path)
+    engine.select_folder(str(tmp_path))
+
+    # --- 1. Annotation Copy / Paste ---
+    ann1 = Annotation(
+        label="Box1",
+        rectangle=QRectF(20.0, 30.0, 100.0, 60.0),
+        selected=True,
+        annotation_id=1,
+    )
+    ann2 = Annotation(
+        label="Box2",
+        rectangle=QRectF(150.0, 80.0, 70.0, 50.0),
+        selected=False,
+        annotation_id=2,
+    )
+    engine.current_annotations = [ann1, ann2]
+
+    # Copy selected annotations
+    ok, msg = engine.copy_annotations()
+    assert ok is True
+    assert len(engine.annotation_clipboard) == 1
+    assert engine.annotation_clipboard[0].label == "Box1"
+
+    # Paste copied annotations
+    ok, msg = engine.paste_annotations()
+    assert ok is True
+    assert len(engine.current_annotations) == 3
+
+    # Cloned annotation should be selected; original ones should be deselected
+    orig1 = engine.current_annotations[0]
+    orig2 = engine.current_annotations[1]
+    pasted = engine.current_annotations[2]
+    assert orig1.selected is False
+    assert orig2.selected is False
+    assert pasted.selected is True
+    assert pasted.label == "Box1"
+    # Position must be offset by +15px
+    assert pasted.rectangle.x() == 35.0
+    assert pasted.rectangle.y() == 45.0
+    assert pasted.rectangle.width() == 100.0
+    assert pasted.rectangle.height() == 60.0
+
+    # --- 2. Baker Layer Copy / Paste ---
+    # Deselect annotations so layerify_annotations processes all annotations
+    for ann in engine.current_annotations:
+        ann.selected = False
+    ok, msg = engine.layerify_annotations()
+    assert ok is True
+    canvas = engine.current_canvas
+    assert len(canvas.layers) == 3
+
+    # Deselect all and select only layer 0
+    for lyr in canvas.layers:
+        lyr.selected = False
+    canvas.layers[0].selected = True
+    orig_pos = QPointF(canvas.layers[0].position.x(), canvas.layers[0].position.y())
+
+    # Copy single selected layer
+    ok, msg = engine.baker_layer_action({"action": "copy"})
+    assert ok is True
+    assert len(canvas.copied_layers) == 1
+
+    # Paste layer
+    ok, msg = engine.baker_layer_action({"action": "paste"})
+    assert ok is True
+    assert len(canvas.layers) == 4
+
+    pasted_lyr = canvas.layers[-1]
+    assert pasted_lyr.selected is True
+    assert canvas.layers[0].selected is False
+    assert pasted_lyr.position.x() == orig_pos.x() + 15.0
+    assert pasted_lyr.position.y() == orig_pos.y() + 15.0
+
+    # Multi-layer copy & paste
+    canvas.layers[0].selected = True
+    canvas.layers[1].selected = True
+    canvas.layers[2].selected = False
+    canvas.layers[3].selected = False
+
+    pos0 = QPointF(canvas.layers[0].position.x(), canvas.layers[0].position.y())
+    pos1 = QPointF(canvas.layers[1].position.x(), canvas.layers[1].position.y())
+
+    ok, msg = engine.baker_layer_action({"action": "copy"})
+    assert ok is True
+    assert len(canvas.copied_layers) == 2
+
+    ok, msg = engine.baker_layer_action({"action": "paste"})
+    assert ok is True
+    assert len(canvas.layers) == 6
+
+    # Both newly pasted layers should be selected and offset by +15px
+    assert canvas.layers[4].selected is True
+    assert canvas.layers[5].selected is True
+    assert canvas.layers[0].selected is False
+    assert canvas.layers[1].selected is False
+    assert canvas.layers[4].position.x() == pos0.x() + 15.0
+    assert canvas.layers[4].position.y() == pos0.y() + 15.0
+    assert canvas.layers[5].position.x() == pos1.x() + 15.0
+    assert canvas.layers[5].position.y() == pos1.y() + 15.0
+
+
 if __name__ == "__main__":
     import tempfile
 
@@ -637,4 +749,10 @@ if __name__ == "__main__":
     print("  [PASS] test_desktop_parity_and_undo_redo")
     test_real_world_workflows_example()
     print("  [PASS] test_real_world_workflows_example")
+    with tempfile.TemporaryDirectory() as d5:
+        test_web_layerify_icons_and_layer_deletion(Path(d5))
+    print("  [PASS] test_web_layerify_icons_and_layer_deletion")
+    with tempfile.TemporaryDirectory() as d6:
+        test_web_copy_paste_annotations_and_layers(Path(d6))
+    print("  [PASS] test_web_copy_paste_annotations_and_layers")
     print("All tests passed!")

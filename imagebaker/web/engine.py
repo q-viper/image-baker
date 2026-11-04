@@ -803,12 +803,20 @@ class WebAppEngine:
                 if self.image_entries and 0 <= self.curr_image_idx < len(self.image_entries)
                 else Path("Runtime")
             )
+            for a in self.current_annotations:
+                a.selected = False
             for copied in self.annotation_clipboard:
                 new_ann = copied.copy()
                 new_ann.annotation_id = len(self.current_annotations)
-                new_ann.selected = False
+                new_ann.selected = True
                 new_ann.file_path = fp
                 new_ann.color = self._label_color(new_ann.label)
+                if new_ann.rectangle is not None:
+                    new_ann.rectangle = new_ann.rectangle.translated(15.0, 15.0)
+                if new_ann.polygon is not None:
+                    new_ann.polygon = new_ann.polygon.translated(15.0, 15.0)
+                if new_ann.points:
+                    new_ann.points = [QPointF(p.x() + 15.0, p.y() + 15.0) for p in new_ann.points]
                 self.current_annotations.append(new_ann)
             self.save_current_image_annotations()
             self.last_message = f"Pasted {len(self.annotation_clipboard)} annotation(s)"
@@ -1804,31 +1812,36 @@ class WebAppEngine:
                 return ok, msg
 
             elif action == "copy":
-                selected = next((lyr for lyr in canvas.layers if lyr.selected), None)
-                if selected is None:
+                selected = [lyr for lyr in canvas.layers if lyr.selected]
+                if not selected:
                     self.last_message = "No layer selected to copy."
                     return False, self.last_message
-                canvas.copied_layer = selected.copy()
-                self.last_message = f"Copied layer {selected.layer_name}."
+                canvas.copied_layers = [lyr.copy() for lyr in selected]
+                canvas.copied_layer = canvas.copied_layers[0]
+                self.last_message = f"Copied {len(selected)} layer(s)."
                 return True, self.last_message
 
             elif action == "paste":
-                if canvas.copied_layer is None:
+                copied_list = getattr(canvas, "copied_layers", None) or ([canvas.copied_layer] if canvas.copied_layer else [])
+                if not copied_list:
                     self.last_message = "No layer copied to paste."
                     return False, self.last_message
                 canvas.push_undo_state()
-                new_layer = canvas.copied_layer.clone_as_new()
-                new_layer.position = QPointF(
-                    new_layer.position.x() + 10.0, new_layer.position.y() + 10.0
-                )
-                new_layer.layer_name = f"{len(canvas.layers) + 1}_{new_layer.layer_name}"
                 for lyr in canvas.layers:
                     lyr.selected = False
-                new_layer.selected = True
-                new_layer.order = len(canvas.layers)
-                canvas.layers.append(new_layer)
+                pasted_names = []
+                for copied in copied_list:
+                    new_layer = copied.clone_as_new()
+                    new_layer.position = QPointF(
+                        new_layer.position.x() + 15.0, new_layer.position.y() + 15.0
+                    )
+                    new_layer.layer_name = f"{len(canvas.layers) + 1}_{new_layer.layer_name}"
+                    new_layer.selected = True
+                    new_layer.order = len(canvas.layers)
+                    canvas.layers.append(new_layer)
+                    pasted_names.append(new_layer.layer_name)
                 self.save_baker_cache()
-                self.last_message = f"Pasted layer {new_layer.layer_name}."
+                self.last_message = f"Pasted {len(pasted_names)} layer(s)."
                 return True, self.last_message
 
             elif action == "delete":

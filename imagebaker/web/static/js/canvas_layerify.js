@@ -722,6 +722,17 @@
 
     lyrCanvas.addEventListener("wheel", e => {
       e.preventDefault();
+      if (e.altKey || lyrView.activeMode === "Brush") {
+        const delta = e.deltaY < 0 ? 2 : -2;
+        lyrView.brushSize = Math.max(2, Math.min(200, (lyrView.brushSize || 18) + delta));
+        const brushInput = document.getElementById("input-brush-size");
+        const brushVal = document.getElementById("val-brush-size");
+        if (brushInput) brushInput.value = lyrView.brushSize;
+        if (brushVal) brushVal.textContent = `${lyrView.brushSize}px`;
+        drawLayerifyCanvas();
+        return;
+      }
+
       const rect = lyrCanvas.getBoundingClientRect();
       const sx = e.clientX - rect.left;
       const sy = e.clientY - rect.top;

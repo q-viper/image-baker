@@ -231,6 +231,7 @@
         }
       }
     }
+    window.ImageBaker.stepHeaderNavigation = stepHeaderNavigation;
 
     if (el("btn-header-prev")) {
       el("btn-header-prev").addEventListener("click", e => {
