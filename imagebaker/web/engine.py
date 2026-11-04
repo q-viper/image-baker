@@ -1477,7 +1477,11 @@ class WebAppEngine:
             self.last_message = f"Prediction complete ({len(predictions or [])} result(s))"
             return True, self.last_message
 
-    def layerify_annotations(self, annotation_ids: list[int] | None = None) -> tuple[bool, str]:
+    def layerify_annotations(
+        self,
+        annotation_ids: list[int] | None = None,
+        layerify_all: bool = True,
+    ) -> tuple[bool, str]:
         with self.lock:
             if not self.image_entries or not (0 <= self.curr_image_idx < len(self.image_entries)):
                 return False, "No image loaded to layerify."
@@ -1491,8 +1495,10 @@ class WebAppEngine:
                 targets = [
                     ann
                     for ann in self.current_annotations
-                    if ann.annotation_id in target_ids
+                    if ann.annotation_id in target_ids and ann.visible
                 ]
+            elif layerify_all:
+                targets = [ann for ann in self.current_annotations if ann.visible]
             else:
                 selected = [ann for ann in self.current_annotations if ann.selected and ann.visible]
                 targets = selected if selected else [ann for ann in self.current_annotations if ann.visible]

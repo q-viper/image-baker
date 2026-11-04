@@ -176,7 +176,7 @@
           e.stopPropagation();
           try {
             showToast("layerify", `Layerifying #${idx + 1} (${ann.label || "Annotation"})...`);
-            const res = await api.layerifyAll([ann.annotation_id]);
+            const res = await api.layerifyAll([ann.annotation_id], false);
             if (res && res.ok && res.state) {
               window.ImageBaker.applyServerState(res.state);
               showToast("layerify", res.message || `Layerified #${idx + 1} into Baker layers!`);
@@ -316,12 +316,32 @@
   async function runLayerifyAll() {
     try {
       showToast("layerify", "Layerifying all visible annotations...");
-      const res = await api.layerifyAll(null);
+      const res = await api.layerifyAll(null, true);
       if (res && res.ok && res.state) {
         window.ImageBaker.applyServerState(res.state);
-        showToast("layerify", res.message || "Layerified into Baker layers!");
+        showToast("layerify", res.message || "Layerified all visible annotations into Baker layers!");
       } else {
         showToast("layerify", (res && res.message) || "Failed to layerify annotations");
+      }
+    } catch (err) {
+      showToast("layerify", "Layerify error: " + err.message);
+    }
+  }
+
+  async function runLayerifySelected(annotationIds = null) {
+    try {
+      const selected = (state.layerify.annotations || []).filter(a => a.selected && a.visible);
+      const targetIds = annotationIds || selected.map(a => a.annotation_id);
+      if (!targetIds || targetIds.length === 0) {
+        return runLayerifyAll();
+      }
+      showToast("layerify", `Layerifying ${targetIds.length} selected annotation(s)...`);
+      const res = await api.layerifyAll(targetIds, false);
+      if (res && res.ok && res.state) {
+        window.ImageBaker.applyServerState(res.state);
+        showToast("layerify", res.message || `Layerified ${targetIds.length} selected annotation(s) into Baker layers!`);
+      } else {
+        showToast("layerify", (res && res.message) || "Failed to layerify selected annotation(s)");
       }
     } catch (err) {
       showToast("layerify", "Layerify error: " + err.message);
@@ -896,6 +916,7 @@
     selectLabelAndMaybeAssign,
     runModelPrediction,
     runLayerifyAll,
+    runLayerifySelected,
     openManageLabelsModal,
     openEditCaptionModal,
   };

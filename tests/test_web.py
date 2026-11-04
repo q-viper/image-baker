@@ -313,6 +313,36 @@ def test_http_server_endpoints(tmp_path: Path):
             layer_png = resp.read()
             assert resp.status == 200
             assert layer_png[:8] == b"\x89PNG\r\n\x1a\n"
+
+        # POST /api/layerify/annotations/update with multiple annotations (one selected)
+        anns_update = [
+            {"label": "A1", "rectangle": [5, 5, 20, 20], "annotation_id": 1, "selected": True, "visible": True},
+            {"label": "A2", "rectangle": [30, 30, 20, 20], "annotation_id": 2, "selected": False, "visible": True},
+        ]
+        req = urllib.request.Request(
+            f"{base_url}/api/layerify/annotations/update",
+            data=json.dumps({"annotations": anns_update}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            assert payload["ok"] is True
+            assert len(payload["state"]["layerify"]["annotations"]) == 2
+
+        # POST /api/layerify/layerify with all=True (Layerify All button behavior)
+        # It must layerify ALL visible annotations into Baker layers, not just the selected one
+        prev_layers_count = len(payload["state"]["baker"]["layers"])
+        req = urllib.request.Request(
+            f"{base_url}/api/layerify/layerify",
+            data=json.dumps({"all": True}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            assert payload["ok"] is True
+            assert len(payload["state"]["baker"]["layers"]) == prev_layers_count + 2
     finally:
         server.shutdown()
         server.server_close()
@@ -780,6 +810,56 @@ def test_web_copy_paste_annotations_and_layers(tmp_path: Path):
     assert len(engine.current_annotations) == 1
 
 
+def test_layerify_all_button_with_selected_annotation(tmp_path: Path):
+    """
+    Ensure 'Layerify All' creates layers from ALL visible annotations
+    even if one or more annotations are currently selected.
+    """
+    from PySide6.QtCore import QRectF
+    from imagebaker.core.defs import Annotation
+
+    img_path = _create_sample_image(tmp_path / "sample.png", width=300, height=300)
+
+    engine = WebAppEngine(project_dir=tmp_path)
+    engine.select_folder(str(tmp_path))
+
+    ann1 = Annotation(label="Obj1", rectangle=QRectF(10, 10, 50, 50), annotation_id=101, selected=True)
+    ann2 = Annotation(label="Obj2", rectangle=QRectF(80, 80, 50, 50), annotation_id=102, selected=False)
+    ann3 = Annotation(label="Obj3", rectangle=QRectF(150, 150, 50, 50), annotation_id=103, selected=False)
+    engine.current_annotations = [ann1, ann2, ann3]
+
+    # Calling layerify_annotations with default (layerify_all=True) must layerify ALL 3 annotations
+    ok, msg = engine.layerify_annotations()
+    assert ok is True
+    assert len(engine.current_canvas.layers) == 3
+
+    # Reset canvas layers
+    engine.current_canvas.layers.clear()
+
+    # Calling with explicit layerify_all=True while ann1 is selected must still layerify all 3
+    ok, msg = engine.layerify_annotations(layerify_all=True)
+    assert ok is True
+    assert len(engine.current_canvas.layers) == 3
+
+    # Reset canvas layers
+    engine.current_canvas.layers.clear()
+
+    # Calling with layerify_all=False while ann1 is selected must layerify only the selected annotation (1 layer)
+    ok, msg = engine.layerify_annotations(layerify_all=False)
+    assert ok is True
+    assert len(engine.current_canvas.layers) == 1
+    assert "Obj1" in engine.current_canvas.layers[0].layer_name
+
+    # Reset canvas layers
+    engine.current_canvas.layers.clear()
+
+    # Calling with explicit annotation_ids must layerify only the specified annotation
+    ok, msg = engine.layerify_annotations(annotation_ids=[102])
+    assert ok is True
+    assert len(engine.current_canvas.layers) == 1
+    assert "Obj2" in engine.current_canvas.layers[0].layer_name
+
+
 if __name__ == "__main__":
     import tempfile
 
@@ -806,4 +886,7 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as d6:
         test_web_copy_paste_annotations_and_layers(Path(d6))
     print("  [PASS] test_web_copy_paste_annotations_and_layers")
+    with tempfile.TemporaryDirectory() as d7:
+        test_layerify_all_button_with_selected_annotation(Path(d7))
+    print("  [PASS] test_layerify_all_button_with_selected_annotation")
     print("All tests passed!")

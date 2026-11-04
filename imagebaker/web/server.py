@@ -301,7 +301,14 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
                 return
 
             if route == "/api/layerify/layerify":
-                ok, msg = engine.layerify_annotations(payload.get("annotation_ids"))
+                ann_ids = payload.get("annotation_ids")
+                is_all = payload.get("all")
+                if is_all is None:
+                    is_all = ann_ids is None or len(ann_ids) == 0
+                ok, msg = engine.layerify_annotations(
+                    annotation_ids=ann_ids,
+                    layerify_all=bool(is_all),
+                )
                 self._send_json({"ok": ok, "message": msg, "state": engine.get_state_dict()})
                 return
 

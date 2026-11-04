@@ -456,10 +456,17 @@
             }
             break;
 
-          // Layerify L
+          // Layerify L (selected if any, otherwise all)
           case "l":
             e.preventDefault();
-            window.ImageBaker.uiLayerify.runLayerifyAll();
+            {
+              const selAnns = (state.layerify?.annotations || []).filter(a => a.selected && a.visible);
+              if (selAnns.length > 0) {
+                window.ImageBaker.uiLayerify.runLayerifySelected(selAnns.map(a => a.annotation_id));
+              } else {
+                window.ImageBaker.uiLayerify.runLayerifyAll();
+              }
+            }
             break;
 
           // Predict P

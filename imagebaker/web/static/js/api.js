@@ -97,9 +97,11 @@
       });
     },
 
-    async layerifyAll(annotationIds = null) {
+    async layerifyAll(annotationIds = null, all = null) {
+      const isAll = all !== null ? all : (annotationIds === null || annotationIds === undefined);
       return await apiPost("/api/layerify/layerify", {
-        annotation_ids: annotationIds
+        annotation_ids: annotationIds,
+        all: isAll
       });
     },
 
