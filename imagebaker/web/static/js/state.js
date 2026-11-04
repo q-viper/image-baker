@@ -220,7 +220,12 @@
   function openModal(dialogId) {
     const overlay = document.getElementById("modal-overlay");
     if (overlay) overlay.classList.remove("hidden");
-    const target = document.getElementById(dialogId);
+    let target = document.getElementById(dialogId);
+    if (!target && dialogId === "modal-manage-labels") {
+      target = document.getElementById("modal-manage-label");
+    } else if (!target && dialogId === "modal-manage-label") {
+      target = document.getElementById("modal-manage-labels");
+    }
     if (target) {
       target.classList.remove("hidden");
       const firstInput = target.querySelector("input:not([type=hidden]), select, textarea, button.btn-primary");

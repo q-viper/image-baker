@@ -416,15 +416,51 @@
   }
 
   function bindModals() {
+    const manageAddBtn = document.getElementById("btn-manage-add-label");
+    const manageInput = document.getElementById("input-manage-new-label");
+    const manageColor = document.getElementById("input-manage-new-color");
+    async function handleManageAddLabel() {
+      const val = manageInput ? manageInput.value.trim() : "";
+      if (!val) return;
+      const colorHex = manageColor ? manageColor.value : "#3b82f6";
+      const rgb = utils.hexToRgb(colorHex);
+      const res = await api.manageLabels({ action: "create", label: val, color: rgb });
+      if (res.ok && res.state) {
+        window.ImageBaker.applyServerState(res.state);
+        if (manageInput) manageInput.value = "";
+        openManageLabelsModal();
+      }
+    }
+    if (manageAddBtn) manageAddBtn.addEventListener("click", handleManageAddLabel);
+    if (manageInput) {
+      manageInput.addEventListener("keydown", e => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          handleManageAddLabel();
+        }
+      });
+    }
+
     const confirmAddLabel = document.getElementById("btn-confirm-add-label");
+    const inputNewLabelName = document.getElementById("input-new-label-name");
+    const inputNewLabelColor = document.getElementById("input-new-label-color");
     if (confirmAddLabel) {
       confirmAddLabel.addEventListener("click", async () => {
-        const input = document.getElementById("input-new-label-name");
-        const val = input ? input.value.trim() : "";
+        const val = inputNewLabelName ? inputNewLabelName.value.trim() : "";
         if (!val) return;
+        const colorHex = inputNewLabelColor ? inputNewLabelColor.value : "#3b82f6";
+        const rgb = utils.hexToRgb(colorHex);
         closeAllModals();
-        const res = await api.manageLabels({ action: "create", label: val });
+        const res = await api.manageLabels({ action: "create", label: val, color: rgb });
         if (res.ok && res.state) window.ImageBaker.applyServerState(res.state);
+      });
+    }
+    if (inputNewLabelName) {
+      inputNewLabelName.addEventListener("keydown", e => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          if (confirmAddLabel) confirmAddLabel.click();
+        }
       });
     }
 

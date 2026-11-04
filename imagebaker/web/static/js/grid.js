@@ -126,54 +126,6 @@
       Math.round(targetH * z)
     );
 
-    // 5. Interactive Deep Snapping with Image Coordinate Tag
-    if (
-      hoverPos &&
-      hoverPos.x >= 0 &&
-      hoverPos.x < width &&
-      hoverPos.y >= 0 &&
-      hoverPos.y < height
-    ) {
-      const curImgX = (hoverPos.x - offsetX) / z;
-      const curImgY = (hoverPos.y - offsetY) / z;
-      const snapImgX = Math.round(curImgX / fineStep) * fineStep;
-      const snapImgY = Math.round(curImgY / fineStep) * fineStep;
-      const snapScreenX = Math.round(offsetX + snapImgX * z);
-      const snapScreenY = Math.round(offsetY + snapImgY * z);
-
-      const highlightColor = isDark
-        ? "rgba(56, 189, 248, 0.9)"
-        : "rgba(37, 99, 235, 0.9)";
-      ctx.strokeStyle = highlightColor;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(snapScreenX + 0.5, 0);
-      ctx.lineTo(snapScreenX + 0.5, height);
-      ctx.moveTo(0, snapScreenY + 0.5);
-      ctx.lineTo(width, snapScreenY + 0.5);
-      ctx.stroke();
-
-      ctx.fillStyle = highlightColor;
-      ctx.beginPath();
-      ctx.arc(snapScreenX, snapScreenY, 3.5, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Precision Coordinate Readout Tag
-      const coordText = `(${snapImgX}, ${snapImgY}) [${fineStep}px grid]`;
-      ctx.font = "600 10.5px monospace";
-      const tw = ctx.measureText(coordText).width;
-      const tx = Math.min(width - tw - 12, Math.max(6, snapScreenX + 8));
-      const ty = Math.min(height - 18, Math.max(18, snapScreenY - 8));
-      ctx.fillStyle = isDark ? "rgba(15, 23, 42, 0.88)" : "rgba(255, 255, 255, 0.92)";
-      utils.roundRect(ctx, tx - 4, ty - 12, tw + 8, 16, 3);
-      ctx.fill();
-      ctx.strokeStyle = highlightColor;
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      ctx.fillStyle = isDark ? "#38bdf8" : "#1d4ed8";
-      ctx.fillText(coordText, tx, ty);
-    }
-
     ctx.restore();
   }
 
