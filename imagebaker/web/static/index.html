@@ -447,53 +447,71 @@
       <!-- ==================== HELP VIEW ==================== -->
       <section id="view-help" class="tab-view">
         <div class="help-container">
+          <div class="help-header">
+            <h1>ImageBaker Help & Shortcuts</h1>
+            <p>Comprehensive guide to mouse controls, hotkeys, and dataset synthesis workflows.</p>
+          </div>
+
           <div class="help-card">
-            <h2>General & Navigation</h2>
+            <h2>🧭 General & Navigation</h2>
             <ul>
-              <li><strong>Theme & Grid (Top Right)</strong>: Toggle Dark/Light theme and canvas gridlines from the top-right header</li>
-              <li><strong>Mouse Wheel</strong>: Zoom in/out around cursor</li>
-              <li><strong>Space + Drag</strong> or <strong>Ctrl + Left Drag</strong> or <strong>Middle Mouse Drag</strong>: Pan canvas</li>
-              <li><strong>[ / ]</strong>: Switch to Previous / Next image (Layerify) or canvas (Baker)</li>
-              <li><strong>F</strong>: Fit image to viewport</li>
+              <li><strong>Theme & Grid</strong><span>Toggle Dark/Light theme and canvas gridlines from top-right header</span></li>
+              <li><strong>Mouse Wheel</strong><span>Zoom in/out around cursor</span></li>
+              <li><strong>Ctrl + Drag / Space + Drag</strong><span>Pan canvas viewport smoothly</span></li>
+              <li><strong>[ / ]</strong><span>Switch to Previous / Next image (Layerify) or canvas (Baker)</span></li>
+              <li><strong>F</strong><span>Fit image or composite to viewport</span></li>
             </ul>
+          </div>
 
-            <h2>Layerify (Annotation Studio — Windows + Label Studio Shortcuts)</h2>
+          <div class="help-card">
+            <h2>📐 Layerify (Annotation Studio Shortcuts)</h2>
             <ul>
-              <li><strong>E</strong>: Rectangle drawing mode (default startup mode)</li>
-              <li><strong>W</strong>: Polygon drawing mode (click 1st vertex, press <strong>Enter</strong>, or <strong>Double-Click</strong> to finish)</li>
-              <li><strong>Q</strong>: Point annotation mode</li>
-              <li><strong>B</strong>: Brush segmentation mask mode (<strong>Alt + Wheel</strong> or slider adjusts brush size)</li>
-              <li><strong>V</strong> / <strong>Escape</strong> / <strong>Right-Click</strong>: Select / Idle mode</li>
-              <li><strong>0 – 9</strong>: Select label by index (and immediately relabel any selected annotation!)</li>
-              <li><strong>Click / Drag Any Region</strong>: Select, move, or drag handles in any mode</li>
-              <li><strong>Arrow Keys</strong>: Nudge selected annotation by 1px (<strong>Shift + Arrows</strong> = 10px)</li>
-              <li><strong>L</strong>: Layerify selected annotation(s) (or all visible annotations) into Baker layers</li>
-              <li><strong>P</strong>: Run AI model prediction on current image / prompt points</li>
-              <li><strong>C</strong>: Edit caption & label of selected annotation</li>
-              <li><strong>H</strong>: Toggle visibility of selected annotation</li>
-              <li><strong>Delete / Backspace</strong>: Delete selected annotation(s) (or undo last polygon point)</li>
-              <li><strong>Ctrl + Z / Ctrl + Y</strong>: Undo / Redo annotation change</li>
-              <li><strong>Ctrl + C / Ctrl + V</strong>: Copy / Paste selected annotation</li>
-              <li><strong>Ctrl + A</strong>: Select all annotations</li>
-              <li><strong>Double-Click Polygon Vertex / Edge</strong>: Remove vertex / insert new vertex</li>
-              <li><strong>Double-Click Label Pill</strong>: Edit annotation label & caption</li>
+              <li><strong>E</strong><span>Rectangle drawing mode</span></li>
+              <li><strong>W</strong><span>Polygon drawing mode (click 1st vertex, Enter, or Double-Click to finish)</span></li>
+              <li><strong>Q</strong><span>Point / Keypoint annotation mode</span></li>
+              <li><strong>B</strong><span>Brush segmentation mask mode (Alt + Wheel adjusts brush size)</span></li>
+              <li><strong>V / Escape / Right-Click</strong><span>Select / Idle mode</span></li>
+              <li><strong>0 – 9</strong><span>Quick-select label slot and relabel active selection</span></li>
+              <li><strong>Click & Drag</strong><span>Select, move annotation, or adjust handles in any mode</span></li>
+              <li><strong>Arrow Keys</strong><span>Nudge selected annotation by 1px (Shift + Arrows = 10px)</span></li>
+              <li><strong>L</strong><span>Layerify selected annotation(s) into Baker layers</span></li>
+              <li><strong>P</strong><span>Run AI model prediction on current image / prompt points</span></li>
+              <li><strong>C</strong><span>Edit caption and class label of selected annotation</span></li>
+              <li><strong>H</strong><span>Toggle visibility of selected annotation</span></li>
+              <li><strong>Delete / Backspace</strong><span>Delete selected annotation(s)</span></li>
+              <li><strong>Ctrl + Z / Ctrl + Y</strong><span>Undo / Redo annotation edits</span></li>
+              <li><strong>Ctrl + C / Ctrl + V</strong><span>Copy / Paste selected annotation</span></li>
+              <li><strong>Ctrl + A</strong><span>Select all annotations</span></li>
+              <li><strong>Double-Click Label Pill</strong><span>Quick-edit annotation label and caption notes</span></li>
             </ul>
+          </div>
 
-            <h2>Baker (Compositing & Dataset Synthesis Shortcuts)</h2>
+          <div class="help-card">
+            <h2>🎨 Baker (Compositing & Dataset Synthesis Shortcuts)</h2>
             <ul>
-              <li><strong>Ctrl + Click</strong>: Multi-select layers</li>
-              <li><strong>Arrow Keys</strong>: Move selected layer(s) (<strong>Shift + Arrows</strong> = 20px)</li>
-              <li><strong>Ctrl + Up / Down</strong> or <strong>W / S</strong>: Reorder selected layer Z-order</li>
-              <li><strong>R / Shift + R</strong>: Rotate selected layer (+5° / -5°)</li>
-              <li><strong>Ctrl + G</strong>: Group selected layers</li>
-              <li><strong>Ctrl + S</strong>: Save current state to timeline</li>
-              <li><strong>Ctrl + N</strong>: Add blank drawable layer</li>
-              <li><strong>Ctrl + D / Ctrl + E</strong>: Toggle Draw / Erase brush mode on selected layer</li>
-              <li><strong>Mouse Wheel (in Draw/Erase mode)</strong>: Adjust brush size</li>
-              <li><strong>Delete / Backspace</strong>: Delete selected layer(s)</li>
-              <li><strong>Ctrl + C / Ctrl + V</strong>: Copy / Paste layer</li>
-              <li><strong>Ctrl + Z / Ctrl + Y</strong>: Undo / Redo layer state</li>
-              <li><strong>H / C</strong>: Toggle visibility / edit caption for selected layer</li>
+              <li><strong>Ctrl + Click</strong><span>Multi-select layers (on canvas and in layer list)</span></li>
+              <li><strong>Arrow Keys</strong><span>Move selected layer(s) (Shift + Arrows = 20px)</span></li>
+              <li><strong>Ctrl + Up / Down or W / S</strong><span>Reorder selected layer Z-order</span></li>
+              <li><strong>R / Shift + R</strong><span>Rotate selected layer (+5° / -5°)</span></li>
+              <li><strong>Ctrl + G</strong><span>Group selected layers into a composite layer, or ungroup</span></li>
+              <li><strong>Ctrl + S</strong><span>Save current keyframe state to timeline</span></li>
+              <li><strong>Ctrl + N</strong><span>Add new blank drawable layer</span></li>
+              <li><strong>Ctrl + D / Ctrl + E</strong><span>Toggle Draw / Erase brush mode on selected layer</span></li>
+              <li><strong>Mouse Wheel</strong><span>Adjust brush size in draw/erase mode</span></li>
+              <li><strong>Delete / Backspace</strong><span>Delete selected layer(s)</span></li>
+              <li><strong>Ctrl + C / Ctrl + V</strong><span>Copy / Paste layer</span></li>
+              <li><strong>Ctrl + Z / Ctrl + Y</strong><span>Undo / Redo Baker timeline edits</span></li>
+              <li><strong>H / C</strong><span>Toggle visibility / edit caption for selected layer</span></li>
+            </ul>
+          </div>
+
+          <div class="help-card">
+            <h2>💡 Workflow Hints</h2>
+            <ul>
+              <li><strong>Layerify to Baker</strong><span>Use Layerify for annotating source images, and Baker for composing, augmenting, and synthesizing new states.</span></li>
+              <li><strong>Layer Grouping</strong><span>Group related foreground objects to transform and animate them as a unit, then ungroup for sub-element tweaks.</span></li>
+              <li><strong>Grid Alignment</strong><span>Toggle the dimension-adaptive grid when aligning objects or inspecting pixel borders.</span></li>
+              <li><strong>Automated Export</strong><span>Use the Baker export menu to generate YOLO, COCO, or instance segmentation datasets ready for training.</span></li>
             </ul>
           </div>
         </div>

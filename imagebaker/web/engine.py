@@ -1069,7 +1069,7 @@ class WebAppEngine:
                 self.last_message = f"Label changed to {label_name}"
                 return True, self.last_message
 
-            elif action == "add":
+            elif action in {"add", "create"}:
                 name = (payload.get("name") or payload.get("label") or "").strip()
                 color_hex = payload.get("color") or "#ffffff"
                 if not name:

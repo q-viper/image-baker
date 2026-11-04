@@ -217,15 +217,24 @@
     if (overlay) overlay.classList.add("hidden");
   }
 
+  function getModalOverlay() {
+    return document.getElementById("modal-backdrop") || document.getElementById("modal-overlay") || document.querySelector(".modal-backdrop");
+  }
+
   function openModal(dialogId) {
-    const overlay = document.getElementById("modal-overlay");
+    const overlay = getModalOverlay();
     if (overlay) overlay.classList.remove("hidden");
     let target = document.getElementById(dialogId);
     if (!target && dialogId === "modal-manage-labels") {
       target = document.getElementById("modal-manage-label");
     } else if (!target && dialogId === "modal-manage-label") {
       target = document.getElementById("modal-manage-labels");
+    } else if (!target && (dialogId === "modal-save-annotations" || dialogId === "modal-load-annotations")) {
+      target = document.getElementById("modal-annotations-io");
     }
+    document.querySelectorAll(".modal-dialog").forEach(d => {
+      if (d !== target) d.classList.add("hidden");
+    });
     if (target) {
       target.classList.remove("hidden");
       const firstInput = target.querySelector("input:not([type=hidden]), select, textarea, button.btn-primary");
@@ -234,14 +243,42 @@
   }
 
   function closeAllModals() {
-    const overlay = document.getElementById("modal-overlay");
+    const overlay = getModalOverlay();
     if (overlay) overlay.classList.add("hidden");
     document.querySelectorAll(".modal-dialog").forEach(d => d.classList.add("hidden"));
   }
 
   function isModalOpen() {
-    const overlay = document.getElementById("modal-overlay");
-    return overlay && !overlay.classList.contains("hidden");
+    const overlay = getModalOverlay();
+    return Boolean(overlay && !overlay.classList.contains("hidden"));
+  }
+
+  function initModalBackdrop() {
+    const overlay = getModalOverlay();
+    if (overlay && !overlay._hasBackdropListener) {
+      overlay._hasBackdropListener = true;
+      overlay.addEventListener("click", e => {
+        if (e.target === overlay) {
+          closeAllModals();
+        }
+      });
+    }
+    if (!document._hasModalCloseListener) {
+      document._hasModalCloseListener = true;
+      document.addEventListener("click", e => {
+        const closeBtn = e.target.closest("[data-close-modal]");
+        if (closeBtn) {
+          e.preventDefault();
+          closeAllModals();
+        }
+      });
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initModalBackdrop);
+  } else {
+    initModalBackdrop();
   }
 
   function isTypingInTextField(target) {
@@ -269,6 +306,8 @@
   window.ImageBaker.hideLayerifyLoading = hideLayerifyLoading;
   window.ImageBaker.openModal = openModal;
   window.ImageBaker.closeAllModals = closeAllModals;
+  window.ImageBaker.initModalBackdrop = initModalBackdrop;
+  window.ImageBaker.getModalOverlay = getModalOverlay;
   window.ImageBaker.isModalOpen = isModalOpen;
   window.ImageBaker.isTypingInTextField = isTypingInTextField;
   window.ImageBaker.getCurrentSelectedLabelColor = getCurrentSelectedLabelColor;
