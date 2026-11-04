@@ -5,3 +5,4 @@ try:
     import torch
 except Exception:
     sys.modules["torch"] = MagicMock()
+

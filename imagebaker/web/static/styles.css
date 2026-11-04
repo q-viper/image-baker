@@ -941,7 +941,8 @@ body.resizing-sidebar * {
   flex-shrink: 0;
 }
 
-.icon-btn {
+.icon-btn,
+.icon-btn-xs {
   background-color: var(--btn);
   color: var(--text);
   border: 1px solid var(--border);
@@ -953,9 +954,12 @@ body.resizing-sidebar * {
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  padding: 0;
+  line-height: 1;
 }
 
-.icon-btn:hover {
+.icon-btn:hover,
+.icon-btn-xs:hover {
   background-color: var(--btn-hover);
 }
 

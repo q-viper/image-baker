@@ -115,21 +115,35 @@
       const [r, g, b] = ann.color || [47, 128, 237];
       const hex = utils.rgbToHex(r, g, b);
       const geom = getAnnotationGeometryTag(ann);
+      const visEmoji = ann.visible !== false ? "👀" : "👁️";
 
       row.innerHTML = `
         <span class="item-color-swatch" style="background-color: ${hex};"></span>
         <div class="item-text-col">
-          <div class="item-title">${geom.icon} #${idx + 1} ${utils.escapeHtml(ann.label)}</div>
+          <div class="item-title" title="${utils.escapeHtml(ann.label)}">${geom.icon} #${idx + 1} ${utils.escapeHtml(ann.label)}</div>
           <div class="item-subtitle">${geom.tag}${ann.caption ? ` • 💬 ${utils.escapeHtml(ann.caption)}` : ""}</div>
         </div>
         <div class="item-actions">
-          <button class="icon-btn-xs btn-vis" title="Toggle visibility">${ann.visible ? "👀" : "🚫"}</button>
-          <button class="icon-btn-xs btn-del" title="Delete annotation">🗑️</button>
+          <button class="icon-btn btn-ann-cap" title="Edit label & caption (C)">💬</button>
+          <button class="icon-btn btn-ann-bake" title="Layerify: Extract into Baker layer (L)">🖨</button>
+          <button class="icon-btn btn-ann-vis btn-vis" title="Toggle visibility (H)">${visEmoji}</button>
+          <button class="icon-btn btn-ann-del btn-del" title="Delete annotation (Del)">🗑️</button>
         </div>
       `;
 
+      row.addEventListener("mouseenter", () => {
+        lyrView.hoveredIdx = idx;
+        window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
+      });
+      row.addEventListener("mouseleave", () => {
+        if (lyrView.hoveredIdx === idx) {
+          lyrView.hoveredIdx = null;
+          window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
+        }
+      });
+
       row.addEventListener("click", e => {
-        if (e.target.closest(".btn-vis") || e.target.closest(".btn-del")) return;
+        if (e.target.closest("button")) return;
         const multi = e.ctrlKey || e.metaKey || e.shiftKey;
         annotations.forEach((a, i) => {
           if (multi) {
@@ -140,23 +154,62 @@
         });
         window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
         renderAnnotationList();
+        window.ImageBaker.canvasLayerify.syncAnnotationsToServer(false, "Selected annotation");
       });
 
-      row.querySelector(".btn-vis").addEventListener("click", async e => {
-        e.stopPropagation();
-        ann.visible = !ann.visible;
-        window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
-        renderAnnotationList();
-        await window.ImageBaker.canvasLayerify.syncAnnotationsToServer(false, `Toggled visibility`);
+      row.addEventListener("dblclick", e => {
+        if (e.target.closest("button")) return;
+        openEditCaptionModal(idx);
       });
 
-      row.querySelector(".btn-del").addEventListener("click", async e => {
-        e.stopPropagation();
-        annotations.splice(idx, 1);
-        window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
-        renderAnnotationList();
-        await window.ImageBaker.canvasLayerify.syncAnnotationsToServer(true, `Deleted annotation`);
-      });
+      const capBtn = row.querySelector(".btn-ann-cap");
+      if (capBtn) {
+        capBtn.addEventListener("click", e => {
+          e.stopPropagation();
+          openEditCaptionModal(idx);
+        });
+      }
+
+      const bakeBtn = row.querySelector(".btn-ann-bake");
+      if (bakeBtn) {
+        bakeBtn.addEventListener("click", async e => {
+          e.stopPropagation();
+          try {
+            showToast("layerify", `Layerifying #${idx + 1} (${ann.label || "Annotation"})...`);
+            const res = await api.layerifyAll([ann.annotation_id]);
+            if (res && res.ok && res.state) {
+              window.ImageBaker.applyServerState(res.state);
+              showToast("layerify", res.message || `Layerified #${idx + 1} into Baker layers!`);
+            } else {
+              showToast("layerify", (res && res.message) || "Failed to layerify annotation");
+            }
+          } catch (err) {
+            showToast("layerify", "Layerify error: " + err.message);
+          }
+        });
+      }
+
+      const visBtn = row.querySelector(".btn-ann-vis");
+      if (visBtn) {
+        visBtn.addEventListener("click", async e => {
+          e.stopPropagation();
+          ann.visible = ann.visible === false ? true : false;
+          window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
+          renderAnnotationList();
+          await window.ImageBaker.canvasLayerify.syncAnnotationsToServer(false, `Toggled visibility`);
+        });
+      }
+
+      const delBtn = row.querySelector(".btn-ann-del");
+      if (delBtn) {
+        delBtn.addEventListener("click", async e => {
+          e.stopPropagation();
+          annotations.splice(idx, 1);
+          window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
+          renderAnnotationList();
+          await window.ImageBaker.canvasLayerify.syncAnnotationsToServer(true, `Deleted annotation`);
+        });
+      }
 
       container.appendChild(row);
     });
@@ -271,6 +324,41 @@
     } catch (err) {
       showToast("layerify", "Layerify error: " + err.message);
     }
+  }
+
+  let editCaptionIdx = null;
+
+  function openEditCaptionModal(idx) {
+    const annotations = state.layerify.annotations || [];
+    const ann = annotations[idx];
+    if (!ann) return;
+    editCaptionIdx = idx;
+
+    const title = document.getElementById("modal-edit-caption-title");
+    if (title) title.textContent = `Edit Region #${idx + 1}`;
+
+    const labelSelect = document.getElementById("select-edit-region-label");
+    const labelInput = document.getElementById("input-edit-region-label");
+    const captionInput = document.getElementById("input-edit-region-caption");
+
+    if (labelSelect) {
+      labelSelect.innerHTML = "";
+      (state.layerify?.labels || []).forEach(l => {
+        const opt = document.createElement("option");
+        opt.value = l.name;
+        opt.textContent = l.name;
+        if (l.name === ann.label) opt.selected = true;
+        labelSelect.appendChild(opt);
+      });
+      labelSelect.onchange = () => {
+        if (labelInput) labelInput.value = labelSelect.value;
+      };
+    }
+    if (labelInput) labelInput.value = ann.label || "";
+    if (captionInput) captionInput.value = ann.caption || "";
+
+    openModal("modal-edit-caption");
+    if (captionInput) setTimeout(() => captionInput.focus(), 60);
   }
 
   function openManageLabelsModal() {
@@ -768,6 +856,29 @@
         }
       });
     }
+
+    // Edit Caption & Label Modal Controls
+    const confirmEditCaption = document.getElementById("btn-confirm-edit-caption");
+    if (confirmEditCaption) {
+      confirmEditCaption.addEventListener("click", async () => {
+        if (editCaptionIdx === null) return;
+        const annotations = state.layerify.annotations || [];
+        const ann = annotations[editCaptionIdx];
+        if (!ann) return;
+        const newLbl = document.getElementById("input-edit-region-label")?.value.trim() || ann.label;
+        const newCap = document.getElementById("input-edit-region-caption")?.value.trim() || "";
+        ann.label = newLbl;
+        const known = (state.layerify?.labels || []).find(l => l.name === newLbl);
+        if (known) {
+          ann.color = known.color || utils.hexToRgb(known.color_hex);
+        }
+        ann.caption = newCap;
+        closeAllModals();
+        renderAnnotationList();
+        window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
+        await window.ImageBaker.canvasLayerify.syncAnnotationsToServer(true, `Updated region #${editCaptionIdx + 1}`);
+      });
+    }
   }
 
   window.ImageBaker = window.ImageBaker || {};
@@ -784,6 +895,7 @@
     runModelPrediction,
     runLayerifyAll,
     openManageLabelsModal,
+    openEditCaptionModal,
   };
 })(window);
 

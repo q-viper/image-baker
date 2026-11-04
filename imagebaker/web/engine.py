@@ -1446,7 +1446,7 @@ class WebAppEngine:
                 targets = [
                     ann
                     for ann in self.current_annotations
-                    if ann.annotation_id in target_ids and ann.visible
+                    if ann.annotation_id in target_ids
                 ]
             else:
                 selected = [ann for ann in self.current_annotations if ann.selected and ann.visible]

@@ -87,6 +87,15 @@
             const gridBtn = document.getElementById("btn-top-grid");
             if (gridBtn) gridBtn.click();
             break;
+          case "c":
+            e.preventDefault();
+            if (state.active_tab === "Layerify") {
+              const selIdx = (state.layerify.annotations || []).findIndex(a => a.selected);
+              if (selIdx >= 0) {
+                window.ImageBaker.uiLayerify.openEditCaptionModal(selIdx);
+              }
+            }
+            break;
           case "delete":
           case "backspace":
             e.preventDefault();
