@@ -23,6 +23,13 @@
     resizeLayerifyCanvas();
     bindCanvasEvents();
     bindHudEvents();
+
+    if (window.ResizeObserver && lyrCanvasWrap) {
+      const ro = new ResizeObserver(() => {
+        resizeLayerifyCanvas();
+      });
+      ro.observe(lyrCanvasWrap);
+    }
   }
 
   function resizeLayerifyCanvas() {

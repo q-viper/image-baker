@@ -21,6 +21,13 @@
 
     resizeBakerCanvas();
     bindCanvasEvents();
+
+    if (window.ResizeObserver && bkrCanvasWrap) {
+      const ro = new ResizeObserver(() => {
+        resizeBakerCanvas();
+      });
+      ro.observe(bkrCanvasWrap);
+    }
   }
 
   function resizeBakerCanvas() {
@@ -41,13 +48,16 @@
   }
 
   function getLayerImageElement(lyr) {
-    if (!lyr.thumb_url && !lyr.image_url) return null;
-    const url = lyr.image_url || lyr.thumb_url;
+    const url = lyr.image_url || lyr.thumb_url || lyr.thumbnail;
+    if (!url) return null;
     if (bkrView.layerImageCache.has(url)) {
       return bkrView.layerImageCache.get(url);
     }
     const img = new Image();
     img.onload = () => drawBakerCanvas();
+    img.onerror = () => {
+      console.warn("Failed to load layer image:", url);
+    };
     img.src = url;
     bkrView.layerImageCache.set(url, img);
     return img;
@@ -113,6 +123,19 @@
     if (!bkrCanvas || !bkrView.ctx) return;
     const ctx = bkrView.ctx;
     const dpr = window.devicePixelRatio || 1;
+
+    if (bkrCanvasWrap) {
+      const rect = bkrCanvasWrap.getBoundingClientRect();
+      const wrapW = Math.floor(rect.width);
+      const wrapH = Math.floor(rect.height);
+      const curCssW = bkrCanvas.width / dpr;
+      const curCssH = bkrCanvas.height / dpr;
+      if (wrapW > 10 && wrapH > 10 && (Math.abs(wrapW - curCssW) > 2 || Math.abs(wrapH - curCssH) > 2)) {
+        resizeBakerCanvas();
+        return;
+      }
+    }
+
     const cssW = bkrCanvas.width / dpr;
     const cssH = bkrCanvas.height / dpr;
 
@@ -188,6 +211,20 @@
           ctx.imageSmoothingQuality = "high";
         }
         ctx.drawImage(img, 0, 0);
+      } else {
+        ctx.save();
+        ctx.strokeStyle = "rgba(79, 140, 255, 0.65)";
+        ctx.lineWidth = 2 / Math.max(0.1, bkrView.zoom);
+        ctx.setLineDash([6, 4]);
+        ctx.fillStyle = "rgba(79, 140, 255, 0.12)";
+        ctx.fillRect(0, 0, lw, lh);
+        ctx.strokeRect(0, 0, lw, lh);
+        ctx.fillStyle = isDark ? "#ffffff" : "#1e293b";
+        ctx.font = `bold ${Math.max(12, Math.min(18, lw / 6))}px system-ui, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(lyr.layer_name || lyr.label || "Layer", lw / 2, lh / 2);
+        ctx.restore();
       }
 
       // Drawing strokes on layer
@@ -432,11 +469,79 @@
     }
   }
 
+  let lastFittedCanvasId = null;
+  let lastFittedLayerCount = -1;
+
+  function fitBakerLayersIfNeeded(force = false) {
+    if (!bkrCanvas || !bkrCanvasWrap) return;
+    const dpr = window.devicePixelRatio || 1;
+    const cw = bkrCanvas.width / dpr;
+    const ch = bkrCanvas.height / dpr;
+    if (cw <= 10 || ch <= 10) return;
+
+    const currentCanvasId = state.baker?.current_canvas_id;
+    const layers = state.baker?.layers || [];
+
+    if (!force && lastFittedCanvasId === currentCanvasId && lastFittedLayerCount === layers.length && (bkrView.zoom !== 1.0 || bkrView.offsetX !== 0 || bkrView.offsetY !== 0)) {
+      return;
+    }
+
+    lastFittedCanvasId = currentCanvasId;
+    lastFittedLayerCount = layers.length;
+
+    if (layers.length === 0) {
+      const targetW = 960;
+      const targetH = 640;
+      const fitZoom = Math.min((cw - 80) / targetW, (ch - 80) / targetH, 1.0);
+      bkrView.zoom = Math.max(0.2, fitZoom);
+      bkrView.offsetX = Math.round((cw - targetW * bkrView.zoom) / 2);
+      bkrView.offsetY = Math.round((ch - targetH * bkrView.zoom) / 2);
+      drawBakerCanvas();
+      return;
+    }
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    layers.forEach(lyr => {
+      if (lyr.visible === false) return;
+      const px = lyr.position ? lyr.position[0] : 0;
+      const py = lyr.position ? lyr.position[1] : 0;
+      const sx = lyr.scale_x ?? 1.0;
+      const sy = lyr.scale_y ?? 1.0;
+      const img = getLayerImageElement(lyr);
+      const lw = (lyr.width || (img && img.complete ? img.width : 200)) * sx;
+      const lh = (lyr.height || (img && img.complete ? img.height : 200)) * sy;
+
+      minX = Math.min(minX, px);
+      minY = Math.min(minY, py);
+      maxX = Math.max(maxX, px + lw);
+      maxY = Math.max(maxY, py + lh);
+    });
+
+    if (!isFinite(minX) || !isFinite(maxX)) {
+      minX = 0; minY = 0; maxX = 960; maxY = 640;
+    }
+
+    const boxW = Math.max(50, maxX - minX);
+    const boxH = Math.max(50, maxY - minY);
+    const padding = 60;
+    const scaleX = (cw - padding) / boxW;
+    const scaleY = (ch - padding) / boxH;
+    const fitZoom = Math.max(0.05, Math.min(scaleX, scaleY, 1.0));
+
+    bkrView.zoom = fitZoom;
+    const boxCenterX = minX + boxW / 2;
+    const boxCenterY = minY + boxH / 2;
+    bkrView.offsetX = Math.round(cw / 2 - boxCenterX * fitZoom);
+    bkrView.offsetY = Math.round(ch / 2 - boxCenterY * fitZoom);
+    drawBakerCanvas();
+  }
+
   window.ImageBaker = window.ImageBaker || {};
   window.ImageBaker.canvasBaker = {
     initBakerCanvas,
     resizeBakerCanvas,
     drawBakerCanvas,
+    fitBakerLayersIfNeeded,
     syncLayersToServer,
     startPlayingStates,
     stopPlayingStates,

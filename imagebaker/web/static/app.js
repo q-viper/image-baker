@@ -69,6 +69,11 @@
     if (el("view-baker")) el("view-baker").classList.toggle("active", activeTab === "Baker");
     if (el("view-help")) el("view-help").classList.toggle("active", activeTab === "Help");
 
+    if (activeTab === "Baker") {
+      canvasBaker.resizeBakerCanvas();
+      canvasBaker.fitBakerLayersIfNeeded();
+    }
+
     // 4. Status Bar
     const statusEl = el("status-bar-text");
     if (statusEl) {
@@ -127,8 +132,12 @@
 
     // 8. Canvas redrawing
     requestAnimationFrame(() => {
-      canvasLayerify.drawLayerifyCanvas();
-      canvasBaker.drawBakerCanvas();
+      if (activeTab === "Baker") {
+        canvasBaker.resizeBakerCanvas();
+        canvasBaker.drawBakerCanvas();
+      } else {
+        canvasLayerify.drawLayerifyCanvas();
+      }
     });
   }
 

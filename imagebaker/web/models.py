@@ -361,9 +361,13 @@ class WebCanvasItem:
         self.viewport_width = 960
         self.viewport_height = 640
 
-    def get_layer(self, layer_id: int) -> WebLayerItem | None:
+    def get_layer(self, layer_id: int | str) -> WebLayerItem | None:
+        try:
+            target_id = int(layer_id)
+        except (ValueError, TypeError):
+            target_id = None
         for layer in self.layers:
-            if layer.layer_id == layer_id:
+            if (target_id is not None and layer.layer_id == target_id) or str(layer.layer_id) == str(layer_id):
                 return layer
         return None
 

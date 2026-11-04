@@ -80,7 +80,11 @@
             break;
           case "f":
             e.preventDefault();
-            window.ImageBaker.canvasLayerify.fitLayerifyImageIfNeeded();
+            if (state.active_tab === "Layerify") {
+              window.ImageBaker.canvasLayerify.fitLayerifyImageIfNeeded();
+            } else if (state.active_tab === "Baker") {
+              window.ImageBaker.canvasBaker.fitBakerLayersIfNeeded(true);
+            }
             break;
           case "g":
             e.preventDefault();
@@ -107,6 +111,18 @@
                 window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
                 window.ImageBaker.uiLayerify.renderAnnotationList();
                 window.ImageBaker.canvasLayerify.syncAnnotationsToServer(true, "Deleted annotation(s)");
+              }
+            } else if (state.active_tab === "Baker") {
+              const layers = state.baker?.layers || [];
+              const sel = layers.find(l => l.selected);
+              if (sel) {
+                api.performBakerLayerAction("delete", { layer_id: sel.layer_id }).then(res => {
+                  if (res && res.state) {
+                    window.ImageBaker.applyServerState(res.state);
+                  }
+                }).catch(err => {
+                  console.error("Failed to delete selected layer:", err);
+                });
               }
             }
             break;

@@ -513,6 +513,74 @@ def test_real_world_workflows_example():
     run_all_scenarios()
 
 
+def test_web_layerify_icons_and_layer_deletion(tmp_path: Path):
+    """Test thumbnail icons, layer deletion via action and update_baker_layers sync."""
+    from PIL import Image as PILImage
+    from PySide6.QtCore import QPointF, QRectF
+    from imagebaker.core.defs import Annotation
+    from imagebaker.web.engine import WebAppEngine
+
+    img_path = tmp_path / "sample.png"
+    PILImage.new("RGB", (400, 300), color=(100, 150, 200)).save(str(img_path))
+
+    engine = WebAppEngine(project_dir=tmp_path)
+    engine.select_folder(str(tmp_path))
+
+    ann1 = Annotation(
+        label="Car",
+        rectangle=QRectF(10, 10, 80, 80),
+        annotation_id=1,
+    )
+    ann2 = Annotation(
+        label="Person",
+        rectangle=QRectF(100, 100, 50, 100),
+        annotation_id=2,
+    )
+    engine.current_annotations = [ann1, ann2]
+
+    # Layerify all annotations
+    ok, msg = engine.layerify_annotations()
+    assert ok is True
+    state = engine.get_state()
+    layers = state["baker"]["layers"]
+    assert len(layers) == 2
+
+    # Check icons: thumb_url, thumbnail, and image_url must be present
+    for lyr in layers:
+        assert "thumb_url" in lyr and lyr["thumb_url"]
+        assert "thumbnail" in lyr and lyr["thumbnail"]
+        assert "image_url" in lyr and lyr["image_url"]
+        assert lyr["thumb_url"].startswith("/api/baker/layer-image?")
+
+        # Check rendering png bytes
+        cid = state["baker"]["current_canvas_id"]
+        png_bytes = engine.get_baker_layer_png_bytes(cid, lyr["layer_id"])
+        assert png_bytes is not None
+        assert png_bytes[:8] == b"\x89PNG\r\n\x1a\n"
+
+    # Test get_layer with both int and str
+    first_id = layers[0]["layer_id"]
+    canvas = engine.current_canvas
+    assert canvas.get_layer(first_id) is not None
+    assert canvas.get_layer(str(first_id)) is not None
+    assert canvas.get_layer(99999) is None
+
+    # Test delete via baker_layer_action with string ID
+    ok, msg = engine.baker_layer_action({"action": "delete", "layer_id": str(first_id)})
+    assert ok is True
+    state = engine.get_state()
+    remaining = state["baker"]["layers"]
+    assert len(remaining) == 1
+    assert remaining[0]["layer_id"] == layers[1]["layer_id"]
+
+    # Test delete via update_baker_layers synchronization (omitted layers are removed)
+    ok, msg = engine.update_baker_layers([], push_undo=True, message="Deleted all")
+    assert ok is True
+    state = engine.get_state()
+    assert len(state["baker"]["layers"]) == 0
+    assert len(engine.current_canvas.layers) == 0
+
+
 if __name__ == "__main__":
     import tempfile
 

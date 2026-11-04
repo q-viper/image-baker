@@ -317,9 +317,11 @@
     try {
       showToast("layerify", "Layerifying all visible annotations...");
       const res = await api.layerifyAll(null);
-      if (res.ok && res.state) {
+      if (res && res.ok && res.state) {
         window.ImageBaker.applyServerState(res.state);
         showToast("layerify", res.message || "Layerified into Baker layers!");
+      } else {
+        showToast("layerify", (res && res.message) || "Failed to layerify annotations");
       }
     } catch (err) {
       showToast("layerify", "Layerify error: " + err.message);

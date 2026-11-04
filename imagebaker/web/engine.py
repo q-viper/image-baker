@@ -1651,6 +1651,17 @@ class WebAppEngine:
             if push_undo:
                 self.current_canvas.push_undo_state()
 
+            # Synchronize layer list membership & order
+            payload_lids = [
+                int(item["layer_id"])
+                for item in layers_payload
+                if "layer_id" in item and item["layer_id"] is not None
+            ]
+            id_map = {layer.layer_id: layer for layer in self.current_canvas.layers}
+            self.current_canvas.layers = [id_map[lid] for lid in payload_lids if lid in id_map]
+            for idx, layer in enumerate(self.current_canvas.layers):
+                layer.order = idx
+
             for item in layers_payload:
                 lid = int(item.get("layer_id", -1))
                 layer = self.current_canvas.get_layer(lid)
@@ -1819,7 +1830,7 @@ class WebAppEngine:
             elif action == "delete":
                 lid = payload.get("layer_id")
                 if lid is not None:
-                    targets = [lyr for lyr in canvas.layers if lyr.layer_id == int(lid)]
+                    targets = [lyr for lyr in canvas.layers if str(lyr.layer_id) == str(lid)]
                 else:
                     targets = [lyr for lyr in canvas.layers if lyr.selected]
                 if not targets:
@@ -1840,7 +1851,7 @@ class WebAppEngine:
                     self.save_baker_cache()
                 return ok, msg
 
-            elif action == "convert_ann_type":
+            elif action in ("convert_ann_type", "convert_annotation_type"):
                 ok, msg = self._convert_selected_annotation_type()
                 if ok:
                     self.save_baker_cache()
@@ -2805,6 +2816,7 @@ class WebAppEngine:
                             "image_revision": layer.revision,
                             "image_url": img_url,
                             "thumbnail": img_url,
+                            "thumb_url": img_url,
                         }
                     )
 

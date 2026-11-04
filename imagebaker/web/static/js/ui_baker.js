@@ -86,11 +86,13 @@
       layers.forEach((lyr, idx) => {
         const row = document.createElement("div");
         row.className = `list-item ${lyr.selected ? "selected" : ""}`;
+        const thumbSrc = lyr.thumb_url || lyr.thumbnail || lyr.image_url || "";
         row.innerHTML = `
-          <img class="item-thumb" src="${lyr.thumb_url || ''}" alt="${utils.escapeHtml(lyr.layer_name || lyr.name)}" />
+          <img class="item-thumb" src="${thumbSrc}" alt="${utils.escapeHtml(lyr.layer_name || lyr.name || '')}" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
+          <div class="item-thumb-fallback" style="display: ${thumbSrc ? 'none' : 'flex'}; width: 44px; height: 44px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;">🧅</div>
           <div class="item-text-col">
             <div class="item-title">${utils.escapeHtml(lyr.layer_name || lyr.name || `Layer ${idx + 1}`)}</div>
-            <div class="item-subtitle">${lyr.label || 'Unlabeled'}</div>
+            <div class="item-subtitle">${utils.escapeHtml(lyr.label || 'Unlabeled')}</div>
           </div>
           <div class="item-actions">
             <button class="icon-btn-xs btn-lyr-vis" title="Toggle layer visibility">${lyr.visible !== false ? "👀" : "🚫"}</button>
@@ -123,11 +125,20 @@
 
         row.querySelector(".btn-lyr-del").addEventListener("click", async e => {
           e.stopPropagation();
+          const targetId = lyr.layer_id;
           layers.splice(idx, 1);
           window.ImageBaker.canvasBaker.drawBakerCanvas();
           renderLayerLists();
           renderLayerSettings();
-          await window.ImageBaker.canvasBaker.syncLayersToServer(true, "Deleted layer");
+          try {
+            const res = await api.performBakerLayerAction("delete", { layer_id: targetId });
+            if (res && res.state) {
+              window.ImageBaker.applyServerState(res.state);
+            }
+          } catch (err) {
+            console.error("Delete layer action failed, syncing layers:", err);
+            await window.ImageBaker.canvasBaker.syncLayersToServer(true, "Deleted layer");
+          }
         });
 
         container.appendChild(row);
@@ -375,16 +386,18 @@
     }
 
     // Group Layers
-    const groupBtn = document.getElementById("btn-group-layers-baker") || document.getElementById("btn-group-layers-tool");
-    if (groupBtn) {
-      groupBtn.addEventListener("click", async () => {
-        const res = await api.performBakerLayerAction("group");
-        if (res.ok && res.state) {
-          window.ImageBaker.applyServerState(res.state);
-          showToast("baker", res.message || "Layers grouped");
-        }
-      });
-    }
+    ["btn-group-layers-baker", "btn-group-layers-tool", "btn-group-layers-layerify"].forEach(id => {
+      const groupBtn = document.getElementById(id);
+      if (groupBtn) {
+        groupBtn.addEventListener("click", async () => {
+          const res = await api.performBakerLayerAction("group");
+          if (res.ok && res.state) {
+            window.ImageBaker.applyServerState(res.state);
+            showToast("baker", res.message || "Layers grouped");
+          }
+        });
+      }
+    });
 
     // Convert Geometry
     const convBtn = document.getElementById("btn-convert-ann-type");
