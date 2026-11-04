@@ -67,6 +67,9 @@
     if (nextBtn) nextBtn.disabled = end >= total;
   }
 
+  let draggedItemIndex = null;
+  let draggedLayerId = null;
+
   function renderLayerLists() {
     const containers = [
       document.getElementById("baker-layer-list-items"),
@@ -86,8 +89,13 @@
       layers.forEach((lyr, idx) => {
         const row = document.createElement("div");
         row.className = `list-item ${lyr.selected ? "selected" : ""}`;
+        row.setAttribute("draggable", "true");
+        row.dataset.layerId = String(lyr.layer_id);
+        row.dataset.index = String(idx);
+
         const thumbSrc = lyr.thumb_url || lyr.thumbnail || lyr.image_url || "";
         row.innerHTML = `
+          <div class="item-drag-handle" title="Drag to reorder layer" style="cursor: grab; padding: 2px 4px; color: var(--text-dim); font-size: 14px; user-select: none;">⋮⋮</div>
           <img class="item-thumb" src="${thumbSrc}" alt="${utils.escapeHtml(lyr.layer_name || lyr.name || '')}" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
           <div class="item-thumb-fallback" style="display: ${thumbSrc ? 'none' : 'flex'}; width: 44px; height: 44px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;">🧅</div>
           <div class="item-text-col">
@@ -95,13 +103,15 @@
             <div class="item-subtitle">${utils.escapeHtml(lyr.label || 'Unlabeled')}</div>
           </div>
           <div class="item-actions">
+            <button class="icon-btn-xs btn-lyr-up" title="Move layer up (Bring Forward)" ${idx === 0 ? "disabled" : ""}>▲</button>
+            <button class="icon-btn-xs btn-lyr-down" title="Move layer down (Send Backward)" ${idx === layers.length - 1 ? "disabled" : ""}>▼</button>
             <button class="icon-btn-xs btn-lyr-vis" title="Toggle layer visibility">${lyr.visible !== false ? "👀" : "🚫"}</button>
             <button class="icon-btn-xs btn-lyr-del" title="Delete layer">🗑️</button>
           </div>
         `;
 
         row.addEventListener("click", e => {
-          if (e.target.closest(".btn-lyr-vis") || e.target.closest(".btn-lyr-del")) return;
+          if (e.target.closest(".item-actions") || e.target.closest(".item-drag-handle")) return;
           const multi = e.ctrlKey || e.metaKey || e.shiftKey;
           layers.forEach((l, i) => {
             if (multi) {
@@ -113,6 +123,118 @@
           window.ImageBaker.canvasBaker.drawBakerCanvas();
           renderLayerLists();
           renderLayerSettings();
+        });
+
+        // Move Up
+        const btnUp = row.querySelector(".btn-lyr-up");
+        if (btnUp) {
+          btnUp.addEventListener("click", async e => {
+            e.stopPropagation();
+            if (idx <= 0) return;
+            const targetId = lyr.layer_id;
+            const temp = layers[idx - 1];
+            layers[idx - 1] = layers[idx];
+            layers[idx] = temp;
+            layers.forEach((l, i) => l.order = i);
+
+            window.ImageBaker.canvasBaker.drawBakerCanvas();
+            renderLayerLists();
+            renderLayerSettings();
+
+            try {
+              const res = await api.reorderBakerLayers({ direction: "up", layer_id: targetId });
+              if (res && res.state) window.ImageBaker.applyServerState(res.state);
+            } catch (err) {
+              console.error("Move layer up failed:", err);
+            }
+          });
+        }
+
+        // Move Down
+        const btnDown = row.querySelector(".btn-lyr-down");
+        if (btnDown) {
+          btnDown.addEventListener("click", async e => {
+            e.stopPropagation();
+            if (idx >= layers.length - 1) return;
+            const targetId = lyr.layer_id;
+            const temp = layers[idx + 1];
+            layers[idx + 1] = layers[idx];
+            layers[idx] = temp;
+            layers.forEach((l, i) => l.order = i);
+
+            window.ImageBaker.canvasBaker.drawBakerCanvas();
+            renderLayerLists();
+            renderLayerSettings();
+
+            try {
+              const res = await api.reorderBakerLayers({ direction: "down", layer_id: targetId });
+              if (res && res.state) window.ImageBaker.applyServerState(res.state);
+            } catch (err) {
+              console.error("Move layer down failed:", err);
+            }
+          });
+        }
+
+        // Drag and Drop
+        row.addEventListener("dragstart", e => {
+          draggedItemIndex = idx;
+          draggedLayerId = lyr.layer_id;
+          row.classList.add("dragging");
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", String(lyr.layer_id));
+        });
+
+        row.addEventListener("dragend", () => {
+          row.classList.remove("dragging");
+          container.querySelectorAll(".list-item").forEach(el => {
+            el.classList.remove("drag-over-top", "drag-over-bottom");
+          });
+        });
+
+        row.addEventListener("dragover", e => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          const rect = row.getBoundingClientRect();
+          const isTopHalf = e.clientY < (rect.top + rect.height / 2);
+          row.classList.toggle("drag-over-top", isTopHalf);
+          row.classList.toggle("drag-over-bottom", !isTopHalf);
+        });
+
+        row.addEventListener("dragleave", () => {
+          row.classList.remove("drag-over-top", "drag-over-bottom");
+        });
+
+        row.addEventListener("drop", async e => {
+          e.preventDefault();
+          row.classList.remove("drag-over-top", "drag-over-bottom");
+          const fromIdx = draggedItemIndex;
+          if (fromIdx === null || fromIdx === undefined || fromIdx === idx) return;
+
+          const rect = row.getBoundingClientRect();
+          const insertBefore = e.clientY < (rect.top + rect.height / 2);
+          let targetIdx = insertBefore ? idx : idx + 1;
+          if (fromIdx < targetIdx) targetIdx--;
+
+          if (fromIdx === targetIdx) return;
+
+          const [moved] = layers.splice(fromIdx, 1);
+          layers.splice(targetIdx, 0, moved);
+          layers.forEach((l, i) => l.order = i);
+
+          window.ImageBaker.canvasBaker.drawBakerCanvas();
+          renderLayerLists();
+          renderLayerSettings();
+
+          try {
+            const newOrder = layers.map(l => l.layer_id);
+            const res = await api.reorderBakerLayers(newOrder);
+            if (res && res.state) {
+              window.ImageBaker.applyServerState(res.state);
+            }
+          } catch (err) {
+            console.error("Reorder failed:", err);
+            showToast("baker", "Failed to reorder: " + err.message);
+          }
         });
 
         row.querySelector(".btn-lyr-vis").addEventListener("click", async e => {

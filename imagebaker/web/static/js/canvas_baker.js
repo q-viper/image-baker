@@ -63,16 +63,18 @@
     return img;
   }
 
-  function getBakerLayerLocalHandles(lw, lh) {
+  function getBakerLayerLocalHandles(lw, lh, zoom = 1, sx = 1, sy = 1) {
+    const rotDist = 24 / (zoom * Math.max(0.2, sy));
     return [
-      { id: "nw", x: 0, y: 0 },
-      { id: "n", x: lw / 2, y: 0 },
-      { id: "ne", x: lw, y: 0 },
-      { id: "e", x: lw, y: lh / 2 },
-      { id: "se", x: lw, y: lh },
-      { id: "s", x: lw / 2, y: lh },
-      { id: "sw", x: 0, y: lh },
-      { id: "w", x: 0, y: lh / 2 },
+      { id: "nw", x: 0, y: 0, cursor: "nwse-resize", u: 1, v: 1 },
+      { id: "n", x: lw / 2, y: 0, cursor: "ns-resize", u: 0.5, v: 1 },
+      { id: "ne", x: lw, y: 0, cursor: "nesw-resize", u: 0, v: 1 },
+      { id: "e", x: lw, y: lh / 2, cursor: "ew-resize", u: 0, v: 0.5 },
+      { id: "se", x: lw, y: lh, cursor: "nwse-resize", u: 0, v: 0 },
+      { id: "s", x: lw / 2, y: lh, cursor: "ns-resize", u: 0.5, v: 0 },
+      { id: "sw", x: 0, y: lh, cursor: "nesw-resize", u: 1, v: 0 },
+      { id: "w", x: 0, y: lh / 2, cursor: "ew-resize", u: 1, v: 0.5 },
+      { id: "rot", x: lw / 2, y: -rotDist, cursor: "grab", isRotate: true },
     ];
   }
 
@@ -85,25 +87,43 @@
       const img = getLayerImageElement(lyr);
       const lw = lyr.width || (img && img.complete ? img.width : 100);
       const lh = lyr.height || (img && img.complete ? img.height : 100);
-      const localPt = sceneToLayerLocal(scenePt, lyr);
+      const sx = lyr.scale_x ?? 1.0;
+      const sy = lyr.scale_y ?? 1.0;
+      const localPt = sceneToLayerLocal(scenePt, lyr, lw, lh);
 
-      // Check center rotation handle if selected
       if (lyr.selected) {
-        if (Math.hypot(localPt.x - lw / 2, localPt.y - lh / 2) <= 12 / bkrView.zoom) {
-          return { layerId: lyr.layer_id, part: "rotate", handleId: "center" };
+        const rotDist = 24 / (bkrView.zoom * Math.max(0.2, sy));
+        const handleRadius = 14 / (bkrView.zoom * Math.min(Math.max(0.2, sx), Math.max(0.2, sy)));
+
+        // Top rotation handle
+        if (Math.hypot(localPt.x - lw / 2, localPt.y - (-rotDist)) <= handleRadius) {
+          return { layerId: lyr.layer_id, part: "rotate", handleId: "rot", cursor: "grab" };
         }
-        // Check 8 scale handles
-        const handles = getBakerLayerLocalHandles(lw, lh);
+        // Center rotation handle
+        if (Math.hypot(localPt.x - lw / 2, localPt.y - lh / 2) <= handleRadius * 0.75) {
+          return { layerId: lyr.layer_id, part: "rotate", handleId: "center", cursor: "grab" };
+        }
+
+        // 8 scale handles
+        const handles = getBakerLayerLocalHandles(lw, lh, bkrView.zoom, sx, sy);
         for (const h of handles) {
-          if (Math.hypot(localPt.x - h.x, localPt.y - h.y) <= 10 / bkrView.zoom) {
-            return { layerId: lyr.layer_id, part: "scale", handleId: h.id };
+          if (h.isRotate) continue;
+          if (Math.hypot(localPt.x - h.x, localPt.y - h.y) <= handleRadius) {
+            return {
+              layerId: lyr.layer_id,
+              part: "scale",
+              handleId: h.id,
+              cursor: h.cursor,
+              u: h.u,
+              v: h.v,
+            };
           }
         }
       }
 
       // Check body
       if (localPt.x >= 0 && localPt.x <= lw && localPt.y >= 0 && localPt.y <= lh) {
-        return { layerId: lyr.layer_id, part: "body" };
+        return { layerId: lyr.layer_id, part: "body", cursor: CURSORS.MOVE || "move" };
       }
     }
     return null;
@@ -242,26 +262,52 @@
         });
       }
 
-      // Selection bounding box, 8 scale handles, and center rotation handle
+      // Selection bounding box, 8 scale handles, and rotation handles
       if (lyr.selected) {
         ctx.globalAlpha = 1.0;
         ctx.save();
         ctx.setLineDash([5 / (bkrView.zoom * sx), 4 / (bkrView.zoom * sx)]);
-        ctx.strokeStyle = "#ffffff";
+        ctx.strokeStyle = "#38bdf8";
         ctx.lineWidth = 1.5 / (bkrView.zoom * Math.max(0.2, sx));
         ctx.strokeRect(0, 0, lw, lh);
         ctx.restore();
 
-        const hSize = 8 / (bkrView.zoom * Math.max(0.2, sx));
-        const handles = getBakerLayerLocalHandles(lw, lh);
-        ctx.fillStyle = "#2f80ed";
+        const hSize = 9 / (bkrView.zoom * Math.max(0.2, sx));
+        const rotDist = 24 / (bkrView.zoom * Math.max(0.2, sy));
+        const handles = getBakerLayerLocalHandles(lw, lh, bkrView.zoom, sx, sy);
+
+        // Draw top rotation stalk
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(lw / 2, 0);
+        ctx.lineTo(lw / 2, -rotDist);
+        ctx.strokeStyle = "#10b981";
+        ctx.lineWidth = 1.5 / (bkrView.zoom * Math.max(0.2, sx));
+        ctx.stroke();
+
+        // Top rotation handle
+        ctx.beginPath();
+        ctx.arc(lw / 2, -rotDist, hSize * 0.75, 0, Math.PI * 2);
+        ctx.fillStyle = "#10b981";
+        ctx.fill();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 1.5 / (bkrView.zoom * Math.max(0.2, sx));
+        ctx.stroke();
+        ctx.restore();
+
+        // 8 scale handles
         handles.forEach(hp => {
+          if (hp.isRotate) return;
+          ctx.fillStyle = "#38bdf8";
           ctx.fillRect(hp.x - hSize / 2, hp.y - hSize / 2, hSize, hSize);
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 1.5 / (bkrView.zoom * Math.max(0.2, sx));
+          ctx.strokeRect(hp.x - hSize / 2, hp.y - hSize / 2, hSize, hSize);
         });
 
-        // Center rotation handle
+        // Center rotation/anchor handle
         ctx.beginPath();
-        ctx.arc(lw / 2, lh / 2, hSize * 0.75, 0, Math.PI * 2);
+        ctx.arc(lw / 2, lh / 2, hSize * 0.6, 0, Math.PI * 2);
         ctx.fillStyle = "#10b981";
         ctx.fill();
         ctx.strokeStyle = "#ffffff";
@@ -307,9 +353,34 @@
         layers.forEach(l => {
           l.selected = (l.layer_id === hit.layerId);
         });
+        const lyr = layers.find(l => l.layer_id === hit.layerId);
+        const img = getLayerImageElement(lyr);
+        const lw = lyr.width || (img && img.complete ? img.width : 100);
+        const lh = lyr.height || (img && img.complete ? img.height : 100);
+        const sx = lyr.scale_x ?? 1.0;
+        const sy = lyr.scale_y ?? 1.0;
+        const posX = lyr.position ? lyr.position[0] : 0;
+        const posY = lyr.position ? lyr.position[1] : 0;
+        const cx = (lw * sx) / 2;
+        const cy = (lh * sy) / 2;
+
         bkrView.draggingLayerId = hit.layerId;
         bkrView.activeHandle = hit.part === "scale" || hit.part === "rotate" ? hit.handleId : null;
         bkrView.dragStartScene = { ...scenePt };
+        bkrView.dragStartTransform = {
+          position: [posX, posY],
+          rotation: lyr.rotation ?? 0,
+          scale_x: sx,
+          scale_y: sy,
+          width: lw,
+          height: lh,
+          centerScene: { x: posX + cx, y: posY + cy },
+          startScenePt: { ...scenePt },
+          initialAngle: Math.atan2(scenePt.y - (posY + cy), scenePt.x - (posX + cx)),
+          u: hit.u ?? 0.5,
+          v: hit.v ?? 0.5,
+          part: hit.part,
+        };
         drawBakerCanvas();
         window.ImageBaker.uiBaker.renderLayerSettings();
         window.ImageBaker.uiBaker.renderLayerLists();
@@ -317,6 +388,8 @@
         // Deselect all
         (state.baker.layers || []).forEach(l => l.selected = false);
         bkrView.draggingLayerId = null;
+        bkrView.activeHandle = null;
+        bkrView.dragStartTransform = null;
         drawBakerCanvas();
         window.ImageBaker.uiBaker.renderLayerSettings();
         window.ImageBaker.uiBaker.renderLayerLists();
@@ -329,6 +402,7 @@
       const sy = e.clientY - rect.top;
       const sceneX = (sx - bkrView.offsetX) / bkrView.zoom;
       const sceneY = (sy - bkrView.offsetY) / bkrView.zoom;
+      const scenePt = { x: sceneX, y: sceneY };
       bkrView.sceneMouseX = sceneX;
       bkrView.sceneMouseY = sceneY;
       bkrView.isMouseOver = true;
@@ -345,21 +419,120 @@
         return;
       }
 
-      if (bkrView.draggingLayerId && bkrView.dragStartScene) {
-        const dx = sceneX - bkrView.dragStartScene.x;
-        const dy = sceneY - bkrView.dragStartScene.y;
+      if (!bkrView.draggingLayerId && !bkrView.isPanning) {
+        if (e.ctrlKey || e.metaKey || e.spaceKey) {
+          bkrCanvas.style.cursor = CURSORS.PAN;
+        } else {
+          const hit = hitTestBakerLayer(scenePt);
+          bkrCanvas.style.cursor = hit ? (hit.cursor || CURSORS.MOVE || "move") : CURSORS.IDLE;
+        }
+      }
+
+      if (bkrView.draggingLayerId && bkrView.dragStartTransform) {
+        const start = bkrView.dragStartTransform;
         const layers = state.baker.layers || [];
         const lyr = layers.find(l => l.layer_id === bkrView.draggingLayerId);
         if (lyr) {
-          if (!bkrView.activeHandle) {
+          if (!bkrView.activeHandle || start.part === "body") {
+            const dx = sceneX - start.startScenePt.x;
+            const dy = sceneY - start.startScenePt.y;
             lyr.position = [
-              (lyr.position ? lyr.position[0] : 0) + dx,
-              (lyr.position ? lyr.position[1] : 0) + dy
+              Math.round(start.position[0] + dx),
+              Math.round(start.position[1] + dy)
             ];
+            requestDrawBaker();
+            window.ImageBaker.uiBaker.renderLayerSettings();
+          } else if (start.part === "rotate") {
+            const curAngle = Math.atan2(sceneY - start.centerScene.y, sceneX - start.centerScene.x);
+            const deltaAngle = (curAngle - start.initialAngle) * (180 / Math.PI);
+            let newRot = Math.round(((start.rotation + deltaAngle) % 360 + 360) % 360 * 10) / 10;
+            if (e.shiftKey) {
+              newRot = Math.round(newRot / 15) * 15;
+            }
+            lyr.rotation = ((newRot % 360) + 360) % 360;
+            requestDrawBaker();
+            window.ImageBaker.uiBaker.renderLayerSettings();
+          } else if (start.part === "scale") {
+            const dxScene = sceneX - start.startScenePt.x;
+            const dyScene = sceneY - start.startScenePt.y;
+            const rotRad = (start.rotation * Math.PI) / 180;
+            const cosR = Math.cos(rotRad);
+            const sinR = Math.sin(rotRad);
+
+            // Project delta into local unrotated layer axes
+            const dxLocal = dxScene * cosR + dyScene * sinR;
+            const dyLocal = -dxScene * sinR + dyScene * cosR;
+
+            let newSx = start.scale_x;
+            let newSy = start.scale_y;
+            const origW = start.width;
+            const origH = start.height;
+
+            const hid = bkrView.activeHandle;
+            if (hid === "se") {
+              newSx = start.scale_x + dxLocal / origW;
+              newSy = start.scale_y + dyLocal / origH;
+            } else if (hid === "nw") {
+              newSx = start.scale_x - dxLocal / origW;
+              newSy = start.scale_y - dyLocal / origH;
+            } else if (hid === "ne") {
+              newSx = start.scale_x + dxLocal / origW;
+              newSy = start.scale_y - dyLocal / origH;
+            } else if (hid === "sw") {
+              newSx = start.scale_x - dxLocal / origW;
+              newSy = start.scale_y + dyLocal / origH;
+            } else if (hid === "e") {
+              newSx = start.scale_x + dxLocal / origW;
+            } else if (hid === "w") {
+              newSx = start.scale_x - dxLocal / origW;
+            } else if (hid === "s") {
+              newSy = start.scale_y + dyLocal / origH;
+            } else if (hid === "n") {
+              newSy = start.scale_y - dyLocal / origH;
+            }
+
+            if (e.shiftKey && (hid === "se" || hid === "nw" || hid === "ne" || hid === "sw")) {
+              const scaleFactor = Math.max(newSx / start.scale_x, newSy / start.scale_y);
+              newSx = start.scale_x * scaleFactor;
+              newSy = start.scale_y * scaleFactor;
+            }
+
+            newSx = Math.max(0.05, Math.min(20.0, Math.round(newSx * 1000) / 1000));
+            newSy = Math.max(0.05, Math.min(20.0, Math.round(newSy * 1000) / 1000));
+
+            // Compute anchor scene coordinates at drag start
+            const u = start.u;
+            const v = start.v;
+            const cx0 = (origW * start.scale_x) / 2;
+            const cy0 = (origH * start.scale_y) / 2;
+            const offX0 = (u - 0.5) * origW * start.scale_x;
+            const offY0 = (v - 0.5) * origH * start.scale_y;
+            const rotOffX0 = offX0 * cosR - offY0 * sinR;
+            const rotOffY0 = offX0 * sinR + offY0 * cosR;
+            const anchorSceneX = start.position[0] + cx0 + rotOffX0;
+            const anchorSceneY = start.position[1] + cy0 + rotOffY0;
+
+            // Compute new center and top-left position from fixed anchor
+            const cxNew = (origW * newSx) / 2;
+            const cyNew = (origH * newSy) / 2;
+            const offXNew = (u - 0.5) * origW * newSx;
+            const offYNew = (v - 0.5) * origH * newSy;
+            const rotOffXNew = offXNew * cosR - offYNew * sinR;
+            const rotOffYNew = offXNew * sinR + offYNew * cosR;
+
+            const centerNewX = anchorSceneX - rotOffXNew;
+            const centerNewY = anchorSceneY - rotOffYNew;
+
+            lyr.scale_x = newSx;
+            lyr.scale_y = newSy;
+            lyr.position = [
+              Math.round((centerNewX - cxNew) * 10) / 10,
+              Math.round((centerNewY - cyNew) * 10) / 10
+            ];
+
+            requestDrawBaker();
+            window.ImageBaker.uiBaker.renderLayerSettings();
           }
-          bkrView.dragStartScene = { x: sceneX, y: sceneY };
-          requestDrawBaker();
-          window.ImageBaker.uiBaker.renderLayerSettings();
         }
       }
     });
@@ -378,6 +551,7 @@
       if (bkrView.draggingLayerId) {
         bkrView.draggingLayerId = null;
         bkrView.dragStartScene = null;
+        bkrView.dragStartTransform = null;
         bkrView.activeHandle = null;
         await syncLayersToServer(true, "Updated layer transform");
       }

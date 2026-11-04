@@ -139,8 +139,16 @@
       });
     },
 
-    async reorderBakerLayers(order) {
-      return await apiPost("/api/baker/layers/reorder", { order });
+    async reorderBakerLayers(orderOrPayload) {
+      let payload;
+      if (typeof orderOrPayload === "string") {
+        payload = { direction: orderOrPayload };
+      } else if (Array.isArray(orderOrPayload)) {
+        payload = { order: orderOrPayload };
+      } else {
+        payload = orderOrPayload;
+      }
+      return await apiPost("/api/baker/layers/reorder", payload);
     },
 
     async performBakerLayerAction(action, extra = {}) {

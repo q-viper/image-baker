@@ -560,10 +560,46 @@ def test_web_layerify_icons_and_layer_deletion(tmp_path: Path):
 
     # Test get_layer with both int and str
     first_id = layers[0]["layer_id"]
+    second_id = layers[1]["layer_id"]
     canvas = engine.current_canvas
     assert canvas.get_layer(first_id) is not None
     assert canvas.get_layer(str(first_id)) is not None
     assert canvas.get_layer(99999) is None
+
+    # Test layer sorting/reordering via order array with string IDs
+    ok, msg = engine.reorder_baker_layers({"order": [str(second_id), str(first_id)]})
+    assert ok is True
+    reordered = engine.get_state()["baker"]["layers"]
+    assert reordered[0]["layer_id"] == second_id
+    assert reordered[1]["layer_id"] == first_id
+
+    # Test layer sorting/reordering via direction with specific layer_id
+    ok, msg = engine.reorder_baker_layers({"direction": "up", "layer_id": str(first_id)})
+    assert ok is True
+    reordered2 = engine.get_state()["baker"]["layers"]
+    assert reordered2[0]["layer_id"] == first_id
+    assert reordered2[1]["layer_id"] == second_id
+
+    # Test gizmo transform updates (position, scale_x, scale_y, rotation)
+    transform_payload = [
+        {
+            "layer_id": first_id,
+            "position": [150.0, 220.0],
+            "scale_x": 1.75,
+            "scale_y": 2.25,
+            "rotation": 45.0,
+        },
+        {
+            "layer_id": second_id,
+        },
+    ]
+    ok, msg = engine.update_baker_layers(transform_payload, push_undo=True, message="Gizmo transform")
+    assert ok is True
+    lyr1_state = next(l for l in engine.get_state()["baker"]["layers"] if l["layer_id"] == first_id)
+    assert lyr1_state["position"] == [150.0, 220.0]
+    assert lyr1_state["scale_x"] == 1.75
+    assert lyr1_state["scale_y"] == 2.25
+    assert lyr1_state["rotation"] == 45.0
 
     # Test delete via baker_layer_action with string ID
     ok, msg = engine.baker_layer_action({"action": "delete", "layer_id": str(first_id)})

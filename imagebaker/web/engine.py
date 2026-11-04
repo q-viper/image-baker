@@ -1742,8 +1742,8 @@ class WebAppEngine:
 
             if "order" in payload and isinstance(payload["order"], list):
                 self.current_canvas.push_undo_state()
-                id_map = {layer.layer_id: layer for layer in layers}
-                new_layers = [id_map[int(lid)] for lid in payload["order"] if int(lid) in id_map]
+                id_map = {str(layer.layer_id): layer for layer in layers}
+                new_layers = [id_map[str(lid)] for lid in payload["order"] if str(lid) in id_map]
                 for layer in layers:
                     if layer not in new_layers:
                         new_layers.append(layer)
@@ -1755,7 +1755,11 @@ class WebAppEngine:
                 return True, self.last_message
 
             direction = payload.get("direction", "up")
-            selected = next((lyr for lyr in layers if lyr.selected), None)
+            lid = payload.get("layer_id")
+            if lid is not None:
+                selected = next((lyr for lyr in layers if str(lyr.layer_id) == str(lid)), None)
+            else:
+                selected = next((lyr for lyr in layers if lyr.selected), None)
             if selected is None:
                 return False, "Select a layer to move."
             self.current_canvas.push_undo_state()

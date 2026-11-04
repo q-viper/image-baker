@@ -172,23 +172,27 @@
     };
   }
 
-  function sceneToLayerLocal(scenePt, lyr) {
+  function sceneToLayerLocal(scenePt, lyr, lw = null, lh = null) {
     const px = lyr.position ? lyr.position[0] : 0;
     const py = lyr.position ? lyr.position[1] : 0;
     const rot = (lyr.rotation || 0) * (Math.PI / 180.0);
-    const sx = lyr.scale ? lyr.scale[0] : 1.0;
-    const sy = lyr.scale ? lyr.scale[1] : 1.0;
+    const sx = lyr.scale_x ?? (lyr.scale ? lyr.scale[0] : 1.0);
+    const sy = lyr.scale_y ?? (lyr.scale ? lyr.scale[1] : 1.0);
+    const w = lw || lyr.width || 100;
+    const h = lh || lyr.height || 100;
+    const cx = (w * sx) / 2;
+    const cy = (h * sy) / 2;
 
-    const dx = scenePt.x - px;
-    const dy = scenePt.y - py;
-    const cosA = Math.cos(-rot);
-    const sinA = Math.sin(-rot);
-    const unrotX = dx * cosA - dy * sinA;
-    const unrotY = dx * sinA + dy * cosA;
+    const tx = scenePt.x - (px + cx);
+    const ty = scenePt.y - (py + cy);
+    const cosA = Math.cos(rot);
+    const sinA = Math.sin(rot);
+    const unrotX = tx * cosA + ty * sinA;
+    const unrotY = -tx * sinA + ty * cosA;
 
     return {
-      x: unrotX / (sx || 1.0),
-      y: unrotY / (sy || 1.0),
+      x: (unrotX + cx) / (sx || 1.0),
+      y: (unrotY + cy) / (sy || 1.0),
     };
   }
 

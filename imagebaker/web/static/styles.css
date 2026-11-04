@@ -892,6 +892,14 @@ body.resizing-sidebar * {
   opacity: 0.5;
 }
 
+.list-item.drag-over-top {
+  border-top: 2px solid var(--accent) !important;
+}
+
+.list-item.drag-over-bottom {
+  border-bottom: 2px solid var(--accent) !important;
+}
+
 .item-thumb {
   width: 44px;
   height: 44px;

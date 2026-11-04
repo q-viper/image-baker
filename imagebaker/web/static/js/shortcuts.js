@@ -91,6 +91,34 @@
             const gridBtn = document.getElementById("btn-top-grid");
             if (gridBtn) gridBtn.click();
             break;
+          case "arrowup":
+          case "w":
+            if (e.ctrlKey || e.metaKey) {
+              e.preventDefault();
+              if (state.active_tab === "Baker") {
+                const sel = (state.baker.layers || []).find(l => l.selected);
+                if (sel) {
+                  api.reorderBakerLayers({ direction: "up", layer_id: sel.layer_id }).then(res => {
+                    if (res && res.state) window.ImageBaker.applyServerState(res.state);
+                  });
+                }
+              }
+            }
+            break;
+          case "arrowdown":
+          case "s":
+            if (e.ctrlKey || e.metaKey) {
+              e.preventDefault();
+              if (state.active_tab === "Baker") {
+                const sel = (state.baker.layers || []).find(l => l.selected);
+                if (sel) {
+                  api.reorderBakerLayers({ direction: "down", layer_id: sel.layer_id }).then(res => {
+                    if (res && res.state) window.ImageBaker.applyServerState(res.state);
+                  });
+                }
+              }
+            }
+            break;
           case "c":
             e.preventDefault();
             if (state.active_tab === "Layerify") {
