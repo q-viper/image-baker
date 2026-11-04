@@ -865,8 +865,8 @@ set QT_QPA_PLATFORM=offscreen     # Windows
 
 ## Contributing
 
-Contributions are welcome! See [CONTRIBUTING](../CONTRIBUTING) for guidelines.
+Contributions are welcome! See [CONTRIBUTING](https://github.com/q-viper/image-baker/blob/main/CONTRIBUTING) for guidelines.
 
 ## License
 
-MIT License - see [LICENSE](../LICENSE) for details.
+MIT License - see [LICENSE](https://github.com/q-viper/image-baker/blob/main/LICENSE) for details.

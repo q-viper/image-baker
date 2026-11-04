@@ -154,4 +154,4 @@ Contributions are welcome!
 
 Do you find this project to be useful and are you looking for some features that are not implemented yet? Feel free to open issues or submit pull requests to improve the project.
 
-For more please visit [CONTRIBUTING](CONTRIBUTING).
+For more please visit [CONTRIBUTING](https://github.com/q-viper/image-baker/blob/main/CONTRIBUTING).

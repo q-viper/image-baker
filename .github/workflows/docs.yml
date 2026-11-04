@@ -2,10 +2,12 @@ name: Build and Deploy Documentation
 
 on:
   push:
-    branches:
-      - main
-    tags:  # Trigger on tag pushes as well
+    tags:  # Trigger the workflow only on tag pushes
       - "*"  # Match all tags
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   build-docs:
