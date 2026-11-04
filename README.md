@@ -1,6 +1,9 @@
 # Image-Baker
 
-**ImageBaker currently runs only on Windows machines. Linux and macOS are not supported.**
+> [!NOTE]
+> This project started as a fun personal project, but now I am actively **vibecoding** it!
+> The most stable version for the Windows desktop app is [0.0.64](https://pypi.org/project/imagebaker/0.0.64/).
+> If you are on Linux, macOS, or want a modern, cross-platform Label Studio-like experience with zero OS headaches, use the new standalone **Web Version** (`imagebaker web`).
 
 ![Dependabot Status](https://img.shields.io/badge/dependabot-active-brightgreen)
 ![GitHub License](https://img.shields.io/github/license/q-viper/image-baker)
@@ -28,74 +31,68 @@ The concept involves extracting portions of an image (e.g., objects of interest)
 
 ## Getting Started
 
-ImageBaker can be used in three ways:
+ImageBaker can be used in four ways:
 
-1. **GUI Application** - Visual interface for interactive image composition
-2. **CLI Tool** - Command-line interface for automation and scripting
-3. **Python Library** - Programmatic API for integration into your projects
+1. **🌐 Web Application** (`imagebaker web`) - Modern, responsive browser interface running across **Linux, macOS, and Windows** with Label Studio-inspired UX, draggable sidebars, model text prompt prediction, and real-time compositing.
+2. **🖥️ Desktop Application** (`imagebaker gui`) - Native Qt desktop interface (Windows & Linux).
+3. **⌨️ CLI Tool** (`imagebaker cli`) - Command-line interface for batch baking, configuration execution, and automation.
+4. **🐍 Python Library & PyTorch Dataset** - Programmatic API with on-the-fly PyTorch dataset synthesis (`ImageBakerDataset`, `extract_baked_dataset`) and multi-format exports (`COCO`, `YOLO`, `DEFAULT`).
 
 ### Installation
+
 #### Using PIP
-This project is also available on the PyPI server.
+This project is available on PyPI:
 
 ```bash
+# Standard installation
 pip install imagebaker
+
+# Install with model extras
+pip install "imagebaker[yolo]"       # Ultralytics YOLO detection & segmentation
+pip install "imagebaker[rfdetr]"     # RF-DETR detection & instance segmentation
+pip install "imagebaker[sam2]"       # Segment Anything 2 (SAM 2)
+pip install "imagebaker[plugins]"    # Optional plugins (e.g. SmokeSim)
+pip install "imagebaker[all]"        # All models & plugins combined
 ```
 
-SmokeSim is optional. Install the additional plugins with:
+#### Developing Locally
+Clone this repository and install it locally in editable mode:
 
 ```bash
-pip install "imagebaker[plugins]"
-```
-
-Without the `plugins` extra, ImageBaker runs normally and simply omits the
-SmokeSim plugin.
-
-#### Developing
-Please, clone this repository and install it locally:
-
-**For Windows users:**
-```powershell
 git clone https://github.com/q-viper/image-baker.git
 cd image-baker
-python -m venv .venv       # create a virtual environment
-.venv\Scripts\activate     # activate the virtual environment
-pip install -e .
-```
-
-To develop with the optional plugins:
-
-```powershell
-pip install -e ".[plugins]"
+python -m venv .venv
+source .venv/bin/activate       # On Windows: .venv\Scripts\activate
+pip install -e ".[all]"
 ```
 
 ### Usage
 
-#### 🖥️ GUI Mode
-Launch the visual interface for interactive work:
+#### 🌐 Web Mode (Cross-Platform: Linux, macOS, Windows)
+Launch the standalone browser-based application with Label Studio-inspired UX and zero OS dependencies:
+
+```bash
+# Launch web server and automatically open in your default browser
+imagebaker web
+
+# Specify custom host, port, project directory, and models file
+imagebaker web --host 127.0.0.1 --port 8765 --project-dir . --models-file examples/loaded_models.py
+```
+
+#### 🖥️ Desktop GUI Mode
+Launch the native Qt visual interface:
+
 ```bash
 # Simple launch (default)
 imagebaker
 
-# Or with explicit gui command
-imagebaker gui
-
-# With models
+# Explicit GUI command with models
 imagebaker gui --models-file examples/loaded_models.py
 ```
 
-#### 🌐 Web Mode (Cross-Platform: Linux, macOS, Windows)
-Launch the standalone browser-based application with full feature parity:
-```bash
-# Launch web server and open in default browser
-imagebaker web
-
-# Specify host, port, project directory, and models file
-imagebaker web --host 127.0.0.1 --port 8765 --project-dir . --models-file examples/loaded_models.py
-```
-
 #### ⌨️ CLI Mode
-Automate image composition from the command line:
+Automate image composition and dataset baking from the command line:
+
 ```bash
 # Simple composition
 imagebaker cli bake simple bg.png fg.png -o output.png \
@@ -111,40 +108,56 @@ imagebaker cli info image.png
 imagebaker cli version
 ```
 
-#### 🐍 Python API
-Integrate into your projects programmatically:
-```python
-from imagebaker import ImageBaker
+#### 🐍 Python API & PyTorch Integration
+Integrate ImageBaker into your training loops and pipelines:
 
+```python
+from imagebaker import ImageBaker, ImageBakerDataset, extract_baked_dataset, AnnotationFormat
+
+# 1. Programmatic layer compositing and baking
 baker = ImageBaker()
 layer1 = baker.add_layer_from_file("background.png")
 layer2 = baker.add_layer_from_file("foreground.png")
 baker.set_layer_position(layer2, 100, 100)
 baker.set_layer_opacity(layer2, 0.7)
-
 result = baker.bake()
 baker.save(result, "output.png")
+
+# 2. PyTorch Dataset integration with on-the-fly sample synthesis
+dataset = ImageBakerDataset(
+    cache_dir=".imagebaker/cache",
+    format=AnnotationFormat.COCO,  # AnnotationFormat.COCO, AnnotationFormat.YOLO, AnnotationFormat.DEFAULT
+    split="train",
+    split_ratio=(0.8, 0.1, 0.1),
+    samples_per_epoch=1000,
+    seed=42,
+)
+image_tensor, target = dataset[0]
+
+# 3. Batch export cached baking sessions to disk
+extract_baked_dataset(
+    cache_dir=".imagebaker/cache",
+    output_dir="./synthetic_dataset",
+    annotation_format=AnnotationFormat.YOLO,
+    train_ratio=0.8,
+    val_ratio=0.1,
+    test_ratio=0.1,
+)
 ```
 
 **📚 Documentation:**
 - [Quick Start Guide](docs/QUICKSTART.md) - Get started in 5 minutes
 - [Full API Reference](docs/api-usage.md) - Comprehensive documentation
-- [Implementation Details](docs/API_IMPLEMENTATION.md) - Technical details
-
-**🎨 Examples:**
-- GUI: Traditional visual interface (unchanged)
-- CLI: `examples/bake_config.py` - Configuration file example
-- API: `examples/api_example.py` - Full Python example
-- Samples: `assets/demo/api_samples/` - Generated outputs
+- [Examples & Models](docs/examples.md) - Examples for YOLO, RF-DETR, SAM 2, and PyTorch dataset synthesis
 
 ## Features
-- **Annotating Images**: Load a folder of images and annotate them using bounding boxes or polygons.
-- **Model Testing**: Define models for detection, segmentation, and prompts (e.g., points or rectangles) by following the base model structure in [imagebaker/models/base_model.py](https://github.com/q-viper/image-baker/blob/main/imagebaker/models/base_model.py). See [examples/loaded_models.py](https://github.com/q-viper/image-baker/blob/main/examples/loaded_models.py) for a working example.
-- **Layerifying**: Crop images based on annotations to create reusable layers. Each cropped image represents a single layer.
-- **Baking States**: Arrange layers to create image variations by dragging, rotating, adjusting opacity, and more. Save the state using the Save State button or Ctrl + S.
-- **Playing States**: Replay saved states, export them locally, or use them for further predictions.
-- **Exporting States**: Export the final annotated JSON and the baked multilayer image.
-- **Drawing On Layers**: First select a layer then draw upon it. Only selected layer will be drawn. And if no layers are selected, then the drawing will not be exported.
+- **Cross-Platform Annotation Studio**: Run either via the standalone Web interface (`imagebaker web`) or native desktop UI (`imagebaker gui`), featuring Label Studio-style interactive label chips, draggable sidebar splitters, and persistent user configuration.
+- **AI Model Prediction & Text Prompts**: Run AI model inferences (YOLO, RF-DETR detection & instance segmentation, SAM 2) with optional text prompts (e.g. `"pedestrian"`, `"car"`) directly from the UI or code.
+- **Layerifying**: Crop images based on annotations into reusable compositing layers with single-click or "Layerify All" batch processing.
+- **Multi-Format Annotation Support**: Import and export annotations seamlessly across **COCO**, **YOLO**, and ImageBaker **Default** JSON formats using the `AnnotationFormat` enum.
+- **Baking Timeline States**: Compose multiple layers with transforms (translation, scaling, rotation, edge width/opacity), interpolate states, randomize variations, and preview playback.
+- **On-the-Fly PyTorch Dataset**: `ImageBakerDataset` inherits from `torch.utils.data.Dataset`, dynamically synthesizing realistic labeled training samples on the fly with reproducible train/val/test splits and layer constraints.
+- **Layer Drawing & Erasing**: Draw and erase directly onto selected layers to add details or manual masks before baking.
 
 ### Shortcuts
 * **Ctrl + C**: Copy selected annotation/layer.
