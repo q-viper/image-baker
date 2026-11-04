@@ -20,6 +20,7 @@
     lyrView.ctx = lyrCanvas.getContext("2d");
     lyrView.wrap = lyrCanvasWrap;
 
+    resizeLayerifyCanvas();
     bindCanvasEvents();
     bindHudEvents();
   }
@@ -27,11 +28,16 @@
   function resizeLayerifyCanvas() {
     if (!lyrCanvas || !lyrCanvasWrap) return;
     const rect = lyrCanvasWrap.getBoundingClientRect();
-    const w = Math.max(10, Math.floor(rect.width));
-    const h = Math.max(10, Math.floor(rect.height));
-    if (lyrCanvas.width !== w || lyrCanvas.height !== h) {
-      lyrCanvas.width = w;
-      lyrCanvas.height = h;
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = Math.max(10, Math.floor(rect.width));
+    const cssH = Math.max(10, Math.floor(rect.height));
+    const targetW = Math.round(cssW * dpr);
+    const targetH = Math.round(cssH * dpr);
+    if (lyrCanvas.width !== targetW || lyrCanvas.height !== targetH) {
+      lyrCanvas.width = targetW;
+      lyrCanvas.height = targetH;
+      lyrCanvas.style.width = `${cssW}px`;
+      lyrCanvas.style.height = `${cssH}px`;
       drawLayerifyCanvas();
     }
   }
@@ -39,8 +45,9 @@
   function fitLayerifyImageIfNeeded() {
     if (!lyrView.img || lyrView.img.width <= 0 || lyrView.img.height <= 0) return;
     if (!lyrCanvas) return;
-    const cw = lyrCanvas.width;
-    const ch = lyrCanvas.height;
+    const dpr = window.devicePixelRatio || 1;
+    const cw = lyrCanvas.width / dpr;
+    const ch = lyrCanvas.height / dpr;
     if (cw <= 0 || ch <= 0) return;
 
     const scaleX = (cw - 60) / lyrView.img.width;
@@ -225,8 +232,12 @@
   function drawLayerifyCanvas() {
     if (!lyrCanvas || !lyrView.ctx) return;
     const ctx = lyrView.ctx;
-    const w = lyrCanvas.width;
-    const h = lyrCanvas.height;
+    const dpr = window.devicePixelRatio || 1;
+    const w = lyrCanvas.width / dpr;
+    const h = lyrCanvas.height / dpr;
+
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     ctx.clearRect(0, 0, w, h);
     lyrView.labelPillRects = [];
@@ -236,12 +247,36 @@
     ctx.fillStyle = isDark ? "#0d131d" : "#e2e8f0";
     ctx.fillRect(0, 0, w, h);
 
-    // 1. Draw Image
+    // 1. Draw Image with original full resolution & high-quality interpolation
     if (lyrView.img && lyrView.img.complete && lyrView.img.width > 0) {
       const sw = lyrView.img.width * lyrView.zoom;
       const sh = lyrView.img.height * lyrView.zoom;
-      ctx.imageSmoothingEnabled = lyrView.zoom < 2.5;
-      ctx.drawImage(lyrView.img, lyrView.offsetX, lyrView.offsetY, sw, sh);
+      const isExact1to1 = Math.abs(lyrView.zoom - 1.0) < 0.001;
+      const isPixelInspection = lyrView.zoom >= 2.0;
+
+      if (isExact1to1) {
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(
+          lyrView.img,
+          Math.round(lyrView.offsetX),
+          Math.round(lyrView.offsetY),
+          lyrView.img.width,
+          lyrView.img.height
+        );
+      } else if (isPixelInspection) {
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(
+          lyrView.img,
+          Math.round(lyrView.offsetX),
+          Math.round(lyrView.offsetY),
+          Math.round(sw),
+          Math.round(sh)
+        );
+      } else {
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(lyrView.img, lyrView.offsetX, lyrView.offsetY, sw, sh);
+      }
     } else {
       ctx.fillStyle = isDark ? "#475569" : "#94a3b8";
       ctx.font = "14px system-ui, sans-serif";
@@ -449,6 +484,8 @@
       ctx.stroke();
       ctx.restore();
     }
+
+    ctx.restore();
   }
 
   function setLayerifyMode(mode) {

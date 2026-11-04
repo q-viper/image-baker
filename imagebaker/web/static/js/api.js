@@ -33,6 +33,10 @@
     apiGet,
     apiPost,
 
+    async getState() {
+      return await apiGet("/api/state");
+    },
+
     async fetchState() {
       return await apiGet("/api/state");
     },

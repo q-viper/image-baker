@@ -359,15 +359,6 @@
       });
     }
 
-    const quickAddBtn = document.getElementById("btn-quick-add-label");
-    if (quickAddBtn) {
-      quickAddBtn.addEventListener("click", () => {
-        const nameInput = document.getElementById("input-new-label-name");
-        if (nameInput) nameInput.value = "";
-        openModal("modal-add-label");
-      });
-    }
-
     const quickColorBtn = document.getElementById("btn-quick-label-color");
     const colorPicker = document.getElementById("input-label-color-picker");
     if (quickColorBtn && colorPicker) {
@@ -474,6 +465,10 @@
     renderImageList,
     renderAnnotationList,
     renderLabelAndModelControls,
+    renderLabelChips: renderLabelAndModelControls,
+    renderModelSelector: renderLabelAndModelControls,
+    showLoading: (text) => window.ImageBaker.showLayerifyLoading && window.ImageBaker.showLayerifyLoading(text),
+    hideLoading: () => window.ImageBaker.hideLayerifyLoading && window.ImageBaker.hideLayerifyLoading(),
     selectLabelAndMaybeAssign,
     runModelPrediction,
     runLayerifyAll,

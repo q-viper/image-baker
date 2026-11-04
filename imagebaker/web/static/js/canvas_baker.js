@@ -19,17 +19,23 @@
     bkrView.ctx = bkrCanvas.getContext("2d");
     bkrView.wrap = bkrCanvasWrap;
 
+    resizeBakerCanvas();
     bindCanvasEvents();
   }
 
   function resizeBakerCanvas() {
     if (!bkrCanvas || !bkrCanvasWrap) return;
     const rect = bkrCanvasWrap.getBoundingClientRect();
-    const w = Math.max(10, Math.floor(rect.width));
-    const h = Math.max(10, Math.floor(rect.height));
-    if (bkrCanvas.width !== w || bkrCanvas.height !== h) {
-      bkrCanvas.width = w;
-      bkrCanvas.height = h;
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = Math.max(10, Math.floor(rect.width));
+    const cssH = Math.max(10, Math.floor(rect.height));
+    const targetW = Math.round(cssW * dpr);
+    const targetH = Math.round(cssH * dpr);
+    if (bkrCanvas.width !== targetW || bkrCanvas.height !== targetH) {
+      bkrCanvas.width = targetW;
+      bkrCanvas.height = targetH;
+      bkrCanvas.style.width = `${cssW}px`;
+      bkrCanvas.style.height = `${cssH}px`;
       drawBakerCanvas();
     }
   }
@@ -96,14 +102,18 @@
   function drawBakerCanvas() {
     if (!bkrCanvas || !bkrView.ctx) return;
     const ctx = bkrView.ctx;
-    const w = bkrCanvas.width;
-    const h = bkrCanvas.height;
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = bkrCanvas.width / dpr;
+    const cssH = bkrCanvas.height / dpr;
 
-    ctx.clearRect(0, 0, w, h);
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    ctx.clearRect(0, 0, cssW, cssH);
 
     const isDark = state.theme_mode === "dark";
     ctx.fillStyle = isDark ? "#0d131d" : "#e2e8f0";
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillRect(0, 0, cssW, cssH);
 
     const layers = state.baker.layers || [];
 
@@ -113,7 +123,7 @@
         ? { x: bkrView.sceneMouseX * bkrView.zoom + bkrView.offsetX, y: bkrView.sceneMouseY * bkrView.zoom + bkrView.offsetY }
         : null;
       grid.drawGridlines(
-        ctx, w, h, bkrView.offsetX, bkrView.offsetY, bkrView.zoom,
+        ctx, cssW, cssH, bkrView.offsetX, bkrView.offsetY, bkrView.zoom,
         hoverPt,
         state.baker.current_canvas ? state.baker.current_canvas.width || 1280 : 1280,
         state.baker.current_canvas ? state.baker.current_canvas.height || 720 : 720
@@ -125,7 +135,8 @@
       ctx.fillStyle = isDark ? "#475569" : "#94a3b8";
       ctx.font = "14px system-ui, sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("Layerify annotations or click 'Add Blank Layer' to composite here.", w / 2, h / 2);
+      ctx.fillText("Layerify annotations or click 'Add Blank Layer' to composite here.", cssW / 2, cssH / 2);
+      ctx.restore();
       ctx.restore();
       return;
     }
@@ -158,6 +169,14 @@
       ctx.scale(sx, sy);
 
       if (img && img.complete && img.naturalWidth > 0) {
+        const isExact1to1 = Math.abs(bkrView.zoom * sx - 1.0) < 0.001 && Math.abs(bkrView.zoom * sy - 1.0) < 0.001 && rotRad === 0;
+        const isPixelInspection = (bkrView.zoom * sx) >= 2.0;
+        if (isExact1to1 || isPixelInspection) {
+          ctx.imageSmoothingEnabled = false;
+        } else {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+        }
         ctx.drawImage(img, 0, 0);
       }
 
@@ -206,6 +225,7 @@
       ctx.restore();
     });
 
+    ctx.restore();
     ctx.restore();
   }
 

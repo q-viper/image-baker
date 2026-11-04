@@ -84,8 +84,7 @@
     canvasLayerify.syncLayerifyImage(lyr);
     uiLayerify.renderImageList();
     uiLayerify.renderAnnotationList();
-    uiLayerify.renderLabelChips();
-    uiLayerify.renderModelSelector();
+    uiLayerify.renderLabelAndModelControls();
 
     // 6. Baker Subsystem
     const bkr = state.baker || {};

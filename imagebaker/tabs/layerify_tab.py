@@ -1620,11 +1620,6 @@ class LayerifyTab(QWidget):
         self.label_combo.currentIndexChanged.connect(self.handle_label_change)
         row1_layout.addWidget(self.label_combo)
 
-        add_label_btn = QPushButton("+ Label")
-        add_label_btn.setToolTip("Add a new class label")
-        add_label_btn.clicked.connect(self.add_new_label)
-        row1_layout.addWidget(add_label_btn)
-
         color_btn = QPushButton("🎨")
         color_btn.setToolTip("Change color of active label")
         color_btn.clicked.connect(self.choose_color)
