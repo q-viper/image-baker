@@ -421,6 +421,23 @@
   }
 
   function bindBakerActionButtons() {
+    const canvasPrevBtn = document.getElementById("canvas-prev-btn");
+    const canvasNextBtn = document.getElementById("canvas-next-btn");
+    if (canvasPrevBtn) {
+      canvasPrevBtn.addEventListener("click", () => {
+        if (canvasPage > 0) {
+          canvasPage--;
+          renderCanvasList();
+        }
+      });
+    }
+    if (canvasNextBtn) {
+      canvasNextBtn.addEventListener("click", () => {
+        canvasPage++;
+        renderCanvasList();
+      });
+    }
+
     const createBtn = document.getElementById("btn-create-canvas");
     if (createBtn) {
       createBtn.addEventListener("click", () => {
@@ -447,6 +464,9 @@
       saveStateBtn.addEventListener("click", async () => {
         const steps = parseInt(document.getElementById("input-bake-steps")?.value || "1", 10);
         showToast("baker", "Saving state...");
+        if (window.ImageBaker.canvasBaker?.syncLayersToServer) {
+          await window.ImageBaker.canvasBaker.syncLayersToServer(false, "");
+        }
         const res = await api.manageStates({ action: "save", steps });
         if (res.ok && res.state) {
           window.ImageBaker.applyServerState(res.state);
@@ -471,7 +491,7 @@
     const playBtn = document.getElementById("btn-play-states");
     if (playBtn) {
       playBtn.addEventListener("click", () => {
-        if (state.baker.is_playing) {
+        if (bkrView.isPlaying || state.baker.is_playing) {
           window.ImageBaker.canvasBaker.stopPlayingStates();
         } else {
           window.ImageBaker.canvasBaker.startPlayingStates();
@@ -483,6 +503,7 @@
     if (clearStatesBtn) {
       clearStatesBtn.addEventListener("click", async () => {
         if (!confirm("Clear all saved states on this canvas?")) return;
+        window.ImageBaker.canvasBaker.stopPlayingStates();
         const res = await api.manageStates({ action: "clear" });
         if (res.ok && res.state) {
           window.ImageBaker.applyServerState(res.state);
@@ -494,6 +515,9 @@
     const timelineSlider = document.getElementById("slider-state-timeline");
     if (timelineSlider) {
       timelineSlider.addEventListener("input", async () => {
+        if (bkrView.isPlaying) {
+          window.ImageBaker.canvasBaker.stopPlayingStates();
+        }
         const step = parseInt(timelineSlider.value, 10);
         const res = await api.manageStates({ action: "seek", step });
         if (res.ok && res.state) {
@@ -523,6 +547,9 @@
     if (annotateStatesBtn) {
       annotateStatesBtn.addEventListener("click", async () => {
         showToast("baker", "Baking states to Layerify tab...");
+        if (window.ImageBaker.canvasBaker?.syncLayersToServer) {
+          await window.ImageBaker.canvasBaker.syncLayersToServer(false, "");
+        }
         const res = await api.exportBaker("annotate_states");
         if (res.ok && res.state) {
           window.ImageBaker.applyServerState(res.state);
@@ -608,6 +635,9 @@
       predictStateBtn.addEventListener("click", async e => {
         e.currentTarget.blur();
         showToast("baker", "Baking state & running prediction...");
+        if (window.ImageBaker.canvasBaker?.syncLayersToServer) {
+          await window.ImageBaker.canvasBaker.syncLayersToServer(false, "");
+        }
         const res = await api.exportBaker("predict_state");
         if (res.ok && res.state) {
           window.ImageBaker.applyServerState(res.state);
@@ -671,6 +701,9 @@
         if (bkrView.drawingMode) bkrView.eraseMode = false;
         drawModeBtn.classList.toggle("active", bkrView.drawingMode);
         if (eraseModeBtn) eraseModeBtn.classList.toggle("active", bkrView.eraseMode);
+        if (bkrView.canvas && window.ImageBaker.CURSORS) {
+          bkrView.canvas.style.cursor = bkrView.drawingMode ? window.ImageBaker.CURSORS.DRAW : window.ImageBaker.CURSORS.IDLE;
+        }
         window.ImageBaker.canvasBaker.drawBakerCanvas();
       });
     }
@@ -681,6 +714,9 @@
         if (bkrView.eraseMode) bkrView.drawingMode = false;
         eraseModeBtn.classList.toggle("active", bkrView.eraseMode);
         if (drawModeBtn) drawModeBtn.classList.toggle("active", bkrView.drawingMode);
+        if (bkrView.canvas && window.ImageBaker.CURSORS) {
+          bkrView.canvas.style.cursor = bkrView.eraseMode ? window.ImageBaker.CURSORS.ERASE : window.ImageBaker.CURSORS.IDLE;
+        }
         window.ImageBaker.canvasBaker.drawBakerCanvas();
       });
     }
@@ -739,24 +775,38 @@
   }
 
   function openExportPrompt(mode, title, desc) {
-    const titleEl = document.getElementById("baker-export-prompt-title");
-    const descEl = document.getElementById("baker-export-prompt-desc");
+    const titleEl = document.getElementById("modal-baker-export-title") || document.getElementById("baker-export-prompt-title");
+    const descEl = document.getElementById("modal-baker-export-desc") || document.getElementById("baker-export-prompt-desc");
     if (titleEl) titleEl.textContent = title;
     if (descEl) descEl.textContent = desc;
 
-    const confirmBtn = document.getElementById("btn-confirm-baker-export");
+    const confirmBtn = document.getElementById("btn-baker-export-confirm") || document.getElementById("btn-confirm-baker-export");
     if (confirmBtn) {
       confirmBtn.onclick = async () => {
         const fmt = document.getElementById("select-baker-export-format")?.value || "default";
-        const download = Boolean(document.getElementById("cb-baker-download-zip")?.checked);
         closeAllModals();
         showToast("baker", `Exporting ${mode} (${fmt.toUpperCase()})...`);
+        if (window.ImageBaker.canvasBaker?.syncLayersToServer) {
+          await window.ImageBaker.canvasBaker.syncLayersToServer(false, "");
+        }
         const res = await api.exportBaker(mode, fmt);
         if (res.ok) {
-          showToast("baker", res.message || "Export complete");
-          if (download && res.download_url) {
-            window.location.href = res.download_url;
+          if (res.state) {
+            window.ImageBaker.applyServerState(res.state);
           }
+          showToast("baker", res.message || "Export complete");
+          if (res.download_url) {
+            const link = document.createElement("a");
+            link.href = res.download_url;
+            if (res.download_filename) {
+              link.download = res.download_filename;
+            }
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+          }
+        } else {
+          showToast("baker", res.message || "Export failed");
         }
       };
     }

@@ -19,12 +19,27 @@
     return inside;
   }
 
-  function distToSegment(px, py, x1, y1, x2, y2) {
-    const l2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
-    if (l2 === 0) return Math.hypot(px - x1, py - y1);
-    let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
+  function projectPointToSegment(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const l2 = dx * dx + dy * dy;
+    if (l2 === 0) {
+      return { x: x1, y: y1, t: 0, dist: Math.hypot(px - x1, py - y1) };
+    }
+    let t = ((px - x1) * dx + (py - y1) * dy) / l2;
     t = Math.max(0, Math.min(1, t));
-    return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1)));
+    const projX = x1 + t * dx;
+    const projY = y1 + t * dy;
+    return {
+      x: projX,
+      y: projY,
+      t,
+      dist: Math.hypot(px - projX, py - projY),
+    };
+  }
+
+  function distToSegment(px, py, x1, y1, x2, y2) {
+    return projectPointToSegment(px, py, x1, y1, x2, y2).dist;
   }
 
   function roundRect(ctx, x, y, w, h, r) {
@@ -132,7 +147,120 @@
     ];
   }
 
+  function encodeMaskToRLE(uint8Data, width, height, stride = 1, offset = 0) {
+    const total = (width | 0) * (height | 0);
+    if (total <= 0 || !uint8Data) return [];
+    const counts = [];
+    let currentVal = 0;
+    let runLen = 0;
+    for (let i = 0; i < total; i++) {
+      const bit = uint8Data[i * stride + offset] > 0 ? 1 : 0;
+      if (bit === currentVal) {
+        runLen++;
+      } else {
+        counts.push(runLen);
+        currentVal = bit;
+        runLen = 1;
+      }
+    }
+    counts.push(runLen);
+    return counts;
+  }
+
+  function decodeRLEToBinary(rle, width, height) {
+    const w = width | 0;
+    const h = height | 0;
+    const total = w * h;
+    const grid = new Uint8Array(Math.max(0, total));
+    if (!rle || !rle.length || total <= 0) return grid;
+    let idx = 0;
+    let val = 0;
+    for (let i = 0; i < rle.length; i++) {
+      const count = rle[i] | 0;
+      if (val === 1 && count > 0) {
+        grid.fill(1, idx, Math.min(total, idx + count));
+      }
+      idx += count;
+      val = 1 - val;
+      if (idx >= total) break;
+    }
+    return grid;
+  }
+
+  function decodeRLEToImageData(rle, width, height, colorRgb, alpha = 215) {
+    const w = Math.max(1, width | 0);
+    const h = Math.max(1, height | 0);
+    const imgData = new ImageData(w, h);
+    const data = imgData.data;
+    if (!rle || !rle.length) return imgData;
+    const [r, g, b] = colorRgb || [47, 128, 237];
+    const total = w * h;
+    let idx = 0;
+    let val = 0;
+    for (let i = 0; i < rle.length; i++) {
+      const count = rle[i] | 0;
+      if (val === 1 && count > 0) {
+        const end = Math.min(total, idx + count);
+        for (let p = idx; p < end; p++) {
+          const off = p * 4;
+          data[off] = r;
+          data[off + 1] = g;
+          data[off + 2] = b;
+          data[off + 3] = alpha;
+        }
+      }
+      idx += count;
+      val = 1 - val;
+      if (idx >= total) break;
+    }
+    return imgData;
+  }
+
+  function computeMaskBBoxFromRLE(rle, width, height) {
+    const w = width | 0;
+    const h = height | 0;
+    const total = w * h;
+    if (!rle || !rle.length || total <= 0) return null;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -1;
+    let maxY = -1;
+    let idx = 0;
+    let val = 0;
+    for (let i = 0; i < rle.length; i++) {
+      const count = rle[i] | 0;
+      if (val === 1 && count > 0) {
+        const start = idx;
+        const end = Math.min(total - 1, idx + count - 1);
+        const startY = Math.floor(start / w);
+        const endY = Math.floor(end / w);
+        if (startY < minY) minY = startY;
+        if (endY > maxY) maxY = endY;
+        if (startY === endY) {
+          const sx = start % w;
+          const ex = end % w;
+          if (sx < minX) minX = sx;
+          if (ex > maxX) maxX = ex;
+        } else {
+          minX = 0;
+          maxX = w - 1;
+        }
+      }
+      idx += count;
+      val = 1 - val;
+      if (idx >= total) break;
+    }
+    if (maxX < minX || maxY < minY) return null;
+    return [minX, minY, maxX + 1, maxY + 1];
+  }
+
   function getAnnotationAnchorPoint(ann) {
+    if (ann.brush_bbox && ann.brush_bbox.length === 4 && (!ann.polygon || ann.polygon.length === 0) && !ann.rectangle) {
+      return {
+        x: ann.brush_bbox[0] + (ann.mask_offset_x || 0),
+        y: ann.brush_bbox[1] + (ann.mask_offset_y || 0),
+      };
+    }
     if (ann.rectangle) {
       return { x: ann.rectangle[0], y: ann.rectangle[1] };
     }
@@ -149,6 +277,12 @@
     }
     if (ann.points && ann.points.length > 0) {
       return { x: ann.points[0][0], y: ann.points[0][1] };
+    }
+    if (ann.brush_bbox && ann.brush_bbox.length === 4) {
+      return {
+        x: ann.brush_bbox[0] + (ann.mask_offset_x || 0),
+        y: ann.brush_bbox[1] + (ann.mask_offset_y || 0),
+      };
     }
     return { x: 0, y: 0 };
   }
@@ -174,9 +308,23 @@
         Math.max(0, Math.min(maxH, pt[1] + dy))
       ]);
     }
-    if (ann.has_mask || ann.mask_png_b64) {
-      ann.mask_offset_x = (ann.mask_offset_x || 0) + dx;
-      ann.mask_offset_y = (ann.mask_offset_y || 0) + dy;
+    if (ann.has_mask || ann.mask_png_b64 || (ann.rle && ann.rle.length > 0)) {
+      let effDx = dx;
+      let effDy = dy;
+      if (ann.brush_bbox && ann.brush_bbox.length === 4) {
+        const curOffX = ann.mask_offset_x || 0;
+        const curOffY = ann.mask_offset_y || 0;
+        const bx1 = ann.brush_bbox[0] + curOffX;
+        const by1 = ann.brush_bbox[1] + curOffY;
+        const bx2 = ann.brush_bbox[2] + curOffX;
+        const by2 = ann.brush_bbox[3] + curOffY;
+        if (bx1 + effDx < 0) effDx = -bx1;
+        if (bx2 + effDx > maxW) effDx = maxW - bx2;
+        if (by1 + effDy < 0) effDy = -by1;
+        if (by2 + effDy > maxH) effDy = maxH - by2;
+      }
+      ann.mask_offset_x = (ann.mask_offset_x || 0) + effDx;
+      ann.mask_offset_y = (ann.mask_offset_y || 0) + effDy;
     }
   }
 
@@ -185,6 +333,7 @@
   window.ImageBaker.escapeHtml = escapeHtml;
   window.ImageBaker.utils = {
     pointInPolygon,
+    projectPointToSegment,
     distToSegment,
     roundRect,
     rgbToHex,
@@ -195,6 +344,10 @@
     getDiagCrossPattern,
     svgCursor,
     getRectHandles,
+    encodeMaskToRLE,
+    decodeRLEToBinary,
+    decodeRLEToImageData,
+    computeMaskBBoxFromRLE,
     getAnnotationAnchorPoint,
     moveAnnotationByDelta,
   };

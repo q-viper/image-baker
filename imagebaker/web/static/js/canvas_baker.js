@@ -334,8 +334,8 @@
       const sceneY = (sy - bkrView.offsetY) / bkrView.zoom;
       const scenePt = { x: sceneX, y: sceneY };
 
-      const isPanModifier = e.button === 1 || (e.button === 0 && (e.spaceKey || e.ctrlKey || e.metaKey));
-      if (isPanModifier) {
+      const isImmediatePan = e.button === 1 || (e.button === 0 && e.spaceKey);
+      if (isImmediatePan) {
         bkrView.isPanning = true;
         bkrView.panStartX = sx;
         bkrView.panStartY = sy;
@@ -351,14 +351,30 @@
       if (hit) {
         const layers = state.baker.layers || [];
         const multi = e.ctrlKey || e.metaKey || e.shiftKey;
-        layers.forEach(l => {
-          if (multi) {
-            if (l.layer_id === hit.layerId) l.selected = !l.selected;
-          } else {
-            l.selected = (l.layer_id === hit.layerId);
-          }
-        });
         const lyr = layers.find(l => l.layer_id === hit.layerId);
+        if (!lyr) return;
+
+        if (multi) {
+          lyr.selected = !lyr.selected;
+          if (!lyr.selected) {
+            bkrView.draggingLayerId = null;
+            bkrView.activeHandle = null;
+            bkrView.dragStartTransform = null;
+            drawBakerCanvas();
+            window.ImageBaker.uiBaker.renderLayerSettings();
+            window.ImageBaker.uiBaker.renderLayerLists();
+            syncLayersToServer(false, "Toggled layer selection");
+            return;
+          }
+        } else {
+          // If clicking an already-selected layer's body when multiple are selected, keep the multi-selection so they move together
+          if (!lyr.selected || (hit.part && hit.part !== "body")) {
+            layers.forEach(l => {
+              l.selected = (l.layer_id === hit.layerId);
+            });
+          }
+        }
+
         const img = getLayerImageElement(lyr);
         const lw = lyr.width || (img && img.complete ? img.width : 100);
         const lh = lyr.height || (img && img.complete ? img.height : 100);
@@ -394,8 +410,18 @@
         drawBakerCanvas();
         window.ImageBaker.uiBaker.renderLayerSettings();
         window.ImageBaker.uiBaker.renderLayerLists();
-        syncLayersToServer(false, "Selected layer");
+        bkrView.hasMovedDuringDrag = false;
       } else {
+        // Ctrl/Cmd + drag on empty space pans the Baker canvas
+        if (e.ctrlKey || e.metaKey) {
+          bkrView.isPanning = true;
+          bkrView.panStartX = sx;
+          bkrView.panStartY = sy;
+          bkrView.panStartOffX = bkrView.offsetX;
+          bkrView.panStartOffY = bkrView.offsetY;
+          bkrCanvas.style.cursor = CURSORS.PAN_ACTIVE;
+          return;
+        }
         // Deselect all
         (state.baker.layers || []).forEach(l => l.selected = false);
         bkrView.draggingLayerId = null;
@@ -434,6 +460,10 @@
       if (!bkrView.draggingLayerId && !bkrView.isPanning) {
         if (e.ctrlKey || e.metaKey || e.spaceKey) {
           bkrCanvas.style.cursor = CURSORS.PAN;
+        } else if (bkrView.drawingMode || bkrView.drawMode) {
+          bkrCanvas.style.cursor = CURSORS.DRAW;
+        } else if (bkrView.eraseMode) {
+          bkrCanvas.style.cursor = CURSORS.ERASE;
         } else {
           const hit = hitTestBakerLayer(scenePt);
           bkrCanvas.style.cursor = hit ? (hit.cursor || CURSORS.MOVE || "move") : CURSORS.IDLE;
@@ -441,6 +471,7 @@
       }
 
       if (bkrView.draggingLayerId && bkrView.dragStartTransform) {
+        bkrView.hasMovedDuringDrag = true;
         const start = bkrView.dragStartTransform;
         const layers = state.baker.layers || [];
         const lyr = layers.find(l => l.layer_id === bkrView.draggingLayerId);
@@ -573,16 +604,68 @@
       }
 
       if (bkrView.draggingLayerId) {
+        const clickedLayerId = bkrView.draggingLayerId;
+        const moved = Boolean(bkrView.hasMovedDuringDrag);
+        const multi = e && (e.ctrlKey || e.metaKey || e.shiftKey);
         bkrView.draggingLayerId = null;
         bkrView.dragStartScene = null;
         bkrView.dragStartTransform = null;
         bkrView.activeHandle = null;
-        await syncLayersToServer(true, "Updated layer transform");
+        bkrView.hasMovedDuringDrag = false;
+        if (moved) {
+          await syncLayersToServer(true, "Updated layer transform");
+        } else {
+          if (!multi) {
+            const layers = state.baker.layers || [];
+            layers.forEach(l => {
+              l.selected = (l.layer_id === clickedLayerId);
+            });
+            drawBakerCanvas();
+            window.ImageBaker.uiBaker.renderLayerSettings();
+            window.ImageBaker.uiBaker.renderLayerLists();
+          }
+          await syncLayersToServer(false, "Selected layer");
+        }
       }
     };
 
     bkrCanvas.addEventListener("pointerup", stopDrag);
     bkrCanvas.addEventListener("pointercancel", stopDrag);
+
+    bkrCanvas.addEventListener("contextmenu", e => {
+      e.preventDefault();
+      if (bkrView.drawingMode || bkrView.eraseMode) {
+        bkrView.drawingMode = false;
+        bkrView.eraseMode = false;
+        const drawBtn = document.getElementById("btn-draw-mode");
+        const eraseBtn = document.getElementById("btn-erase-mode");
+        if (drawBtn) drawBtn.classList.remove("active");
+        if (eraseBtn) eraseBtn.classList.remove("active");
+      }
+      const rect = bkrCanvas.getBoundingClientRect();
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
+      const sceneX = (sx - bkrView.offsetX) / bkrView.zoom;
+      const sceneY = (sy - bkrView.offsetY) / bkrView.zoom;
+      const hit = hitTestBakerLayer({ x: sceneX, y: sceneY });
+      if (!hit) {
+        const layers = state.baker.layers || [];
+        if (layers.some(l => l.selected)) {
+          layers.forEach(l => {
+            l.selected = false;
+          });
+          bkrView.draggingLayerId = null;
+          bkrView.activeHandle = null;
+          bkrView.dragStartTransform = null;
+          drawBakerCanvas();
+          window.ImageBaker.uiBaker.renderLayerSettings();
+          window.ImageBaker.uiBaker.renderLayerLists();
+          syncLayersToServer(false, "Deselected all layers");
+          return;
+        }
+      }
+      drawBakerCanvas();
+    });
 
     bkrCanvas.addEventListener("wheel", e => {
       e.preventDefault();
@@ -608,65 +691,100 @@
     window.addEventListener("keydown", e => {
       if (window.ImageBaker.isTypingInTextField && window.ImageBaker.isTypingInTextField(e.target)) return;
       if (window.ImageBaker.isModalOpen && window.ImageBaker.isModalOpen()) return;
-      if (state.active_tab === "Baker" && (e.key === "Control" || e.key === "Meta" || e.key === " ") && !bkrView.isPanning) {
+      if (state.active_tab === "Baker" && (e.key === "Control" || e.key === "Meta") && !bkrView.isPanning) {
         if (bkrCanvas) bkrCanvas.style.cursor = CURSORS.PAN;
       }
     });
 
     window.addEventListener("keyup", e => {
-      if (state.active_tab === "Baker" && (e.key === "Control" || e.key === "Meta" || e.key === " ") && !bkrView.isPanning) {
+      if (state.active_tab === "Baker" && (e.key === "Control" || e.key === "Meta") && !bkrView.isPanning) {
         if (bkrCanvas) bkrCanvas.style.cursor = CURSORS.IDLE;
       }
     });
   }
 
   async function syncLayersToServer(pushUndo = true, message = "") {
+    const seq = (bkrView.syncSeq || 0) + 1;
+    bkrView.syncSeq = seq;
+    bkrView.isSyncing = true;
+    const payload = structuredClone(state.baker.layers || []);
     try {
-      const res = await api.updateBakerLayers(state.baker.layers, pushUndo, message);
+      const res = await api.updateBakerLayers(payload, pushUndo, message);
+      if (seq !== bkrView.syncSeq) {
+        return;
+      }
       if (res.ok && res.state) {
         window.ImageBaker.applyServerState(res.state);
       }
     } catch (err) {
-      console.error("Failed to sync baker layers:", err);
-      showToast("baker", "Sync failed: " + err.message);
+      if (seq === bkrView.syncSeq) {
+        console.error("Failed to sync baker layers:", err);
+        showToast("baker", "Sync failed: " + err.message);
+      }
+    } finally {
+      if (seq === bkrView.syncSeq) {
+        bkrView.isSyncing = false;
+      }
     }
   }
 
   function startPlayingStates() {
-    const numStates = state.baker.states ? state.baker.states.length : 0;
-    if (numStates <= 0) return;
-    const fps = Math.max(1, state.configs?.bake_config?.fps || 12);
+    stopPlayingStates();
+    const numStates = state.baker.states ? state.baker.states.length : (state.baker.num_states || 0);
+    if (numStates <= 0) {
+      showToast("baker", "No saved states to play");
+      return;
+    }
+
+    bkrView.isPlaying = true;
+    state.baker.is_playing = true;
+    const sessionId = (bkrView.playSessionId || 0) + 1;
+    bkrView.playSessionId = sessionId;
+
     const playBtn = document.getElementById("btn-play-states");
     if (playBtn) {
       playBtn.textContent = "⏸ Pause";
       playBtn.classList.add("active");
     }
 
-    state.baker.is_playing = true;
-    bkrView.playTimerId = setInterval(async () => {
-      const total = state.baker.states ? state.baker.states.length : 0;
-      if (total <= 0) {
+    const stepIntervalMs = 500;
+
+    const tick = async () => {
+      if (!bkrView.isPlaying || bkrView.playSessionId !== sessionId) return;
+      const total = state.baker.states ? state.baker.states.length : (state.baker.num_states || 0);
+      if (total <= 0 || state.active_tab !== "Baker") {
         stopPlayingStates();
         return;
       }
-      const nextStep = ((state.baker.current_step || 0) + 1) % total;
+      const curStep = state.baker.current_step ?? state.baker.current_state_step ?? 0;
+      const nextStep = (curStep + 1) % total;
       try {
         const res = await api.manageStates({ action: "seek", step: nextStep });
-        if (res.ok && res.state) {
+        if (!bkrView.isPlaying || bkrView.playSessionId !== sessionId) return;
+        if (res && res.ok && res.state) {
           window.ImageBaker.applyServerState(res.state);
         }
       } catch (_) {
         stopPlayingStates();
+        return;
       }
-    }, Math.round(1000 / fps));
+      if (bkrView.isPlaying && bkrView.playSessionId === sessionId) {
+        bkrView.playTimerId = setTimeout(tick, stepIntervalMs);
+      }
+    };
+
+    bkrView.playTimerId = setTimeout(tick, stepIntervalMs);
   }
 
   function stopPlayingStates() {
+    bkrView.isPlaying = false;
+    if (state.baker) state.baker.is_playing = false;
+    bkrView.playSessionId = (bkrView.playSessionId || 0) + 1;
     if (bkrView.playTimerId) {
+      clearTimeout(bkrView.playTimerId);
       clearInterval(bkrView.playTimerId);
       bkrView.playTimerId = null;
     }
-    state.baker.is_playing = false;
     const playBtn = document.getElementById("btn-play-states");
     if (playBtn) {
       playBtn.textContent = "▶ Play States";

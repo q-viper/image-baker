@@ -129,6 +129,12 @@ class LayerifyTab(QWidget):
         self.image_list_panel.imageSelected.connect(self.on_image_selected)
         self.image_list_panel.activeImageEntries.connect(self.update_active_entries)
 
+        # Connect annotation list bottom action buttons
+        self.annotation_list.layerifyAllRequested.connect(self.layerify_all)
+        self.annotation_list.saveRequested.connect(self.save_annotations)
+        self.annotation_list.loadRequested.connect(self.load_annotations)
+        self.annotation_list.clearRequested.connect(self.clear_annotations)
+
     def init_ui(self):
         """Initialize the UI components"""
         # Create annotation list and image list panel
@@ -1659,10 +1665,6 @@ class LayerifyTab(QWidget):
         row1_layout.addWidget(self.select_folder_btn)
 
         # Label controls
-        lbl_tag = QLabel("Label:")
-        lbl_tag.setStyleSheet("font-weight: bold;")
-        row1_layout.addWidget(lbl_tag)
-
         self.label_combo = QComboBox()
         self.label_combo.setToolTip("Select active annotation label")
         for label in self.config.predefined_labels:
@@ -1672,10 +1674,14 @@ class LayerifyTab(QWidget):
         self.label_combo.currentIndexChanged.connect(self.handle_label_change)
         row1_layout.addWidget(self.label_combo)
 
-        color_btn = QPushButton("🎨")
-        color_btn.setToolTip("Change color of active label")
-        color_btn.clicked.connect(self.choose_color)
-        row1_layout.addWidget(color_btn)
+        self.color_btn = QPushButton("🎨")
+        self.color_btn.setToolTip("Change color of active label")
+        if self.config.predefined_labels:
+            c_pix = QPixmap(14, 14)
+            c_pix.fill(self.config.predefined_labels[0].color)
+            self.color_btn.setIcon(QIcon(c_pix))
+        self.color_btn.clicked.connect(self.choose_color)
+        row1_layout.addWidget(self.color_btn)
 
         self.manage_label_btn = QPushButton("⚙️ Labels")
         self.manage_label_btn.setToolTip("Manage, recolor, or delete labels")
@@ -1710,26 +1716,9 @@ class LayerifyTab(QWidget):
         predict_btn.clicked.connect(self.handle_predict)
         row1_layout.addWidget(predict_btn)
 
-        layerify_all_btn = QPushButton("🧅 Layerify All")
-        layerify_all_btn.setToolTip("Extract all visible annotations into Baker layers")
-        layerify_all_btn.clicked.connect(self.layerify_all)
-        row1_layout.addWidget(layerify_all_btn)
-
         row1_spacer = QWidget()
         row1_spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         row1_layout.addWidget(row1_spacer)
-
-        save_btn = QPushButton("💾 Save")
-        save_btn.clicked.connect(self.save_annotations)
-        row1_layout.addWidget(save_btn)
-
-        load_btn = QPushButton("📂 Load")
-        load_btn.clicked.connect(self.load_annotations)
-        row1_layout.addWidget(load_btn)
-
-        clear_btn = QPushButton("🗑️ Clear")
-        clear_btn.clicked.connect(self.clear_annotations)
-        row1_layout.addWidget(clear_btn)
 
         main_toolbar_layout.addWidget(row1)
 

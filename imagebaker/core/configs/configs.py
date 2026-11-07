@@ -205,7 +205,7 @@ class CanvasConfig(BaseConfig):
     write_annotations: bool = True
     write_labels: bool = True
     write_masks: bool = True
-    fps: int = 5
+    fps: int = 2
     max_edge_width: int = 100
 
     @property

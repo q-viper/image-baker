@@ -395,8 +395,6 @@ body.resizing-sidebar * {
   gap: 8px;
   flex: 1;
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: thin;
 }
 
 .ls-bar-tag {
@@ -408,36 +406,30 @@ body.resizing-sidebar * {
   flex-shrink: 0;
 }
 
-.ls-label-chips {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+#select-label {
+  min-width: 140px;
+  max-width: 220px;
 }
 
-.ls-label-chip {
+.color-picker-btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   padding: 3px 8px;
-  border-radius: 5px;
-  border: 1px solid var(--border);
-  background-color: var(--btn);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background-color 0.1s, border-color 0.1s;
 }
 
-.ls-label-chip:hover {
-  background-color: var(--btn-hover);
+.color-picker-icon {
+  font-size: 13px;
+  line-height: 1;
 }
 
-.ls-label-chip.active {
-  border-width: 2px;
-  font-weight: 700;
-  box-shadow: 0 0 0 2px var(--accent-soft);
+#active-label-swatch {
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  flex-shrink: 0;
+  display: inline-block;
 }
 
 .ls-chip-swatch {
@@ -445,15 +437,6 @@ body.resizing-sidebar * {
   height: 10px;
   border-radius: 2px;
   flex-shrink: 0;
-}
-
-.ls-chip-key {
-  font-size: 10px;
-  font-family: monospace;
-  padding: 0 4px;
-  border-radius: 3px;
-  background-color: rgba(0, 0, 0, 0.22);
-  color: var(--muted);
 }
 
 .ls-label-bar-right {

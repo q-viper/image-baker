@@ -508,8 +508,11 @@ class AnnotableLayer(BaseLayer):
             elif annotation.rectangle:
                 painter.drawRect(annotation.rectangle)
 
-        # Draw control points
-        if not annotation.polygon and annotation.rectangle:
+        is_hovered = getattr(self, "hovered_annotation", None) is annotation
+        show_points = is_temp or not annotation.is_complete or annotation.selected or is_hovered
+
+        # Draw control points only when incomplete, selected, or hovered
+        if show_points and not annotation.polygon and annotation.rectangle:
             rect = annotation.rectangle
             corners = [
                 rect.topLeft(),
@@ -533,7 +536,7 @@ class AnnotableLayer(BaseLayer):
                 )
             painter.restore()
 
-        if annotation.polygon and len(annotation.polygon) > 0:
+        if show_points and annotation.polygon and len(annotation.polygon) > 0:
             painter.save()
             painter.setPen(
                 QPen(
@@ -645,8 +648,8 @@ class AnnotableLayer(BaseLayer):
 
         painter.restore()
 
-        # Draw transformation handles for selected annotations
-        if annotation.selected and annotation.is_complete:
+        # Draw transformation handles for selected or hovered annotations
+        if (annotation.selected or is_hovered) and annotation.is_complete:
             painter.save()
             handle_color = self.config.selected_draw_config.handle_color
             painter.setPen(
@@ -657,7 +660,7 @@ class AnnotableLayer(BaseLayer):
             )
             painter.setBrush(QBrush(handle_color))
 
-            if annotation.rectangle:
+            if not annotation.polygon and annotation.rectangle:
                 rect = annotation.rectangle
                 # Draw corner handles
                 for corner in [
@@ -687,6 +690,14 @@ class AnnotableLayer(BaseLayer):
             elif annotation.polygon:
                 # Draw vertex handles
                 for point in annotation.polygon:
+                    painter.drawEllipse(
+                        point,
+                        self.config.selected_draw_config.handle_point_size / self.scale,
+                        self.config.selected_draw_config.handle_point_size / self.scale,
+                    )
+
+            elif annotation.points:
+                for point in annotation.points:
                     painter.drawEllipse(
                         point,
                         self.config.selected_draw_config.handle_point_size / self.scale,
@@ -731,25 +742,23 @@ class AnnotableLayer(BaseLayer):
 
     def handle_mouse_release(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
-            if self.mouse_mode == MouseMode.DRAW and self._brush_mask is not None:
+            if self.mouse_mode in (MouseMode.DRAW, MouseMode.ERASE) and self._brush_mask is not None:
                 import numpy as np
 
                 mask = self._brush_mask.copy()
-                if np.any(mask):
+                target_ann = getattr(self, "_target_brush_annotation", None)
+                if target_ann is not None and target_ann in self.annotations:
+                    self._push_undo_state()
+                    if np.any(mask):
+                        target_ann.mask = mask
+                        self.annotationUpdated.emit(target_ann)
+                    else:
+                        self.annotations.remove(target_ann)
+                        self.annotationRemoved.emit(target_ann)
+                elif np.any(mask) and self.mouse_mode != MouseMode.ERASE:
                     self._push_undo_state()
                     label = self.current_label or self.config.default_label.name
                     color = self.current_color or self.config.get_label_color(label)
-
-                    # Extract bounding box and polygon from brush mask
-                    mask_uint8 = (mask > 0).astype(np.uint8) * 255
-                    bx, by, bw, bh = cv2.boundingRect(mask_uint8)
-                    rect = QRectF(bx, by, bw, bh) if bw > 0 and bh > 0 else None
-                    polys = mask_to_polygons(mask_uint8, merge_polygons=True)
-                    poly = (
-                        QPolygonF([QPointF(p[0], p[1]) for p in polys[0]])
-                        if polys and len(polys[0]) >= 3
-                        else None
-                    )
 
                     ann = Annotation(
                         file_path=self.file_path,
@@ -757,14 +766,15 @@ class AnnotableLayer(BaseLayer):
                         label=label,
                         color=color,
                         mask=mask,
-                        rectangle=rect,
-                        polygon=poly,
+                        rectangle=None,
+                        polygon=None,
                         is_complete=True,
                     )
                     self.annotations.append(ann)
                     self.annotationAdded.emit(ann)
                 self._brush_mask = None
                 self._brush_last_pos = None
+                self._target_brush_annotation = None
                 self.update()
                 return
             if self.mouse_mode == MouseMode.RECTANGLE and self.current_annotation:
@@ -830,6 +840,10 @@ class AnnotableLayer(BaseLayer):
         # if we are not clicking
         if not event.buttons():
             annotation, handle = self.find_annotation_and_handle_at(img_pos)
+            prev_hovered = getattr(self, "hovered_annotation", None)
+            self.hovered_annotation = annotation
+            if prev_hovered is not annotation:
+                self.update()
             if annotation and handle and self.mouse_mode == MouseMode.IDLE:
                 if "point_" in handle or handle in [
                     "top_left",
@@ -865,7 +879,18 @@ class AnnotableLayer(BaseLayer):
                 if self.active_handle == "move":
                     self.setCursor(CursorDef.GRABBING_CURSOR)
                     new_pos = img_pos - self.drag_offset
-                    self.move_annotation(self.selected_annotation, new_pos)
+                    delta = new_pos - self.get_annotation_position(
+                        self.selected_annotation
+                    )
+                    targets = (
+                        [ann for ann in self.annotations if ann.selected]
+                        if self.selected_annotation.selected
+                        else [self.selected_annotation]
+                    )
+                    for target_ann in targets:
+                        target_pos = self.get_annotation_position(target_ann) + delta
+                        self.move_annotation(target_ann, target_pos)
+                        self.annotationUpdated.emit(target_ann)
                 elif self.selected_annotation.rectangle:
                     rect = QRectF(self.initial_rect)
 
@@ -892,18 +917,19 @@ class AnnotableLayer(BaseLayer):
                 self.update()
                 return
 
-            if self.mouse_mode == MouseMode.DRAW and event.buttons() & Qt.LeftButton:
+            if self.mouse_mode in (MouseMode.DRAW, MouseMode.ERASE) and event.buttons() & Qt.LeftButton:
                 if self._brush_mask is not None and self._brush_last_pos is not None:
                     import cv2
 
                     x0, y0 = self._brush_last_pos
                     x1, y1 = int(clamped_pos.x()), int(clamped_pos.y())
                     brush_size = getattr(self, "brush_size", 5)
+                    color_val = 0 if self.mouse_mode == MouseMode.ERASE else 1
                     cv2.line(
                         self._brush_mask,
                         (x0, y0),
                         (x1, y1),
-                        color=1,
+                        color=color_val,
                         thickness=brush_size,
                     )
                     self._brush_last_pos = (x1, y1)
@@ -981,50 +1007,75 @@ class AnnotableLayer(BaseLayer):
                     self.current_annotation = None
                     self.mouse_mode = MouseMode.IDLE
 
-            # If not drawing a polygon, go to idle mode
+            # If not drawing a polygon, go to idle mode and deselect when right-clicking on empty space
             if not self.current_annotation:
                 self.mouse_mode = MouseMode.IDLE
-                for ann in self.annotations:
-                    ann.selected = False
-                    self.annotationUpdated.emit(ann)
+                ann_at_pos, _ = self.find_annotation_and_handle_at(img_pos)
+                if ann_at_pos is None:
+                    for ann in self.annotations:
+                        ann.selected = False
+                        self.annotationUpdated.emit(ann)
             self.update()
 
         # If left-clicked
         if event.button() == Qt.LeftButton:
             self._drag_start_snapshot = None
-            if self.mouse_mode == MouseMode.DRAW:
+            if self.mouse_mode in (MouseMode.DRAW, MouseMode.ERASE):
                 import cv2
                 import numpy as np
 
-                self._brush_mask = np.zeros(
-                    (self.image.height(), self.image.width()), dtype=np.uint8
+                selected_brush = next(
+                    (a for a in self.annotations if a.selected and a.mask is not None and not a.polygon and not a.rectangle),
+                    None,
                 )
+                if selected_brush is not None:
+                    self._brush_mask = selected_brush.mask
+                    self._target_brush_annotation = selected_brush
+                else:
+                    self._target_brush_annotation = None
+                    self._brush_mask = np.zeros(
+                        (self.image.height(), self.image.width()), dtype=np.uint8
+                    )
                 pt = (int(clamped_pos.x()), int(clamped_pos.y()))
                 self._brush_last_pos = pt
                 brush_size = getattr(self, "brush_size", 5)
-                cv2.circle(self._brush_mask, pt, max(1, brush_size // 2), 1, -1)
+                color_val = 0 if self.mouse_mode == MouseMode.ERASE else 1
+                cv2.circle(self._brush_mask, pt, max(1, brush_size // 2), color_val, -1)
                 self.current_label = (
-                    self.current_label or self.config.default_label.name
+                    self.current_label or (selected_brush.label if selected_brush else self.config.default_label.name)
                 )
                 self.current_color = (
                     self.current_color
-                    or self.config.get_label_color(self.current_label)
+                    or (selected_brush.color if selected_brush else self.config.get_label_color(self.current_label))
                 )
                 self.update()
                 return
 
-            # Check if clicked on any label badge in screen space
-            widget_pos = event.position()
-            for lrect, ann in reversed(self.label_rects):
-                if lrect.contains(widget_pos):
-                    self.selected_annotation = ann
-                    self.active_handle = "move"
-                    break
+            # If actively drawing an incomplete polygon, do not steal click for existing annotations
+            is_drawing_polygon = (
+                self.mouse_mode == MouseMode.POLYGON
+                and self.current_annotation is not None
+                and self.current_annotation.polygon is not None
+                and len(self.current_annotation.polygon) > 0
+            )
 
-            if not self.selected_annotation:
-                self.selected_annotation, self.active_handle = (
-                    self.find_annotation_and_handle_at(img_pos)
-                )
+            if not is_drawing_polygon:
+                # Check if clicked on any label badge in screen space
+                widget_pos = event.position()
+                for lrect, ann in reversed(self.label_rects):
+                    if lrect.contains(widget_pos):
+                        self.selected_annotation = ann
+                        self.active_handle = "move"
+                        break
+
+                if not self.selected_annotation:
+                    self.selected_annotation, self.active_handle = (
+                        self.find_annotation_and_handle_at(img_pos)
+                    )
+            else:
+                self.selected_annotation = None
+                self.active_handle = None
+
             # Handle dragging later on
             if self.selected_annotation:
                 self._drag_start_snapshot = self._snapshot_annotations()
@@ -1035,19 +1086,24 @@ class AnnotableLayer(BaseLayer):
                 if is_multi_select:
                     # Toggle selection state without clearing existing selections.
                     self.selected_annotation.selected = not self.selected_annotation.selected
+                    self.annotationUpdated.emit(self.selected_annotation)
                 else:
-                    self.selected_annotation.selected = True
-                    # Make all other annotations unselected
-                    for ann in self.annotations:
-                        if ann != self.selected_annotation:
-                            ann.selected = False
-                        self.annotationUpdated.emit(ann)
+                    if not (
+                        self.selected_annotation.selected
+                        and self.active_handle == "move"
+                    ):
+                        self.selected_annotation.selected = True
+                        # Make all other annotations unselected
+                        for ann in self.annotations:
+                            if ann != self.selected_annotation:
+                                ann.selected = False
+                            self.annotationUpdated.emit(ann)
 
                 if self.selected_annotation.rectangle:
                     self.initial_rect = QRectF(self.selected_annotation.rectangle)
                 elif self.selected_annotation.polygon:
                     self.initial_polygon = QPolygonF(self.selected_annotation.polygon)
-                    if "point_" in self.active_handle:
+                    if self.active_handle and "point_" in self.active_handle:
                         self.active_point_index = int(self.active_handle.split("_")[1])
                 elif self.selected_annotation.points:
                     self.active_point_index = 0
@@ -1079,6 +1135,7 @@ class AnnotableLayer(BaseLayer):
                 )
                 self.drag_start = clamped_pos
             elif self.mouse_mode == MouseMode.POLYGON:
+                eff_margin = 10.0 / max(0.1, float(self.scale))
                 # If not double-click
                 if not self.current_annotation:
                     # if this point is equal to the last point of the previous polygon, then ignore it
@@ -1086,7 +1143,7 @@ class AnnotableLayer(BaseLayer):
                         last_polygon = self.annotations[-1].polygon
                         if last_polygon:
                             last_point = last_polygon[-1]
-                            if last_point == clamped_pos:
+                            if (last_point - clamped_pos).manhattanLength() < 1.0:
                                 logger.info(
                                     "Ignoring point, same as last polygon point"
                                 )
@@ -1100,9 +1157,17 @@ class AnnotableLayer(BaseLayer):
                         polygon=QPolygonF([clamped_pos]),
                     )
                 else:
-                    logger.info(f"Adding point to polygon: {clamped_pos}")
-                    # Add point to polygon
-                    self.current_annotation.polygon.append(clamped_pos)
+                    poly = self.current_annotation.polygon
+                    if (
+                        len(poly) >= 3
+                        and (poly[0] - clamped_pos).manhattanLength() < eff_margin
+                    ):
+                        self.current_annotation.is_complete = True
+                        self.finalize_annotation()
+                        self.current_annotation = None
+                    elif len(poly) == 0 or (poly[-1] - clamped_pos).manhattanLength() > 1.0:
+                        logger.info(f"Adding point to polygon: {clamped_pos}")
+                        self.current_annotation.polygon.append(clamped_pos)
 
             self.update()
 
@@ -1113,16 +1178,64 @@ class AnnotableLayer(BaseLayer):
             return annotation.polygon.boundingRect().center()
         elif annotation.points:
             return annotation.points[0]
+        elif annotation.mask is not None and np.any(annotation.mask):
+            ys, xs = np.nonzero(annotation.mask)
+            if len(xs) > 0 and len(ys) > 0:
+                return QPointF((float(xs.min()) + float(xs.max())) / 2.0, (float(ys.min()) + float(ys.max())) / 2.0)
         return QPointF()
+
+    @staticmethod
+    def _find_polygon_edge_at(
+        polygon: QPolygonF, pos: QPointF
+    ) -> tuple[int | None, QPointF | None, float]:
+        if not polygon or len(polygon) < 2:
+            return None, None, float("inf")
+        best_idx = None
+        best_proj = None
+        best_dist = float("inf")
+        n = len(polygon)
+        for i in range(n):
+            start_point = polygon[i]
+            end_point = polygon[(i + 1) % n]
+            line_vector = end_point - start_point
+            point_vector = pos - start_point
+            line_length_squared = (
+                line_vector.x() ** 2 + line_vector.y() ** 2
+            )
+            if line_length_squared == 0:
+                continue
+            projection = (
+                point_vector.x() * line_vector.x()
+                + point_vector.y() * line_vector.y()
+            ) / line_length_squared
+            projection = max(0.0, min(1.0, projection))
+            projection_point = QPointF(
+                start_point.x() + projection * line_vector.x(),
+                start_point.y() + projection * line_vector.y(),
+            )
+            perpendicular_distance = (pos - projection_point).manhattanLength()
+            if perpendicular_distance < best_dist:
+                best_dist = perpendicular_distance
+                best_idx = i
+                best_proj = projection_point
+        return best_idx, best_proj, best_dist
 
     def find_annotation_and_handle_at(self, pos: QPointF, margin=10.0):
         """Find annotation and specific handle at given position"""
+        eff_margin = margin / max(0.1, float(self.scale)) if getattr(self, "scale", None) else margin
         for annotation in reversed(self.annotations):
             if not annotation.visible or not annotation.is_complete:
                 continue
 
-            # Check rectangle handles
-            if annotation.rectangle:
+            # Check mask for brush annotations
+            if annotation.mask is not None and np.any(annotation.mask) and not annotation.polygon and not annotation.rectangle:
+                ix, iy = int(round(pos.x())), int(round(pos.y()))
+                mh, mw = annotation.mask.shape[:2]
+                if 0 <= ix < mw and 0 <= iy < mh and annotation.mask[iy, ix] > 0:
+                    return annotation, "move"
+
+            # Check rectangle handles (only when not a polygon annotation)
+            if not annotation.polygon and annotation.rectangle:
                 rect = annotation.rectangle
                 handles = {
                     "top_left": rect.topLeft(),
@@ -1136,24 +1249,28 @@ class AnnotableLayer(BaseLayer):
                 }
 
                 for handle_name, handle_pos in handles.items():
-                    if (handle_pos - pos).manhattanLength() < margin:
+                    if (handle_pos - pos).manhattanLength() < eff_margin:
                         return annotation, handle_name
 
                 if rect.contains(pos):
                     return annotation, "move"
 
-            # Check polygon points
+            # Check polygon points and edges
             elif annotation.polygon:
                 for i, point in enumerate(annotation.polygon):
-                    if (point - pos).manhattanLength() < margin:
+                    if (point - pos).manhattanLength() < eff_margin:
                         return annotation, f"point_{i}"
+
+                edge_idx, _, edge_dist = self._find_polygon_edge_at(annotation.polygon, pos)
+                if edge_idx is not None and edge_dist < eff_margin:
+                    return annotation, f"edge_{edge_idx}"
 
                 if annotation.polygon.containsPoint(pos, Qt.OddEvenFill):
                     return annotation, "move"
 
             # Check points
             elif annotation.points:
-                if (annotation.points[0] - pos).manhattanLength() < margin:
+                if (annotation.points[0] - pos).manhattanLength() < eff_margin:
                     return annotation, "point_0"
 
             # Check mask
@@ -1165,7 +1282,7 @@ class AnnotableLayer(BaseLayer):
 
         return None, None
 
-    def handle_mouse_double_click(self, event: QMouseEvent, pos: QPoint):
+    def handle_mouse_double_click(self, event: QMouseEvent, pos: QPoint | None = None):
         pos = event.position()
         for rect, annotation in self.label_rects:
             if rect.contains(pos):
@@ -1174,6 +1291,24 @@ class AnnotableLayer(BaseLayer):
         # if left double click
         if event.button() == Qt.LeftButton:
             img_pos = self.widget_to_image_pos(event.position())
+            eff_margin = 10.0 / max(0.1, float(self.scale)) if getattr(self, "scale", None) else 10.0
+
+            # if actively drawing a polygon with >= 3 points, close the polygon first
+            if (
+                self.current_annotation
+                and self.mouse_mode == MouseMode.POLYGON
+                and len(self.current_annotation.polygon) >= 3
+            ):
+                pts = list(self.current_annotation.polygon)
+                while len(pts) > 3 and (pts[-1] - pts[-2]).manhattanLength() < 2.0:
+                    pts.pop()
+                self.current_annotation.polygon = QPolygonF(pts)
+                self.current_annotation.is_complete = True
+
+                self.finalize_annotation()
+                self.current_annotation = None
+
+                return
 
             self.selected_annotation, self.active_handle = (
                 self.find_annotation_and_handle_at(img_pos)
@@ -1192,69 +1327,28 @@ class AnnotableLayer(BaseLayer):
                             )
 
                             self.selected_annotation.polygon = polygon
+                            self.current_annotation = None
                             self.annotationUpdated.emit(self.selected_annotation)
                             self.update()
                             logger.info(f"Removed point at index {index}")
                         return
 
-                # Check if an edge was double-clicked
+                # Check if an edge was double-clicked to insert a new vertex
                 polygon = self.selected_annotation.polygon
                 if polygon:
-                    for i in range(len(polygon)):
-                        start_point = polygon[i]
-                        end_point = polygon[
-                            (i + 1) % len(polygon)
-                        ]  # Wrap around to the first point
-
-                        # Calculate the vector along the edge and the vector from the start point to the clicked position
-                        line_vector = end_point - start_point
-                        point_vector = img_pos - start_point
-
-                        # Calculate the length of the edge
-                        line_length_squared = (
-                            line_vector.x() ** 2 + line_vector.y() ** 2
-                        )
-                        if line_length_squared == 0:
-                            continue  # Avoid division by zero for degenerate edges
-
-                        # Project the point onto the line (normalized)
-                        projection = (
-                            point_vector.x() * line_vector.x()
-                            + point_vector.y() * line_vector.y()
-                        ) / line_length_squared
-
-                        # Clamp the projection to the range [0, 1] to ensure it lies on the segment
-                        projection = max(0, min(1, projection))
-
-                        # Calculate the projection point on the edge
-                        projection_point = start_point + projection * line_vector
-
-                        # Calculate the perpendicular distance from the clicked position to the edge
-                        perpendicular_distance = (
-                            img_pos - projection_point
-                        ).manhattanLength()
-
-                        # Check if the perpendicular distance is within the margin
-                        if perpendicular_distance < 10:  # Margin of 10
-                            # Insert a new point at the projection point
-                            self._push_undo_state()
-                            polygon.insert(i + 1, projection_point)
-                            self.annotationUpdated.emit(self.selected_annotation)
-                            self.update()
-                            return
-
-            # if drawing a polygon, close the polygon
-            if (
-                self.current_annotation
-                and self.mouse_mode == MouseMode.POLYGON
-                and len(self.current_annotation.polygon) >= 3
-            ):
-                self.current_annotation.is_complete = True
-
-                self.finalize_annotation()
-                self.current_annotation = None
-
-                return
+                    edge_idx, projection_point, perpendicular_distance = (
+                        self._find_polygon_edge_at(polygon, img_pos)
+                    )
+                    if edge_idx is not None and perpendicular_distance < eff_margin:
+                        self._push_undo_state()
+                        pts = list(polygon)
+                        pts.insert(edge_idx + 1, projection_point)
+                        self.selected_annotation.polygon = QPolygonF(pts)
+                        self.current_annotation = None
+                        self.annotationUpdated.emit(self.selected_annotation)
+                        self.update()
+                        logger.info(f"Inserted point at index {edge_idx + 1}: {projection_point}")
+                        return
 
             # did we click on an annotation?
             # annotation = self.find_annotation_at(self.widget_to_image_pos(pos))

@@ -490,10 +490,18 @@ class BakerTab(QWidget):
         self.current_canvas.export_baked_states(annotation_format=fmt)
 
     def play_saved_states(self):
-        """Play the saved states in sequence."""
-        self.messageSignal.emit("Playing saved state...")
+        """Play or pause the saved states in sequence."""
+        if not self.current_canvas:
+            return
 
-        # Enable the timeline slider
+        if getattr(self.current_canvas, "is_playing", False):
+            self.current_canvas.stop_playing()
+            if hasattr(self, "play_btn"):
+                self.play_btn.blockSignals(True)
+                self.play_btn.setChecked(False)
+                self.play_btn.setText("▶ Play States")
+                self.play_btn.blockSignals(False)
+            return
 
         # Update the slider range based on the number of states
         if self.current_canvas.states:
@@ -508,10 +516,29 @@ class BakerTab(QWidget):
             self.steps_spinbox.setValue(1)
             self.messageSignal.emit("No saved states available.")
             self.timeline_slider.setEnabled(False)
+            if hasattr(self, "play_btn"):
+                self.play_btn.blockSignals(True)
+                self.play_btn.setChecked(False)
+                self.play_btn.setText("▶ Play States")
+                self.play_btn.blockSignals(False)
+            return
+
+        self.messageSignal.emit("Playing saved state...")
+        if hasattr(self, "play_btn"):
+            self.play_btn.blockSignals(True)
+            self.play_btn.setChecked(True)
+            self.play_btn.setText("⏸ Pause")
+            self.play_btn.blockSignals(False)
 
         self.timeline_slider.update()
         # Start playing the states
         self.current_canvas.play_states()
+
+        if hasattr(self, "play_btn"):
+            self.play_btn.blockSignals(True)
+            self.play_btn.setChecked(False)
+            self.play_btn.setText("▶ Play States")
+            self.play_btn.blockSignals(False)
 
     def save_current_state(self, prompt_download: bool = True):
         """Save the current state of the canvas and optionally prompt to download/export."""
@@ -557,9 +584,15 @@ class BakerTab(QWidget):
         """Clear all saved states and disable the timeline slider."""
         self.messageSignal.emit("Clearing all saved states...")
         if self.current_canvas:
+            self.current_canvas.stop_playing()
             self.current_canvas.previous_state = None
             self.current_canvas.current_step = 0
             self.current_canvas.states.clear()  # Clear all saved states
+        if hasattr(self, "play_btn"):
+            self.play_btn.blockSignals(True)
+            self.play_btn.setChecked(False)
+            self.play_btn.setText("▶ Play States")
+            self.play_btn.blockSignals(False)
         self.timeline_slider.setEnabled(False)  # Disable the slider
         self.timeline_slider.setMaximum(0)  # Reset the slider range
         self.timeline_slider.setValue(0)  # Reset the slider position
@@ -785,27 +818,65 @@ class BakerTab(QWidget):
 
     def keyPressEvent(self, event):
         """Handle key press events."""
+        if event.key() == Qt.Key_Space and event.modifiers() == Qt.NoModifier:
+            self.play_saved_states()
+            event.accept()
+            return
+
         handled_by_canvas = (
-            event.key() in {Qt.Key_Delete, Qt.Key_H, Qt.Key_W, Qt.Key_S}
+            event.key()
+            in {
+                Qt.Key_Delete,
+                Qt.Key_Backspace,
+                Qt.Key_Escape,
+                Qt.Key_H,
+                Qt.Key_W,
+                Qt.Key_S,
+                Qt.Key_D,
+                Qt.Key_E,
+                Qt.Key_R,
+                Qt.Key_P,
+                Qt.Key_Up,
+                Qt.Key_Down,
+                Qt.Key_Left,
+                Qt.Key_Right,
+            }
             or (
-                event.modifiers() == Qt.ControlModifier
+                bool(event.modifiers() & Qt.ControlModifier)
                 and event.key()
                 in {
+                    Qt.Key_A,
                     Qt.Key_C,
                     Qt.Key_V,
                     Qt.Key_D,
                     Qt.Key_E,
                     Qt.Key_S,
+                    Qt.Key_W,
                     Qt.Key_G,
                     Qt.Key_Z,
                     Qt.Key_Y,
+                    Qt.Key_Up,
+                    Qt.Key_Down,
                 }
             )
         )
         if handled_by_canvas and self.current_canvas is not None:
             self.current_canvas.handle_key_press(event)
-            if event.isAccepted() and event.key() == Qt.Key_S:
+            if (
+                event.isAccepted()
+                and event.key() == Qt.Key_S
+                and (event.modifiers() & Qt.ControlModifier)
+            ):
                 self._reset_steps_input()
+                total_states = len(self.current_canvas.states)
+                if total_states > 0:
+                    self.timeline_slider.setMaximum(total_states - 1)
+                    self.timeline_slider.setEnabled(True)
+                    self.timeline_slider.setValue(
+                        self.current_canvas._state_step_index(
+                            self.current_canvas.current_step
+                        )
+                    )
             self.current_canvas.update()
             self.layer_list.update_list()
             self.layer_settings.update_sliders()

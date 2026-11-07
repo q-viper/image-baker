@@ -105,4 +105,23 @@ def draw_annotations(image: np.ndarray, annotations: list[Annotation]) -> np.nda
                 color,
                 2,
             )
+        elif ann.mask is not None and np.any(ann.mask):
+            mask_u8 = (np.asarray(ann.mask) > 0).astype(np.uint8) * 255
+            if mask_u8.shape[:2] == image.shape[:2]:
+                contours, _ = cv2.findContours(
+                    mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+                )
+                if contours:
+                    cv2.drawContours(image, contours, -1, color, 2)
+                ys, xs = np.nonzero(mask_u8)
+                if len(xs) > 0 and len(ys) > 0:
+                    cv2.putText(
+                        image,
+                        ann.label,
+                        (int(xs.min()), max(15, int(ys.min()))),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1,
+                        color,
+                        2,
+                    )
     return image

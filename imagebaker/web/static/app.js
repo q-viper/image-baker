@@ -29,8 +29,40 @@
   function applyServerState(serverState, options = {}) {
     if (!serverState) return;
 
+    const keepLocalAnns =
+      options.preserveLocalAnnotations ||
+      lyrView.draggingAnnIdx >= 0 ||
+      lyrView.resizingAnnIdx >= 0;
+    const prevImgIdx = state.layerify?.current_image_index;
+    const prevAnnotations =
+      keepLocalAnns && Array.isArray(state.layerify?.annotations)
+        ? structuredClone(state.layerify.annotations)
+        : null;
+    const keepLocalLayers =
+      options.preserveLocalLayers || Boolean(bkrView.draggingLayerId);
+    const prevCanvasId = state.baker?.current_canvas_id;
+    const prevLayers =
+      keepLocalLayers && Array.isArray(state.baker?.layers)
+        ? structuredClone(state.baker.layers)
+        : null;
+
     // 1. Deep merge / assign state
     Object.assign(state, serverState);
+
+    if (
+      prevAnnotations &&
+      state.layerify &&
+      prevImgIdx === state.layerify.current_image_index
+    ) {
+      state.layerify.annotations = prevAnnotations;
+    }
+    if (
+      prevLayers &&
+      state.baker &&
+      prevCanvasId === state.baker.current_canvas_id
+    ) {
+      state.baker.layers = prevLayers;
+    }
 
     // 2. Theme & Grid
     const isDark = state.theme_mode === "dark";
@@ -62,16 +94,26 @@
 
     // 3. Active Tab
     const activeTab = state.active_tab || "Layerify";
+    const isHelpTab = activeTab === "Help";
     document.querySelectorAll(".tab-btn").forEach(btn => {
       btn.classList.toggle("active", btn.dataset.tab === activeTab);
     });
     if (el("view-layerify")) el("view-layerify").classList.toggle("active", activeTab === "Layerify");
     if (el("view-baker")) el("view-baker").classList.toggle("active", activeTab === "Baker");
-    if (el("view-help")) el("view-help").classList.toggle("active", activeTab === "Help");
+    if (el("view-help")) el("view-help").classList.toggle("active", isHelpTab);
+
+    const topZoomGroup = el("top-zoom-group") || document.querySelector(".zoom-group");
+    if (topZoomGroup) topZoomGroup.classList.toggle("hidden", isHelpTab);
+    if (el("btn-zoom-fit")) el("btn-zoom-fit").classList.toggle("hidden", isHelpTab);
+    if (el("btn-top-grid")) el("btn-top-grid").classList.toggle("hidden", isHelpTab);
+    if (el("btn-header-prev")) el("btn-header-prev").classList.toggle("hidden", isHelpTab);
+    if (el("btn-header-next")) el("btn-header-next").classList.toggle("hidden", isHelpTab);
 
     if (activeTab === "Baker") {
       canvasBaker.resizeBakerCanvas();
       canvasBaker.fitBakerLayersIfNeeded();
+    } else if (bkrView.isPlaying) {
+      canvasBaker.stopPlayingStates();
     }
 
     // 4. Status Bar
@@ -93,6 +135,12 @@
 
     // 6. Baker Subsystem
     const bkr = state.baker || {};
+    bkr.is_playing = Boolean(bkrView.isPlaying);
+    const playBtn = el("btn-play-states");
+    if (playBtn) {
+      playBtn.textContent = bkr.is_playing ? "⏸ Pause" : "▶ Play States";
+      playBtn.classList.toggle("active", bkr.is_playing);
+    }
     if (!options.preserveLocalLayers) {
       bkrView.layers = structuredClone(bkr.layers || []);
     }
@@ -284,9 +332,9 @@
           bkrView.offsetY = 20;
           canvasBaker.drawBakerCanvas();
         } else {
-          bkrView.zoom = 1.0;
-          bkrView.offsetX = 20;
-          bkrView.offsetY = 20;
+          lyrView.zoom = 1.0;
+          lyrView.offsetX = 20;
+          lyrView.offsetY = 20;
           canvasLayerify.drawLayerifyCanvas();
         }
         updateZoomReadout();
@@ -294,7 +342,12 @@
     }
     if (el("btn-zoom-fit")) {
       el("btn-zoom-fit").addEventListener("click", () => {
-        canvasLayerify.fitLayerifyImageIfNeeded();
+        const activeTab = state?.active_tab || "Layerify";
+        if (activeTab === "Baker") {
+          canvasBaker.fitBakerLayersIfNeeded(true);
+        } else {
+          canvasLayerify.fitLayerifyImageIfNeeded();
+        }
         updateZoomReadout();
       });
     }
@@ -356,7 +409,20 @@
 
     // 6. Poller for external changes (every 4s when idle)
     setInterval(async () => {
-      if (lyrView.isDrawing || lyrView.isPanning || bkrView.draggingLayerId || bkrView.isPanning) {
+      if (
+        lyrView.isDrawing ||
+        lyrView.isPanning ||
+        lyrView.isSyncing ||
+        lyrView.draggingAnnIdx >= 0 ||
+        lyrView.resizingAnnIdx >= 0 ||
+        lyrView.activeRectDraft ||
+        (lyrView.activePolyDraft && lyrView.activePolyDraft.length > 0) ||
+        (lyrView.activeBrushStroke && lyrView.activeBrushStroke.length > 0) ||
+        bkrView.draggingLayerId ||
+        bkrView.isPanning ||
+        bkrView.isPlaying ||
+        bkrView.isSyncing
+      ) {
         return;
       }
       try {

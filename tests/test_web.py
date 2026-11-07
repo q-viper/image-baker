@@ -273,6 +273,10 @@ def test_http_server_endpoints(tmp_path: Path):
             assert browse_data["images"][0]["name"] == "test.png"
             assert isinstance(browse_data["quick_paths"], list)
             assert len(browse_data["quick_paths"]) >= 1
+            for qp in browse_data["quick_paths"]:
+                assert qp.get("name") and qp["name"] != "undefined"
+                assert qp.get("label") == qp.get("name")
+                assert qp.get("path")
 
         # GET /static/app.js
         with urllib.request.urlopen(f"{base_url}/static/app.js") as resp:
@@ -547,6 +551,7 @@ def test_web_layerify_icons_and_layer_deletion(tmp_path: Path):
     """Test thumbnail icons, layer deletion via action and update_baker_layers sync."""
     from PIL import Image as PILImage
     from PySide6.QtCore import QPointF, QRectF
+    from PySide6.QtGui import QColor
     from imagebaker.core.defs import Annotation
     from imagebaker.web.engine import WebAppEngine
 
@@ -651,6 +656,7 @@ def test_web_copy_paste_annotations_and_layers(tmp_path: Path):
     """Test copy and paste of annotations (Layerify) and layers (Baker) with offsets and selection."""
     from PIL import Image as PILImage
     from PySide6.QtCore import QPointF, QRectF
+    from PySide6.QtGui import QColor
     from imagebaker.core.defs import Annotation
     from imagebaker.web.engine import WebAppEngine
 
@@ -860,6 +866,454 @@ def test_layerify_all_button_with_selected_annotation(tmp_path: Path):
     assert "Obj2" in engine.current_canvas.layers[0].layer_name
 
 
+def test_polygon_double_click_point_remove_and_edge_insert_and_label_dropdown(tmp_path: Path):
+    """
+    Verify:
+    1. Desktop AnnotableLayer double-click on a completed polygon's point removes that point (when > 3 points).
+    2. Desktop AnnotableLayer double-click on a completed polygon's edge/segment inserts a new point at that position.
+    3. Web annotation serialization prioritizes polygon type and supports vertex removal/insertion.
+    4. Web index.html uses a dropdown (#select-label) instead of the horizontal label chips slider.
+    """
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
+    from PySide6.QtGui import QColor, QImage, QMouseEvent, QPolygonF
+    from PySide6.QtWidgets import QApplication
+
+    from imagebaker.core.configs import CanvasConfig, LayerConfig
+    from imagebaker.core.defs import Annotation, MouseMode
+    from imagebaker.layers.annotable_layer import AnnotableLayer
+
+    _app = QApplication.instance() or QApplication([])
+
+    cfg = LayerConfig(project_dir=tmp_path)
+    canvas_cfg = CanvasConfig(project_dir=tmp_path)
+    layer = AnnotableLayer(None, cfg, canvas_cfg)
+    img = QImage(200, 200, QImage.Format_RGBA8888)
+    img.fill(QColor(40, 40, 40))
+    layer.set_image(img)
+    layer.file_path = tmp_path / "poly_test.png"
+    layer.scale = 1.0
+    layer.offset = QPointF(0.0, 0.0)
+    layer.mouse_mode = MouseMode.POLYGON
+
+    # Create a completed 4-point square polygon: (20,20) -> (120,20) -> (120,120) -> (20,120)
+    poly = QPolygonF(
+        [
+            QPointF(20.0, 20.0),
+            QPointF(120.0, 20.0),
+            QPointF(120.0, 120.0),
+            QPointF(20.0, 120.0),
+        ]
+    )
+    ann = Annotation(
+        annotation_id=1,
+        label="PolyTest",
+        polygon=poly,
+        rectangle=QRectF(20.0, 20.0, 100.0, 100.0),
+        is_complete=True,
+    )
+    layer.annotations = [ann]
+
+    def _make_dblclick_event(x: float, y: float) -> QMouseEvent:
+        pt = QPointF(x, y)
+        return QMouseEvent(
+            QEvent.Type.MouseButtonDblClick,
+            pt,
+            pt,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+
+    # 1. Double-click on top edge midpoint (70, 20) -> should insert a 5th point at index 1
+    layer.handle_mouse_double_click(_make_dblclick_event(70.0, 20.0))
+    assert len(layer.annotations[0].polygon) == 5
+    inserted_pt = layer.annotations[0].polygon[1]
+    assert abs(inserted_pt.x() - 70.0) < 1e-3
+    assert abs(inserted_pt.y() - 20.0) < 1e-3
+
+    # 2. Double-click on that newly inserted point (70, 20) -> should remove it (back to 4 points)
+    layer.handle_mouse_double_click(_make_dblclick_event(70.0, 20.0))
+    assert len(layer.annotations[0].polygon) == 4
+
+    # 3. Double-click on vertex (120, 120) -> removes it (down to 3 points)
+    layer.handle_mouse_double_click(_make_dblclick_event(120.0, 120.0))
+    assert len(layer.annotations[0].polygon) == 3
+
+    # 4. Double-click on vertex (20, 20) when only 3 points remain -> must NOT remove (minimum 3 points)
+    layer.handle_mouse_double_click(_make_dblclick_event(20.0, 20.0))
+    assert len(layer.annotations[0].polygon) == 3
+
+    # 5. Verify web HTML has #select-label dropdown and no #ls-label-chips slider
+    index_html = (Path(__file__).resolve().parent.parent / "imagebaker" / "web" / "static" / "index.html").read_text(encoding="utf-8")
+    assert 'id="select-label"' in index_html
+    assert 'id="ls-label-chips"' not in index_html
+
+    # 6. Verify web engine polygon update & type priority
+    _create_sample_image(tmp_path / "web_poly.png", 200, 200)
+    engine = WebAppEngine(project_dir=tmp_path)
+    engine.select_folder(str(tmp_path))
+    engine.update_annotations(
+        [
+            {
+                "annotation_id": 1,
+                "label": "PolyWeb",
+                "polygon": [[20, 20], [70, 20], [120, 20], [120, 120], [20, 120]],
+                "rectangle": [20, 20, 120, 120],
+                "selected": True,
+                "visible": True,
+            }
+        ],
+        push_undo=True,
+        message="Added 5-point polygon",
+    )
+    web_ann = engine.get_state()["layerify"]["annotations"][0]
+    assert web_ann["type"] == "polygon"
+    assert len(web_ann["polygon"]) == 5
+
+
+def test_baker_shortcuts_isolation_and_state_playback():
+    """Verify Baker shortcuts are isolated from Layerify and state playback/pause logic is guarded."""
+    root = Path(__file__).resolve().parent.parent
+    shortcuts_js = (root / "imagebaker" / "web" / "static" / "js" / "shortcuts.js").read_text(encoding="utf-8")
+    canvas_baker_js = (root / "imagebaker" / "web" / "static" / "js" / "canvas_baker.js").read_text(encoding="utf-8")
+    app_js = (root / "imagebaker" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+
+    # 1. Layerify single-key shortcuts must only run when state.active_tab === "Layerify"
+    assert 'if (state.active_tab === "Layerify") {' in shortcuts_js
+    assert 'if (state.active_tab === "Baker") {' in shortcuts_js
+
+    # 2. Baker state playback must track playSessionId / bkrView.isPlaying and preserve is_playing in applyServerState
+    assert "bkrView.playSessionId" in canvas_baker_js
+    assert "bkrView.isPlaying = false" in canvas_baker_js
+    assert "bkr.is_playing = Boolean(bkrView.isPlaying)" in app_js
+
+    # 3. Layerify dock header icons (Select All checkbox & Show/Hide All eye) and tool strip buttons must be bound
+    ui_layerify_js = (root / "imagebaker" / "web" / "static" / "js" / "ui_layerify.js").read_text(encoding="utf-8")
+    assert 'getElementById("btn-select-all-anns")' in ui_layerify_js
+    assert 'getElementById("btn-toggle-all-anns-vis")' in ui_layerify_js
+    assert 'getElementById("strip-btn-vis")' in ui_layerify_js
+    assert 'getElementById("strip-btn-caption")' in ui_layerify_js
+    assert 'getElementById("strip-btn-delete")' in ui_layerify_js
+
+    # 4. Annotation selection must not be overwritten by background polling or out-of-order sync responses
+    canvas_layerify_js = (root / "imagebaker" / "web" / "static" / "js" / "canvas_layerify.js").read_text(encoding="utf-8")
+    assert "lyrView.syncSeq" in canvas_layerify_js
+    assert "state.layerify.annotations = prevAnnotations" in app_js
+
+    # 5. Ctrl+Click multi-select, multi-move, and right-click empty-space deselection in both Layerify and Baker
+    assert 'const isImmediatePan = e.button === 1 || lyrView.activeMode === "Pan" || (e.button === 0 && e.spaceKey);' in canvas_layerify_js
+    assert 'const isImmediatePan = e.button === 1 || (e.button === 0 && e.spaceKey);' in canvas_baker_js
+    assert 'bkrCanvas.addEventListener("contextmenu"' in canvas_baker_js
+    assert 'lyrCanvas.addEventListener("contextmenu"' in canvas_layerify_js
+
+    # 6. Hide zoom/fit and grid controls when on Help tab
+    assert 'topZoomGroup.classList.toggle("hidden", isHelpTab)' in app_js
+    assert 'el("btn-top-grid").classList.toggle("hidden", isHelpTab)' in app_js
+
+
+def test_annotation_mode_cursors_and_baker_multi_layer_export_download(tmp_path: Path):
+    """Verify distinct cursors for each annotation mode and multi-layer Baker state export + zip download."""
+    import io
+    import zipfile
+
+    root = Path(__file__).resolve().parent.parent
+    state_js = (root / "imagebaker" / "web" / "static" / "js" / "state.js").read_text(encoding="utf-8")
+    canvas_layerify_js = (root / "imagebaker" / "web" / "static" / "js" / "canvas_layerify.js").read_text(encoding="utf-8")
+
+    # 1. Each annotation mode has its own distinct cursor in state.js and getCursorForMode
+    assert 'RECTANGLE: utils.svgCursor(' in state_js
+    assert 'POINT: utils.svgCursor(' in state_js
+    assert 'POLYGON: utils.svgCursor(' in state_js
+    assert 'BRUSH: utils.svgCursor(' in state_js
+    assert 'case "Rectangle": return CURSORS.RECTANGLE;' in canvas_layerify_js
+    assert 'case "Point": return CURSORS.POINT;' in canvas_layerify_js
+    assert 'case "Polygon": return CURSORS.POLYGON;' in canvas_layerify_js
+    assert 'case "Brush": return CURSORS.BRUSH;' in canvas_layerify_js
+    assert 'case "Pan": return CURSORS.PAN;' in canvas_layerify_js
+    assert 'setLayerifyMode(lyrView.activeMode || "Rectangle");' in canvas_layerify_js
+
+    # 2. Multi-layer Baker state save, group/ungroup ID preservation, export & zip download
+    img_dir = tmp_path / "imgs"
+    img_dir.mkdir()
+    _create_sample_image(img_dir / "scene.png", 200, 200)
+
+    engine = WebAppEngine(models_file=None, project_dir=str(tmp_path), configs_file=None)
+    ok, _ = engine.select_folder(str(img_dir))
+    assert ok is True
+
+    # Create 3 annotations (2 rectangles, 1 polygon) and layerify all 3
+    anns = [
+        {"annotation_id": 1, "label": "Key", "color": [247, 59, 187], "rectangle": [10, 10, 50, 50], "visible": True, "selected": False},
+        {"annotation_id": 2, "label": "Box", "color": [255, 255, 255], "rectangle": [70, 70, 40, 40], "visible": True, "selected": False},
+        {"annotation_id": 3, "label": "Cup", "color": [59, 130, 246], "polygon": [[120, 120], [170, 120], [170, 170], [120, 170]], "visible": True, "selected": False},
+    ]
+    engine.update_annotations(anns, push_undo=True)
+    ok, _ = engine.layerify_annotations(layerify_all=True)
+    assert ok is True
+    assert len(engine.current_canvas.layers) == 3
+
+    # Save initial state (steps=2), then group & ungroup first 2 layers, then move layers
+    ok, _ = engine.manage_states({"action": "save", "steps": 2})
+    assert ok is True
+    assert len(engine.current_canvas.states) == 2
+    for step_states in engine.current_canvas.states.values():
+        assert len(step_states) == 3
+
+    lids = [engine.current_canvas.layers[0].layer_id, engine.current_canvas.layers[1].layer_id]
+    ok, _ = engine.baker_layer_action({"action": "group", "layer_ids": lids})
+    assert ok is True
+    assert len(engine.current_canvas.layers) == 2
+
+    ok, _ = engine.baker_layer_action({"action": "ungroup"})
+    assert ok is True
+    assert len(engine.current_canvas.layers) == 3
+    # Original layer IDs are preserved after group -> ungroup
+    assert [lyr.layer_id for lyr in engine.current_canvas.layers[:2]] == lids
+
+    # Export current_local and all_local via HTTP server and verify zip download & all 3 layers exported
+    server, port = create_http_server(engine, host="127.0.0.1", port=0)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+    base_url = f"http://127.0.0.1:{port}"
+    try:
+        for mode in ("current_local", "all_local"):
+            req = urllib.request.Request(
+                f"{base_url}/api/baker/export",
+                data=json.dumps({"mode": mode, "format": "default"}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+                assert payload["ok"] is True
+                assert payload.get("download_url", "").startswith("/api/baker/exported-file?name=")
+                assert len(payload["annotation_exports"]) == (1 if mode == "current_local" else 2)
+                for ann_exp in payload["annotation_exports"]:
+                    exported_anns = json.loads(ann_exp["content"])
+                    assert len(exported_anns) == 3
+                    labels = {a["label"] for a in exported_anns}
+                    assert labels == {"Key", "Box", "Cup"}
+
+                # Download zip archive from download_url
+                with urllib.request.urlopen(f"{base_url}{payload['download_url']}") as dl_resp:
+                    assert dl_resp.status == 200
+                    zip_bytes = dl_resp.read()
+                    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+                        names = zf.namelist()
+                        png_files = [n for n in names if n.endswith(".png")]
+                        json_files = [n for n in names if n.endswith(".json")]
+                        expected_count = 1 if mode == "current_local" else 2
+                        assert len(png_files) == expected_count
+                        assert len(json_files) == expected_count
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_brush_label_rle_layerify_and_baking(tmp_path: Path):
+    """Verify Label Studio-compatible RLE brush annotation, moving, erasing, layerifying, and baking."""
+    import cv2
+    import numpy as np
+
+    from PySide6.QtGui import QColor
+    from imagebaker.core.defs import Annotation
+    from imagebaker.utils.annotation_formats import (
+        dict_to_annotation,
+        export_annotations_data,
+        mask_to_rle,
+        rle_to_mask,
+    )
+    from imagebaker.utils.image import qpixmap_to_numpy
+    from imagebaker.web.annotation_ops import (
+        deserialize_annotation,
+        serialize_annotation,
+    )
+    from imagebaker.web.engine import WebAppEngine
+
+    # 1. RLE lossless encoding & decoding
+    h, w = 120, 160
+    mask = np.zeros((h, w), dtype=np.uint8)
+    cv2.circle(mask, (60, 50), 25, 1, -1)
+    mask[80:110, 100:140] = 1
+
+    rle = mask_to_rle(mask)
+    assert isinstance(rle, list)
+    assert len(rle) > 2
+    assert sum(rle) == h * w
+
+    decoded = rle_to_mask(rle, h, w)
+    assert decoded is not None
+    assert np.array_equal(decoded, mask)
+
+    # 2. Label Studio dictionary format compatibility
+    ls_payload = {
+        "annotation_id": 42,
+        "type": "brushlabels",
+        "format": "rle",
+        "value": {
+            "brushlabels": ["CustomBrush"],
+            "format": "rle",
+            "rle": rle,
+            "mask_size": [h, w],
+        },
+    }
+    ann = dict_to_annotation(ls_payload)
+    assert ann.label == "CustomBrush"
+    assert ann.annotation_id == 42
+    assert ann.mask is not None
+    assert ann.mask.shape == (h, w)
+    assert np.array_equal(ann.mask, mask)
+
+    # 3. JSON Save/Load roundtrip with RLE
+    json_path = tmp_path / "brush_annotations.json"
+    Annotation.save_as_json([ann], str(json_path))
+    loaded_raw = json.loads(json_path.read_text(encoding="utf-8"))
+    assert len(loaded_raw) == 1
+    assert loaded_raw[0]["type"] == "brushlabels"
+    assert loaded_raw[0]["format"] == "rle"
+    assert loaded_raw[0]["rle"] == rle
+    assert loaded_raw[0]["mask_size"] == [h, w]
+
+    loaded_anns = Annotation.load_from_json(str(json_path))
+    assert len(loaded_anns) == 1
+    assert loaded_anns[0].label == "CustomBrush"
+    assert loaded_anns[0].mask is not None
+    assert np.array_equal(loaded_anns[0].mask, mask)
+
+    # 4. Serialize Annotation for Web Client
+    serialized = serialize_annotation(ann)
+    assert serialized["type"] == "brush"
+    assert serialized["has_mask"] is True
+    assert serialized["rle"] == rle
+    assert serialized["mask_size"] == [h, w]
+    assert serialized["mask_png_b64"] is not None
+    assert serialized["brush_bbox"] is not None
+    # Verify points and polygon are empty for brush
+    assert serialized["points"] == []
+    assert serialized["polygon"] == []
+
+    # 5. Moving whole brush mask by delta (mask_offset_x, mask_offset_y)
+    serialized["mask_offset_x"] = 12
+    serialized["mask_offset_y"] = 8
+    shifted_ann = deserialize_annotation(serialized, 42, tmp_path / "dummy.png")
+    assert shifted_ann.mask is not None
+    assert shifted_ann.mask.shape == (h, w)
+    # Check that pixel originally at (40, 50) was inside mask but is now shifted out
+    assert mask[50, 40] == 1
+    assert shifted_ann.mask[50, 40] == 0
+    assert shifted_ann.mask[58, 72] == 1
+
+    # 6. Erasing / modifying brush mask with brush_strokes
+    erase_data = {
+        "annotation_id": 42,
+        "type": "brush",
+        "rle": rle,
+        "mask_size": [h, w],
+        "label": "CustomBrush",
+        "brush_strokes": [
+            {
+                "points": [[60, 50]],
+                "size": 30,
+                "erase": True,
+            }
+        ],
+    }
+    erased_ann = deserialize_annotation(erase_data, 42, tmp_path / "dummy.png")
+    assert erased_ann.mask is not None
+    assert erased_ann.mask[50, 60] == 0  # Erased center of circle
+
+    # 7. Layerifying brush annotation in WebAppEngine
+    img_dir = tmp_path / "brush_img_dir"
+    img_dir.mkdir()
+    sample_img_path = img_dir / "canvas_photo.png"
+    photo_np = np.full((120, 160, 3), 180, dtype=np.uint8)
+    # Give it color variation
+    photo_np[20:70, 30:90] = [255, 100, 50]
+    photo_np[70:115, 80:150] = [50, 200, 100]
+    cv2.imwrite(str(sample_img_path), photo_np)
+
+    engine = WebAppEngine(models_file=None, project_dir=str(tmp_path), configs_file=None)
+    ok, msg = engine.select_folder(str(img_dir))
+    assert ok is True
+
+    # Place the brush annotation on the current image
+    engine.current_annotations = [
+        Annotation(
+            annotation_id=1,
+            label="BrushPatch",
+            color=QColor(220, 50, 50),
+            mask=mask.copy(),
+            visible=True,
+            selected=True,
+            is_complete=True,
+            file_path=sample_img_path,
+        )
+    ]
+
+    ok, msg = engine.layerify_annotations()
+    assert ok is True, f"Layerify failed: {msg}"
+    assert len(engine.current_canvas.layers) >= 1
+
+    brush_layer = engine.current_canvas.layers[-1]
+    assert brush_layer.annotations
+    assert brush_layer.annotations[0].mask is not None
+
+    # Verify cropped pixmap is masked to brushed pixels
+    layer_arr = qpixmap_to_numpy(brush_layer.image)
+    assert layer_arr.shape[2] == 4
+    # Alpha must be 0 outside the brush region
+    assert np.any(layer_arr[:, :, 3] == 0)
+    # Alpha must be > 0 inside the brush region
+    assert np.any(layer_arr[:, :, 3] > 0)
+
+    # 8. Baker State Baking & Export
+    engine.manage_states({"action": "save", "steps": 1})
+    bake_res = engine.bake_and_export(mode="current_local")
+    assert bake_res["ok"] is True
+    assert len(bake_res["exported_files"]) >= 1
+
+    # Verify exported default annotations retain RLE
+    exp_ann_file = Path(bake_res["exported_files"][0]).with_suffix(".json")
+    assert exp_ann_file.exists()
+    baked_anns_json = json.loads(exp_ann_file.read_text(encoding="utf-8"))
+    assert len(baked_anns_json) >= 1
+    first_baked = baked_anns_json[0]
+    assert first_baked["type"] == "brushlabels" or first_baked.get("rle") is not None
+
+    # Verify COCO & YOLO exports calculate segmentation/bboxes from brush mask
+    exp_coco = export_annotations_data(
+        annotations=engine.current_canvas.layers[-1].annotations,
+        fmt="coco",
+        image_name="test.png",
+        image_width=160,
+        image_height=120,
+    )
+    assert exp_coco["format"] == "coco"
+    assert len(exp_coco["data"]["annotations"]) >= 1
+    assert exp_coco["data"]["annotations"][0]["bbox"][2] > 0
+    assert exp_coco["data"]["annotations"][0]["bbox"][3] > 0
+
+    exp_yolo = export_annotations_data(
+        annotations=engine.current_canvas.layers[-1].annotations,
+        fmt="yolo",
+        image_name="test.png",
+        image_width=160,
+        image_height=120,
+    )
+    assert exp_yolo["format"] == "yolo"
+    assert len(exp_yolo["data"]["txt"].strip().splitlines()) >= 1
+
+    # 9. Test Baking directly to Layerify tab (predict_state / Annotate States)
+    bake_to_lyr = engine.bake_and_export(mode="predict_state")
+    assert bake_to_lyr["ok"] is True
+    assert bake_to_lyr["switched_to_layerify"] is True
+    assert engine.active_tab == "Layerify"
+    assert engine.image_entries[-1].is_baked_result is True
+
+
 if __name__ == "__main__":
     import tempfile
 
@@ -889,4 +1343,7 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as d7:
         test_layerify_all_button_with_selected_annotation(Path(d7))
     print("  [PASS] test_layerify_all_button_with_selected_annotation")
+    with tempfile.TemporaryDirectory() as d8:
+        test_polygon_double_click_point_remove_and_edge_insert_and_label_dropdown(Path(d8))
+    print("  [PASS] test_polygon_double_click_point_remove_and_edge_insert_and_label_dropdown")
     print("All tests passed!")

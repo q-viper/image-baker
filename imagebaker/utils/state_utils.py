@@ -8,15 +8,17 @@ def calculate_intermediate_states(
 ):
     """
     Calculate intermediate states between previous_state and current_state for a layer.
-    Append the current_state to the list of states after calculating intermediates.
 
     Args:
         previous_state (LayerState): Previous state of the layer.
         current_state (LayerState): Current state of the layer.
-        steps (int): Number of intermediate states to calculate.
+        steps (int): Number of states to calculate across this transition.
     """
-    if not previous_state or not current_state:
-        return [current_state]  # If no previous state, return only the current state
+    if not current_state:
+        return []
+    steps = max(1, int(steps))
+    if not previous_state:
+        previous_state = current_state
 
     intermediate_states = []
     for i in range(1, steps + 1):
@@ -63,14 +65,23 @@ def calculate_intermediate_states(
             selected=False,
             is_annotable=current_state.is_annotable,
             status=current_state.status,
-            edge_opacity=previous_state.edge_opacity
-            + (current_state.edge_opacity - previous_state.edge_opacity) * (i / steps),
-            edge_width=previous_state.edge_width
-            + (current_state.edge_width - previous_state.edge_width) * (i / steps),
-            caption=previous_state.caption,  # Assuming caption is the same in both states
+            edge_opacity=int(
+                round(
+                    previous_state.edge_opacity
+                    + (current_state.edge_opacity - previous_state.edge_opacity)
+                    * (i / steps)
+                )
+            ),
+            edge_width=int(
+                round(
+                    previous_state.edge_width
+                    + (current_state.edge_width - previous_state.edge_width)
+                    * (i / steps)
+                )
+            ),
+            caption=current_state.caption or previous_state.caption,
         )
 
-        # Deep copy the drawing_states from the previous_state
         interpolated_state.drawing_states = [
             DrawingState(
                 position=d.position,
@@ -81,18 +92,5 @@ def calculate_intermediate_states(
         ]
 
         intermediate_states.append(interpolated_state)
-
-    # Append the current state as the final state
-    current_state.drawing_states.extend(
-        [
-            DrawingState(
-                position=d.position,
-                color=d.color,
-                size=d.size,
-            )
-            for d in current_state.drawing_states
-        ]
-    )
-    intermediate_states.append(current_state)
 
     return intermediate_states

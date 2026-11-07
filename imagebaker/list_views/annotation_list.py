@@ -22,6 +22,10 @@ from imagebaker.layers.annotable_layer import AnnotableLayer
 
 class AnnotationList(QDockWidget):
     messageSignal = Signal(str)
+    layerifyAllRequested = Signal()
+    saveRequested = Signal()
+    loadRequested = Signal()
+    clearRequested = Signal()
 
     def __init__(self, layer: AnnotableLayer, parent=None, max_name_length=15):
         super().__init__("Annotations", parent)
@@ -42,6 +46,33 @@ class AnnotationList(QDockWidget):
         self.list_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         layout.addWidget(self.list_widget)
+
+        btn_row = QWidget()
+        btn_layout = QHBoxLayout(btn_row)
+        btn_layout.setContentsMargins(0, 4, 0, 0)
+        btn_layout.setSpacing(4)
+
+        self.layerify_all_btn = QPushButton("🧅 Layerify All")
+        self.layerify_all_btn.setToolTip("Extract all visible annotations into Baker layers")
+        self.layerify_all_btn.clicked.connect(self.layerifyAllRequested.emit)
+        btn_layout.addWidget(self.layerify_all_btn)
+
+        self.save_btn = QPushButton("💾 Save")
+        self.save_btn.setToolTip("Save annotations to file")
+        self.save_btn.clicked.connect(self.saveRequested.emit)
+        btn_layout.addWidget(self.save_btn)
+
+        self.load_btn = QPushButton("📂 Load")
+        self.load_btn.setToolTip("Load annotations from file")
+        self.load_btn.clicked.connect(self.loadRequested.emit)
+        btn_layout.addWidget(self.load_btn)
+
+        self.clear_btn = QPushButton("🗑️ Clear")
+        self.clear_btn.setToolTip("Clear all annotations")
+        self.clear_btn.clicked.connect(self.clearRequested.emit)
+        btn_layout.addWidget(self.clear_btn)
+
+        layout.addWidget(btn_row)
         self.setWidget(widget)
         self.setFeatures(
             QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable

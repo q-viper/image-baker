@@ -92,8 +92,13 @@
     mouseImgY: 0,
     isMouseOver: false,
     brushSize: 18,
+    brushSubMode: "paint",
     activeBrushStroke: [],
+    activeBrushErase: false,
     maskImageCache: new Map(),
+    maskCanvasCache: new Map(),
+    maskBinaryCache: new Map(),
+    maskSigCache: new Map(),
     labelPillRects: [],
   };
 
@@ -130,27 +135,94 @@
 
   const CURSORS = {
     IDLE: "default",
+    MOVE: "move",
     PAN: "grab",
     PAN_ACTIVE: "grabbing",
-    RECTANGLE: "crosshair",
-    POINT: "crosshair",
-    POLYGON: "crosshair",
+    RECTANGLE: utils.svgCursor(
+      `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'>
+        <g stroke='#ffffff' stroke-width='3' stroke-linecap='round'>
+          <line x1='3' y1='10' x2='8' y2='10'/>
+          <line x1='12' y1='10' x2='17' y2='10'/>
+          <line x1='10' y1='3' x2='10' y2='8'/>
+          <line x1='10' y1='12' x2='10' y2='17'/>
+        </g>
+        <g stroke='#141820' stroke-width='1.5' stroke-linecap='round'>
+          <line x1='3' y1='10' x2='8' y2='10'/>
+          <line x1='12' y1='10' x2='17' y2='10'/>
+          <line x1='10' y1='3' x2='10' y2='8'/>
+          <line x1='10' y1='12' x2='10' y2='17'/>
+        </g>
+        <rect x='14' y='15' width='11' height='9' fill='none' stroke='#ffffff' stroke-width='2.5'/>
+        <rect x='14' y='15' width='11' height='9' fill='rgba(59,130,246,0.28)' stroke='#3b82f6' stroke-width='1.5'/>
+      </svg>`,
+      10, 10, "crosshair"
+    ),
+    POINT: utils.svgCursor(
+      `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'>
+        <g stroke='#ffffff' stroke-width='3' stroke-linecap='round'>
+          <line x1='3' y1='10' x2='8' y2='10'/>
+          <line x1='12' y1='10' x2='17' y2='10'/>
+          <line x1='10' y1='3' x2='10' y2='8'/>
+          <line x1='10' y1='12' x2='10' y2='17'/>
+        </g>
+        <g stroke='#141820' stroke-width='1.5' stroke-linecap='round'>
+          <line x1='3' y1='10' x2='8' y2='10'/>
+          <line x1='12' y1='10' x2='17' y2='10'/>
+          <line x1='10' y1='3' x2='10' y2='8'/>
+          <line x1='10' y1='12' x2='10' y2='17'/>
+        </g>
+        <circle cx='10' cy='10' r='3' fill='#00d2ff' stroke='#ffffff' stroke-width='1.8'/>
+        <circle cx='20' cy='20' r='4.5' fill='none' stroke='#ffffff' stroke-width='2.5'/>
+        <circle cx='20' cy='20' r='4.5' fill='none' stroke='#00b4e6' stroke-width='1.5'/>
+        <circle cx='20' cy='20' r='1.8' fill='#00d2ff'/>
+      </svg>`,
+      10, 10, "crosshair"
+    ),
+    POLYGON: utils.svgCursor(
+      `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'>
+        <g stroke='#ffffff' stroke-width='3' stroke-linecap='round'>
+          <line x1='3' y1='10' x2='8' y2='10'/>
+          <line x1='12' y1='10' x2='17' y2='10'/>
+          <line x1='10' y1='3' x2='10' y2='8'/>
+          <line x1='10' y1='12' x2='10' y2='17'/>
+        </g>
+        <g stroke='#141820' stroke-width='1.5' stroke-linecap='round'>
+          <line x1='3' y1='10' x2='8' y2='10'/>
+          <line x1='12' y1='10' x2='17' y2='10'/>
+          <line x1='10' y1='3' x2='10' y2='8'/>
+          <line x1='10' y1='12' x2='10' y2='17'/>
+        </g>
+        <polygon points='15,24 14,17 20,14 25,19 23,25' fill='none' stroke='#ffffff' stroke-width='2.5' stroke-linejoin='round'/>
+        <polygon points='15,24 14,17 20,14 25,19 23,25' fill='rgba(16,185,129,0.3)' stroke='#10b981' stroke-width='1.5' stroke-linejoin='round'/>
+        <circle cx='15' cy='24' r='1.6' fill='#10b981'/>
+        <circle cx='14' cy='17' r='1.6' fill='#10b981'/>
+        <circle cx='20' cy='14' r='1.6' fill='#10b981'/>
+        <circle cx='25' cy='19' r='1.6' fill='#10b981'/>
+        <circle cx='23' cy='25' r='1.6' fill='#10b981'/>
+      </svg>`,
+      10, 10, "crosshair"
+    ),
     BRUSH: utils.svgCursor(
-      `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'>
-        <circle cx='12' cy='12' r='8' fill='none' stroke='#2f80ed' stroke-width='2'/>
-        <circle cx='12' cy='12' r='2' fill='#2f80ed'/>
+      `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'>
+        <circle cx='12' cy='12' r='8' fill='none' stroke='#ffffff' stroke-width='3'/>
+        <circle cx='12' cy='12' r='8' fill='rgba(168,85,247,0.18)' stroke='#a855f7' stroke-width='1.8'/>
+        <circle cx='12' cy='12' r='2' fill='#a855f7' stroke='#ffffff' stroke-width='1'/>
+        <path d='M19 19 L25 25' stroke='#ffffff' stroke-width='3' stroke-linecap='round'/>
+        <path d='M19 19 L25 25' stroke='#a855f7' stroke-width='1.8' stroke-linecap='round'/>
       </svg>`,
       12, 12, "crosshair"
     ),
     DRAW: utils.svgCursor(
       `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'>
+        <circle cx='12' cy='12' r='7' fill='none' stroke='#ffffff' stroke-width='3'/>
         <circle cx='12' cy='12' r='7' fill='none' stroke='#eb5757' stroke-width='2'/>
-        <circle cx='12' cy='12' r='1.5' fill='#eb5757'/>
+        <circle cx='12' cy='12' r='1.8' fill='#eb5757'/>
       </svg>`,
       12, 12, "crosshair"
     ),
     ERASE: utils.svgCursor(
       `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'>
+        <rect x='4' y='4' width='16' height='16' rx='3' fill='none' stroke='#ffffff' stroke-width='3'/>
         <rect x='4' y='4' width='16' height='16' rx='3' fill='none' stroke='#f2994a' stroke-width='2'/>
         <line x1='6' y1='6' x2='18' y2='18' stroke='#f2994a' stroke-width='1.5'/>
       </svg>`,

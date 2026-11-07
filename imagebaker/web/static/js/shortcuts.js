@@ -151,30 +151,37 @@
           return;
         }
 
-        // 6. Save State: Ctrl + S
+        // 6. Save: Ctrl + S
         if (key === "s" && !e.shiftKey) {
           e.preventDefault();
-          const saveStateBtn = document.getElementById("btn-save-state");
-          if (saveStateBtn) saveStateBtn.click();
+          if (state.active_tab === "Baker") {
+            const saveStateBtn = document.getElementById("btn-save-state");
+            if (saveStateBtn) saveStateBtn.click();
+          } else if (state.active_tab === "Layerify") {
+            const saveAnnBtn = document.getElementById("btn-save-annotations");
+            if (saveAnnBtn) saveAnnBtn.click();
+          }
           return;
         }
 
-        // 7. Group Layers: Ctrl + G
+        // 7. Group / Ungroup Layers: Ctrl + G
         if (key === "g") {
           e.preventDefault();
           if (state.active_tab === "Baker") {
             try {
               const selected = (state.baker?.layers || []).filter(l => l.selected);
               const selIds = selected.map(l => l.layer_id);
-              const res = await api.performBakerLayerAction("group", { layer_ids: selIds });
+              const isGroupedSelected = selected.length === 1 && (selected[0].is_group || (selected[0].grouped_layers && selected[0].grouped_layers.length >= 2));
+              const action = isGroupedSelected ? "ungroup" : "group";
+              const res = await api.performBakerLayerAction(action, { layer_ids: selIds });
               if (res && res.state) {
                 window.ImageBaker.applyServerState(res.state);
-                showToast("baker", res.message || "Group/Ungroup layers");
+                showToast("baker", res.message || (action === "ungroup" ? "Layer ungrouped" : "Layers grouped"));
               } else if (res && !res.ok) {
-                showToast("baker", res.message || "Failed to group/ungroup layers");
+                showToast("baker", res.message || `Failed to ${action} layers`);
               }
             } catch (err) {
-              console.error("Group layers error:", err);
+              console.error("Group/Ungroup layers error:", err);
             }
           }
           return;
@@ -248,30 +255,121 @@
 
       // =======================================================================
       // Single Key & Shift Shortcuts (when not holding Ctrl/Cmd)
+      // Strictly isolated by active tab (Layerify vs Baker)
       // =======================================================================
       if (!cmdOrCtrl && !e.altKey) {
         switch (key) {
-          // Mode switching in Layerify
-          case "v":
           case "escape":
-            e.preventDefault();
-            window.ImageBaker.canvasLayerify.setLayerifyMode("Idle");
+            if (state.active_tab === "Layerify") {
+              e.preventDefault();
+              window.ImageBaker.canvasLayerify.setLayerifyMode("Idle");
+            } else if (state.active_tab === "Baker") {
+              e.preventDefault();
+              const bkrView = window.ImageBaker.bkrView;
+              if (bkrView && bkrView.isPlaying) {
+                window.ImageBaker.canvasBaker.stopPlayingStates();
+              } else if (bkrView && (bkrView.drawingMode || bkrView.eraseMode)) {
+                bkrView.drawingMode = false;
+                bkrView.eraseMode = false;
+                const drawBtn = document.getElementById("btn-draw-mode");
+                const eraseBtn = document.getElementById("btn-erase-mode");
+                if (drawBtn) drawBtn.classList.remove("active");
+                if (eraseBtn) eraseBtn.classList.remove("active");
+                window.ImageBaker.canvasBaker.drawBakerCanvas();
+              } else {
+                const layers = state.baker?.layers || [];
+                if (layers.some(l => l.selected)) {
+                  layers.forEach(l => l.selected = false);
+                  window.ImageBaker.canvasBaker.drawBakerCanvas();
+                  window.ImageBaker.uiBaker.renderLayerLists();
+                  window.ImageBaker.uiBaker.renderLayerSettings();
+                  window.ImageBaker.canvasBaker.syncLayersToServer(false, "Deselected all layers");
+                }
+              }
+            }
             break;
+
+          case "enter":
+            if (state.active_tab === "Layerify" && lyrView.activeMode === "Polygon" && lyrView.activePolyDraft && lyrView.activePolyDraft.length >= 3) {
+              e.preventDefault();
+              const finishBtn = document.getElementById("btn-finish-polygon");
+              if (finishBtn) finishBtn.click();
+            }
+            break;
+
+          case " ":
+            if (state.active_tab === "Baker") {
+              e.preventDefault();
+              const playBtn = document.getElementById("btn-play-states");
+              if (playBtn) playBtn.click();
+            }
+            break;
+
+          case "v":
+            if (state.active_tab === "Layerify") {
+              e.preventDefault();
+              window.ImageBaker.canvasLayerify.setLayerifyMode("Idle");
+            }
+            break;
+
           case "e":
-            e.preventDefault();
-            window.ImageBaker.canvasLayerify.setLayerifyMode("Rectangle");
+            if (state.active_tab === "Layerify") {
+              e.preventDefault();
+              window.ImageBaker.canvasLayerify.setLayerifyMode("Rectangle");
+            } else if (state.active_tab === "Baker") {
+              e.preventDefault();
+              const eraseBtn = document.getElementById("btn-erase-mode");
+              if (eraseBtn) eraseBtn.click();
+            }
             break;
+
+          case "d":
+            if (state.active_tab === "Baker") {
+              e.preventDefault();
+              const drawBtn = document.getElementById("btn-draw-mode");
+              if (drawBtn) drawBtn.click();
+            }
+            break;
+
           case "w":
-            e.preventDefault();
-            window.ImageBaker.canvasLayerify.setLayerifyMode("Polygon");
+            if (state.active_tab === "Layerify") {
+              e.preventDefault();
+              window.ImageBaker.canvasLayerify.setLayerifyMode("Polygon");
+            } else if (state.active_tab === "Baker") {
+              e.preventDefault();
+              const sel = (state.baker?.layers || []).find(l => l.selected);
+              if (sel) {
+                api.reorderBakerLayers({ direction: "up", layer_id: sel.layer_id }).then(res => {
+                  if (res && res.state) window.ImageBaker.applyServerState(res.state);
+                });
+              }
+            }
             break;
+
+          case "s":
+            if (state.active_tab === "Baker") {
+              e.preventDefault();
+              const sel = (state.baker?.layers || []).find(l => l.selected);
+              if (sel) {
+                api.reorderBakerLayers({ direction: "down", layer_id: sel.layer_id }).then(res => {
+                  if (res && res.state) window.ImageBaker.applyServerState(res.state);
+                });
+              }
+            }
+            break;
+
           case "q":
-            e.preventDefault();
-            window.ImageBaker.canvasLayerify.setLayerifyMode("Point");
+            if (state.active_tab === "Layerify") {
+              e.preventDefault();
+              window.ImageBaker.canvasLayerify.setLayerifyMode("Point");
+            }
             break;
+
           case "b":
-            e.preventDefault();
-            window.ImageBaker.canvasLayerify.setLayerifyMode("Brush");
+            if (state.active_tab === "Layerify") {
+              e.preventDefault();
+              window.ImageBaker.canvasLayerify.setLayerifyMode("Brush");
+            }
             break;
 
           // Navigation [ and ]
@@ -290,19 +388,22 @@
 
           // Fit viewport F
           case "f":
-            e.preventDefault();
             if (state.active_tab === "Layerify") {
+              e.preventDefault();
               window.ImageBaker.canvasLayerify.fitLayerifyImageIfNeeded();
             } else if (state.active_tab === "Baker") {
+              e.preventDefault();
               window.ImageBaker.canvasBaker.fitBakerLayersIfNeeded(true);
             }
             break;
 
           // Grid toggle G
           case "g":
-            e.preventDefault();
-            const gridBtn = document.getElementById("btn-top-grid");
-            if (gridBtn) gridBtn.click();
+            if (state.active_tab === "Layerify" || state.active_tab === "Baker") {
+              e.preventDefault();
+              const gridBtn = document.getElementById("btn-top-grid");
+              if (gridBtn) gridBtn.click();
+            }
             break;
 
           // Rotate selected layer in Baker (R / Shift+R)
@@ -382,8 +483,13 @@
                 const dx = (key === "arrowleft" ? -step : key === "arrowright" ? step : 0);
                 const dy = (key === "arrowup" ? -step : key === "arrowdown" ? step : 0);
                 selected.forEach(a => {
-                  if (a.rectangle) {
-                    a.rectangle = [a.rectangle[0] + dx, a.rectangle[1] + dy, a.rectangle[2], a.rectangle[3]];
+                  if (a.rectangle && a.rectangle.length === 4) {
+                    a.rectangle = [
+                      a.rectangle[0] + dx,
+                      a.rectangle[1] + dy,
+                      a.rectangle[2] + dx,
+                      a.rectangle[3] + dy
+                    ];
                   }
                   if (a.polygon) {
                     a.polygon = a.polygon.map(pt => [pt[0] + dx, pt[1] + dy]);
@@ -456,10 +562,10 @@
             }
             break;
 
-          // Layerify L (selected if any, otherwise all)
+          // Layerify L (only on Layerify tab)
           case "l":
-            e.preventDefault();
-            {
+            if (state.active_tab === "Layerify") {
+              e.preventDefault();
               const selAnns = (state.layerify?.annotations || []).filter(a => a.selected && a.visible);
               if (selAnns.length > 0) {
                 window.ImageBaker.uiLayerify.runLayerifySelected(selAnns.map(a => a.annotation_id));
@@ -469,15 +575,21 @@
             }
             break;
 
-          // Predict P
+          // Predict P (on Layerify runs model prediction; on Baker triggers Predict State)
           case "p":
-            e.preventDefault();
-            window.ImageBaker.uiLayerify.runModelPrediction();
+            if (state.active_tab === "Layerify") {
+              e.preventDefault();
+              window.ImageBaker.uiLayerify.runModelPrediction();
+            } else if (state.active_tab === "Baker") {
+              e.preventDefault();
+              const predictStateBtn = document.getElementById("btn-predict-state");
+              if (predictStateBtn) predictStateBtn.click();
+            }
             break;
         }
 
-        // Digit hotkeys 0-9 to select class label
-        if (/^[0-9]$/.test(e.key)) {
+        // Digit hotkeys 0-9 to select class label (ONLY on Layerify tab)
+        if (state.active_tab === "Layerify" && /^[0-9]$/.test(e.key)) {
           const digit = parseInt(e.key, 10);
           const labels = state.layerify.labels || [];
           if (digit >= 0 && digit < labels.length) {

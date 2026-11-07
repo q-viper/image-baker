@@ -15,6 +15,128 @@ UNDEFINED_LABEL = "Undefined"
 SUPPORTED_ANNOTATION_FORMATS = tuple(f.value for f in AnnotationFormat)
 
 
+def mask_to_rle(mask: np.ndarray | None) -> list[int]:
+    """
+    Encode a 2D binary/uint8 mask (H, W) into row-major run-length counts
+    starting with background (0): [count_0, count_1, count_0, count_1, ...].
+    """
+    if mask is None:
+        return []
+    arr = np.asarray(mask)
+    if arr.size == 0:
+        return []
+    if arr.ndim == 3:
+        arr = arr[:, :, -1] if arr.shape[2] == 4 else arr[:, :, 0]
+    flat = (arr.ravel() > 0).astype(np.uint8)
+    if not np.any(flat):
+        return []
+    diffs = np.flatnonzero(flat[1:] != flat[:-1]) + 1
+    boundaries = np.concatenate(([0], diffs, [flat.size]))
+    counts = np.diff(boundaries).tolist()
+    if flat[0] == 1:
+        counts.insert(0, 0)
+    return [int(c) for c in counts]
+
+
+def _decode_label_studio_bitstream_rle(
+    rle: list[int], height: int, width: int
+) -> np.ndarray | None:
+    """Fallback decoder for Label Studio's packed bitstream RLE format."""
+    try:
+        bits = "".join(f"{int(b) & 0xFF:08b}" for b in rle)
+        pos = 0
+        total_bits = len(bits)
+
+        def read_bits(n: int) -> int:
+            nonlocal pos
+            if pos + n > total_bits:
+                val_str = bits[pos:].ljust(n, "0")
+                pos = total_bits
+                return int(val_str, 2) if val_str else 0
+            val = int(bits[pos : pos + n], 2)
+            pos += n
+            return val
+
+        num = read_bits(32)
+        word_size = read_bits(5) + 1
+        rle_sizes = [read_bits(4) + 1 for _ in range(4)]
+        out = np.zeros(num, dtype=np.uint8)
+        i = 0
+        while i < num and pos < total_bits:
+            flag = read_bits(1)
+            run_len = 1 + read_bits(rle_sizes[read_bits(2)])
+            if flag:
+                val = read_bits(word_size)
+                out[i : min(num, i + run_len)] = val
+                i += run_len
+            else:
+                for _ in range(run_len):
+                    if i >= num:
+                        break
+                    out[i] = read_bits(word_size)
+                    i += 1
+        expected = int(height) * int(width)
+        if out.size == expected * 4:
+            return (out.reshape((int(height), int(width), 4))[:, :, 3] > 0).astype(
+                np.uint8
+            )
+        if out.size >= expected:
+            return (out[:expected].reshape((int(height), int(width))) > 0).astype(
+                np.uint8
+            )
+    except Exception:
+        pass
+    return None
+
+
+def rle_to_mask(
+    rle: list[int] | dict[str, Any] | None,
+    height: int | None = None,
+    width: int | None = None,
+) -> np.ndarray | None:
+    """
+    Decode a run-length encoded mask (or Label Studio RLE dict) into a 2D uint8
+    binary mask of shape (height, width) with values in {0, 1}.
+    """
+    if rle is None:
+        return None
+    if isinstance(rle, dict):
+        size = rle.get("mask_size") or rle.get("size")
+        if size and len(size) == 2:
+            height = int(size[0])
+            width = int(size[1])
+        rle = rle.get("rle") or rle.get("counts") or []
+    if not isinstance(rle, (list, tuple)) or len(rle) == 0:
+        return None
+    if not height or not width or int(height) <= 0 or int(width) <= 0:
+        return None
+
+    h, w = int(height), int(width)
+    counts = [max(0, int(c)) for c in rle]
+    total = sum(counts)
+    expected = h * w
+    if total == expected:
+        vals = (np.arange(len(counts), dtype=np.uint8) % 2)
+        flat = np.repeat(vals, counts)
+        return flat.reshape((h, w))
+
+    # Fallback: check if this is Label Studio's bitstream RLE
+    ls_mask = _decode_label_studio_bitstream_rle(counts, h, w)
+    if ls_mask is not None:
+        return ls_mask
+
+    # Fallback if total slightly differs: pad or truncate
+    if total > 0:
+        vals = (np.arange(len(counts), dtype=np.uint8) % 2)
+        flat = np.repeat(vals, counts)
+        if flat.size < expected:
+            flat = np.pad(flat, (0, expected - flat.size), mode="constant")
+        else:
+            flat = flat[:expected]
+        return flat.reshape((h, w))
+    return None
+
+
 def _deterministic_color_rgb(label: str) -> list[int]:
     if not label or label == UNDEFINED_LABEL:
         return [180, 180, 180]
@@ -44,8 +166,16 @@ def normalize_annotation_dict(ann: Any, idx: int = 1) -> dict[str, Any]:
         if ann.points:
             pts = [[float(pt.x()), float(pt.y())] for pt in ann.points]
         mask_poly = []
-        if ann.mask is not None and ann.mask.size > 0:
-            mask_uint8 = (ann.mask > 0).astype(np.uint8) * 255
+        mask_rect = None
+        rle: list[int] = []
+        mask_size: list[int] | None = None
+        if ann.mask is not None and ann.mask.size > 0 and np.any(ann.mask):
+            mask_arr = np.asarray(ann.mask)
+            if mask_arr.ndim == 3:
+                mask_arr = mask_arr[:, :, -1] if mask_arr.shape[2] == 4 else mask_arr[:, :, 0]
+            rle = mask_to_rle(mask_arr)
+            mask_size = [int(mask_arr.shape[0]), int(mask_arr.shape[1])]
+            mask_uint8 = (mask_arr > 0).astype(np.uint8) * 255
             contours, _ = cv2.findContours(
                 mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
             )
@@ -53,8 +183,9 @@ def normalize_annotation_dict(ann: Any, idx: int = 1) -> dict[str, Any]:
                 largest = max(contours, key=cv2.contourArea)
                 if len(largest) >= 3:
                     mask_poly = [[float(p[0][0]), float(p[0][1])] for p in largest]
-        if not poly and mask_poly:
-            poly = mask_poly
+            bx, by, bw, bh = cv2.boundingRect(mask_uint8)
+            if bw > 0 and bh > 0:
+                mask_rect = [int(bx), int(by), int(bw), int(bh)]
         if rect is None and poly:
             xs = [p[0] for p in poly]
             ys = [p[1] for p in poly]
@@ -63,10 +194,18 @@ def normalize_annotation_dict(ann: Any, idx: int = 1) -> dict[str, Any]:
             rect = [min_x, min_y, max(1, max_x - min_x), max(1, max_y - min_y)]
         label = ann.label or UNDEFINED_LABEL
         color = [ann.color.red(), ann.color.green(), ann.color.blue()]
+        is_brush = bool(rle and not poly and rect is None)
         return {
             "annotation_id": int(getattr(ann, "annotation_id", idx) or idx),
             "label_id": int(getattr(ann, "label_id", 0) or 0),
             "label": label,
+            "type": "brushlabels" if is_brush else (
+                "polygon" if poly else ("rectangle" if rect else "point")
+            ),
+            "format": "rle" if rle else None,
+            "brushlabels": [label] if rle else None,
+            "rle": rle if rle else None,
+            "mask_size": mask_size,
             "score": getattr(ann, "score", None),
             "caption": getattr(ann, "caption", "") or "",
             "visible": bool(getattr(ann, "visible", True)),
@@ -75,14 +214,27 @@ def normalize_annotation_dict(ann: Any, idx: int = 1) -> dict[str, Any]:
             "points": pts,
             "rectangle": rect,
             "polygon": poly,
-            "mask": ann.mask.tolist() if ann.mask is not None else None,
+            "mask": None,
+            "_mask_polygon": mask_poly,
+            "_mask_rectangle": mask_rect,
             "image_path": str(getattr(ann, "file_path", "") or ""),
             "layer_id": str(getattr(ann, "layer_id", "") or ""),
             "allow_export": bool(getattr(ann, "allow_annotation_export", True)),
         }
 
     if isinstance(ann, dict):
-        label = str(ann.get("label") or UNDEFINED_LABEL)
+        val_dict = ann.get("value") if isinstance(ann.get("value"), dict) else {}
+        brushlabels = (
+            ann.get("brushlabels")
+            or val_dict.get("brushlabels")
+            or []
+        )
+        raw_label = (
+            ann.get("label")
+            or (brushlabels[0] if isinstance(brushlabels, list) and brushlabels else None)
+            or UNDEFINED_LABEL
+        )
+        label = str(raw_label)
         color = ann.get("color")
         if not isinstance(color, (list, tuple)) or len(color) < 3:
             color = _deterministic_color_rgb(label)
@@ -122,18 +274,41 @@ def normalize_annotation_dict(ann: Any, idx: int = 1) -> dict[str, Any]:
                 int(rect_raw.height()),
             ]
 
+        rle_raw = ann.get("rle") or val_dict.get("rle")
+        mask_size_raw = (
+            ann.get("mask_size")
+            or ann.get("size")
+            or val_dict.get("mask_size")
+            or (
+                [int(ann["original_height"]), int(ann["original_width"])]
+                if "original_height" in ann and "original_width" in ann
+                else None
+            )
+        )
         mask_raw = ann.get("mask")
-        if not poly and mask_raw is not None:
+        mask_arr = None
+        if rle_raw and mask_size_raw and len(mask_size_raw) == 2:
+            mask_arr = rle_to_mask(rle_raw, int(mask_size_raw[0]), int(mask_size_raw[1]))
+        elif mask_raw is not None:
             mask_arr = np.array(mask_raw, dtype=np.uint8)
-            if mask_arr.ndim >= 2 and mask_arr.size > 0:
-                mask_uint8 = (mask_arr > 0).astype(np.uint8) * 255
-                contours, _ = cv2.findContours(
-                    mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-                )
-                if contours:
-                    largest = max(contours, key=cv2.contourArea)
-                    if len(largest) >= 3:
-                        poly = [[float(p[0][0]), float(p[0][1])] for p in largest]
+            if mask_arr.ndim >= 2 and mask_arr.size > 0 and np.any(mask_arr):
+                rle_raw = mask_to_rle(mask_arr)
+                mask_size_raw = [int(mask_arr.shape[0]), int(mask_arr.shape[1])]
+
+        mask_poly = []
+        mask_rect = None
+        if mask_arr is not None and mask_arr.ndim >= 2 and mask_arr.size > 0 and np.any(mask_arr):
+            mask_uint8 = (mask_arr > 0).astype(np.uint8) * 255
+            contours, _ = cv2.findContours(
+                mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+            if contours:
+                largest = max(contours, key=cv2.contourArea)
+                if len(largest) >= 3:
+                    mask_poly = [[float(p[0][0]), float(p[0][1])] for p in largest]
+            bx, by, bw, bh = cv2.boundingRect(mask_uint8)
+            if bw > 0 and bh > 0:
+                mask_rect = [int(bx), int(by), int(bw), int(bh)]
 
         if rect is None and poly:
             xs = [p[0] for p in poly]
@@ -142,10 +317,25 @@ def normalize_annotation_dict(ann: Any, idx: int = 1) -> dict[str, Any]:
             min_y, max_y = int(min(ys)), int(max(ys))
             rect = [min_x, min_y, max(1, max_x - min_x), max(1, max_y - min_y)]
 
+        is_brush = bool(
+            (rle_raw or mask_arr is not None)
+            and not poly
+            and rect is None
+        )
         return {
             "annotation_id": int(ann.get("annotation_id", idx) or idx),
             "label_id": int(ann.get("label_id", 0) or 0),
             "label": label,
+            "type": "brushlabels" if is_brush else (
+                ann.get("type")
+                or ("polygon" if poly else ("rectangle" if rect else "point"))
+            ),
+            "format": "rle" if rle_raw else ann.get("format"),
+            "brushlabels": [label] if rle_raw else None,
+            "rle": [int(c) for c in rle_raw] if rle_raw else None,
+            "mask_size": [int(mask_size_raw[0]), int(mask_size_raw[1])]
+            if (mask_size_raw and len(mask_size_raw) == 2)
+            else None,
             "score": ann.get("score"),
             "caption": str(ann.get("caption") or ""),
             "visible": bool(ann.get("visible", True)),
@@ -154,7 +344,9 @@ def normalize_annotation_dict(ann: Any, idx: int = 1) -> dict[str, Any]:
             "points": pts,
             "rectangle": rect,
             "polygon": poly,
-            "mask": mask_raw,
+            "mask": None,
+            "_mask_polygon": mask_poly,
+            "_mask_rectangle": mask_rect,
             "image_path": str(ann.get("image_path") or ann.get("file_path") or ""),
             "layer_id": str(ann.get("layer_id") or ""),
             "allow_export": bool(ann.get("allow_export", True)),
@@ -173,7 +365,13 @@ def dict_to_annotation(data: dict[str, Any], file_path: Path = Path()) -> Annota
         if norm["polygon"]
         else None
     )
-    mask = np.array(norm["mask"], dtype=np.uint8) if norm["mask"] is not None else None
+    mask = None
+    if norm.get("rle") and norm.get("mask_size") and len(norm["mask_size"]) == 2:
+        mask = rle_to_mask(
+            norm["rle"], int(norm["mask_size"][0]), int(norm["mask_size"][1])
+        )
+    elif norm.get("mask") is not None:
+        mask = np.array(norm["mask"], dtype=np.uint8)
     resolved_path = Path(norm["image_path"]) if norm["image_path"] else file_path
 
     return Annotation(
@@ -222,11 +420,15 @@ def _infer_image_dimensions(
 
     max_x, max_y = 640, 640
     for ann in annotations:
-        rect = ann.get("rectangle")
+        ms = ann.get("mask_size")
+        if isinstance(ms, (list, tuple)) and len(ms) == 2:
+            max_y = max(max_y, int(ms[0]))
+            max_x = max(max_x, int(ms[1]))
+        rect = ann.get("rectangle") or ann.get("_mask_rectangle")
         if rect:
             max_x = max(max_x, int(rect[0] + rect[2]))
             max_y = max(max_y, int(rect[1] + rect[3]))
-        for pt in ann.get("polygon") or []:
+        for pt in ann.get("polygon") or ann.get("_mask_polygon") or []:
             max_x = max(max_x, int(pt[0]) + 1)
             max_y = max(max_y, int(pt[1]) + 1)
         for pt in ann.get("points") or []:
@@ -286,6 +488,11 @@ def export_annotations_data(
                     "annotation_id": ann.get("annotation_id", idx),
                     "label_id": cid,
                     "label": lbl,
+                    "type": ann.get("type"),
+                    "format": ann.get("format"),
+                    "brushlabels": ann.get("brushlabels"),
+                    "rle": ann.get("rle"),
+                    "mask_size": ann.get("mask_size"),
                     "score": ann.get("score"),
                     "caption": ann.get("caption", ""),
                     "visible": ann.get("visible", True),
@@ -316,8 +523,8 @@ def export_annotations_data(
         for idx, ann in enumerate(norm_list, start=1):
             lbl = ann["label"] or UNDEFINED_LABEL
             cat_id = cat_lookup.get(lbl, 1)
-            rect = ann.get("rectangle")
-            poly = ann.get("polygon") or []
+            rect = ann.get("rectangle") or ann.get("_mask_rectangle")
+            poly = ann.get("polygon") or ann.get("_mask_polygon") or []
             pts = ann.get("points") or []
 
             if rect is None and pts:
@@ -388,8 +595,8 @@ def export_annotations_data(
     for ann in norm_list:
         lbl = ann["label"] or UNDEFINED_LABEL
         class_idx = ordered_classes.index(lbl) if lbl in ordered_classes else 0
-        poly = ann.get("polygon") or []
-        rect = ann.get("rectangle")
+        poly = ann.get("polygon") or ann.get("_mask_polygon") or []
+        rect = ann.get("rectangle") or ann.get("_mask_rectangle")
         pts = ann.get("points") or []
 
         if len(poly) >= 3:

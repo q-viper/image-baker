@@ -431,6 +431,14 @@ class MainWindow(QMainWindow):
         current_tab = self.tab_widget.tabText(index)
         logger.info(f"Switched to {current_tab} tab.")
 
+        if current_tab != "Baker" and hasattr(self, "baker_tab") and self.baker_tab.current_canvas:
+            self.baker_tab.current_canvas.stop_playing()
+            if hasattr(self.baker_tab, "play_btn"):
+                self.baker_tab.play_btn.blockSignals(True)
+                self.baker_tab.play_btn.setChecked(False)
+                self.baker_tab.play_btn.setText("▶ Play States")
+                self.baker_tab.play_btn.blockSignals(False)
+
         if current_tab == "Layerify":
             # Detach Baker docks so their splitter widths cannot affect Layerify.
             self.removeDockWidget(self.baker_tab.layer_list)

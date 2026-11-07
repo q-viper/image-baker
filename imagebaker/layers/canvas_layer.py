@@ -71,6 +71,7 @@ class CanvasLayer(BaseLayer):
         self._interaction_undo_pushed = False
         self._plugin_render_cache = {}
         self._current_step_index = 0
+        self.is_playing = False
 
     def _snapshot_layers(self):
         snapshot_layers = []
@@ -533,11 +534,33 @@ class CanvasLayer(BaseLayer):
 
     ## Helper functions ##
     def handle_key_press(self, event: QKeyEvent):
-        # Handle Delete key
-        if event.key() == Qt.Key_Delete:
+        # Handle Delete / Backspace key
+        if event.key() in {Qt.Key_Delete, Qt.Key_Backspace}:
             self._delete_layer()
             event.accept()
             return  # Important: return after handling
+
+        # Handle Escape key
+        if event.key() == Qt.Key_Escape:
+            if self.is_playing:
+                self.stop_playing()
+                event.accept()
+                return
+            if self.mouse_mode in [MouseMode.DRAW, MouseMode.ERASE]:
+                self.mouse_mode = MouseMode.IDLE
+                self.messageSignal.emit("Exited brush mode.")
+                self.update()
+                event.accept()
+                return
+            if any(layer.selected for layer in self.layers):
+                for layer in self.layers:
+                    layer.selected = False
+                self.selected_layer = None
+                self.layersChanged.emit()
+                self.messageSignal.emit("Deselected all layers.")
+                self.update()
+                event.accept()
+                return
 
         # Handle Ctrl key
         if event.key() == Qt.Key_Control:
@@ -546,6 +569,17 @@ class CanvasLayer(BaseLayer):
 
             event.accept()
             return  # Important: return after handling
+
+        # Handle Ctrl+A (Select all layers)
+        if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_A:
+            for layer in self.layers:
+                layer.selected = True
+            self.selected_layer = self._get_selected_layer()
+            self.layersChanged.emit()
+            self.update()
+            self.messageSignal.emit("Selected all layers.")
+            event.accept()
+            return
 
         # Handle Ctrl+C
         if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_C:
@@ -559,9 +593,12 @@ class CanvasLayer(BaseLayer):
             event.accept()
             return  # Important: return after handling
 
-        # Handle Ctrl+Z / Ctrl+Y
+        # Handle Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z
         if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_Z:
-            self.undo()
+            if event.modifiers() & Qt.ShiftModifier:
+                self.redo()
+            else:
+                self.undo()
             event.accept()
             return
         if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_Y:
@@ -580,19 +617,42 @@ class CanvasLayer(BaseLayer):
             event.accept()
             return
 
-        if event.modifiers() == Qt.ControlModifier and event.key() == Qt.Key_D:
+        if event.modifiers() == Qt.ControlModifier and event.key() == Qt.Key_W:
+            self._move_selected_layer_down()
+            event.accept()
+            return
+
+        if event.modifiers() == Qt.ControlModifier and event.key() == Qt.Key_Up:
+            self._move_selected_layer_up()
+            event.accept()
+            return
+
+        if event.modifiers() == Qt.ControlModifier and event.key() == Qt.Key_Down:
+            self._move_selected_layer_down()
+            event.accept()
+            return
+
+        if (
+            event.modifiers() in {Qt.ControlModifier, Qt.NoModifier}
+            and event.key() == Qt.Key_D
+        ):
             self.mouse_mode = (
                 MouseMode.DRAW if self.mouse_mode != MouseMode.DRAW else MouseMode.IDLE
             )
             self.messageSignal.emit(f"Drawing mode {self.mouse_mode.name.lower()}.")
+            self.update()
             event.accept()
             return
 
-        if event.modifiers() == Qt.ControlModifier and event.key() == Qt.Key_E:
+        if (
+            event.modifiers() in {Qt.ControlModifier, Qt.NoModifier}
+            and event.key() == Qt.Key_E
+        ):
             self.mouse_mode = (
                 MouseMode.ERASE if self.mouse_mode != MouseMode.ERASE else MouseMode.IDLE
             )
             self.messageSignal.emit(f"Erasing mode {self.mouse_mode.name.lower()}.")
+            self.update()
             event.accept()
             return
 
@@ -616,7 +676,41 @@ class CanvasLayer(BaseLayer):
             return
 
         if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_S:
-            self.save_current_state(steps=1)
+            self._move_selected_layer_down()
+            event.accept()
+            return
+
+        if event.key() == Qt.Key_R and not (event.modifiers() & Qt.ControlModifier):
+            selected_layers = self._get_selected_layers()
+            if selected_layers:
+                self.push_undo_state()
+                delta = -5.0 if (event.modifiers() & Qt.ShiftModifier) else 5.0
+                for layer in selected_layers:
+                    layer.rotation = (layer.rotation + delta) % 360.0
+                self.layersChanged.emit()
+                self.update()
+                self.messageSignal.emit(f"Rotated selected layer(s) by {delta:+.0f}°.")
+            event.accept()
+            return
+
+        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_P:
+            self.predict_state()
+            event.accept()
+            return
+
+        if event.key() in {Qt.Key_Up, Qt.Key_Down, Qt.Key_Left, Qt.Key_Right} and not (
+            event.modifiers() & Qt.ControlModifier
+        ):
+            selected_layers = self._get_selected_layers()
+            if selected_layers:
+                self.push_undo_state()
+                step = 20.0 if (event.modifiers() & Qt.ShiftModifier) else 5.0
+                dx = -step if event.key() == Qt.Key_Left else (step if event.key() == Qt.Key_Right else 0.0)
+                dy = -step if event.key() == Qt.Key_Up else (step if event.key() == Qt.Key_Down else 0.0)
+                for layer in selected_layers:
+                    layer.position += QPointF(dx, dy)
+                self.layersChanged.emit()
+                self.update()
             event.accept()
             return
 
@@ -929,6 +1023,7 @@ class CanvasLayer(BaseLayer):
         if event.button() == Qt.LeftButton:
             self._active_handle = None
             self._dragging_layer = None
+            self._multi_drag_offsets = None
             self._interaction_undo_pushed = False
 
             # Reset drawing state
@@ -1075,13 +1170,19 @@ class CanvasLayer(BaseLayer):
             if not self._interaction_undo_pushed:
                 self.push_undo_state()
                 self._interaction_undo_pushed = True
-            self._dragging_layer.position = pos - self._drag_offset
-            self._dragging_layer.selected = True
-            self._dragging_layer.update()
-            # set all other layers to not selected
-            for layer in self.layers:
-                if layer != self._dragging_layer:
-                    layer.selected = False
+            multi_offsets = getattr(self, "_multi_drag_offsets", None)
+            if multi_offsets and len(multi_offsets) > 1:
+                for target_layer, offset in multi_offsets:
+                    target_layer.position = pos - offset
+                    target_layer.selected = True
+                    target_layer.update()
+            else:
+                self._dragging_layer.position = pos - self._drag_offset
+                self._dragging_layer.selected = True
+                self._dragging_layer.update()
+                for layer in self.layers:
+                    if layer != self._dragging_layer:
+                        layer.selected = False
 
             self.layersChanged.emit()
             self.update()
@@ -1194,19 +1295,37 @@ class CanvasLayer(BaseLayer):
                     if rect.contains(pos):
                         self._dragging_layer = layer
                         self._drag_offset = pos - layer.position
-                        layer.selected = True
-                        # then set all other layers to not selected
-                        for other_layer in self.layers:
-                            if other_layer != layer:
-                                other_layer.selected = False
+                        if not layer.selected:
+                            layer.selected = True
+                            for other_layer in self.layers:
+                                if other_layer != layer:
+                                    other_layer.selected = False
+                        self._multi_drag_offsets = [
+                            (l, pos - l.position) for l in self.layers if l.selected
+                        ]
                         layer.update()
                         self.layersChanged.emit()
 
                         break
-        # if right click, deselect all layers
+        # if right click on empty space, deselect all layers
         elif event.button() == Qt.RightButton:
-            for layer in self.layers:
-                layer.selected = False
+            pos = (event.position() - self.pan_offset) / self.scale
+            hit_any = False
+            for layer in reversed(self.layers):
+                if not layer.visible:
+                    continue
+                transform = QTransform()
+                transform.translate(layer.position.x(), layer.position.y())
+                transform.rotate(layer.rotation)
+                transform.scale(layer.scale_x, layer.scale_y)
+                rect = transform.mapRect(QRectF(QPointF(0, 0), layer.original_size))
+                if rect.contains(pos):
+                    hit_any = True
+                    break
+            if not hit_any:
+                for layer in self.layers:
+                    layer.selected = False
+                self.selected_layer = None
             self.mouse_mode = MouseMode.IDLE
             self.layersChanged.emit()
             self.update()
@@ -1796,55 +1915,84 @@ class CanvasLayer(BaseLayer):
                         layer._apply_edge_opacity()
                     layer.update()
 
+    def stop_playing(self):
+        """Stop playing saved states."""
+        if self.is_playing:
+            self.is_playing = False
+            self.messageSignal.emit("Playback paused.")
+
     def play_states(self):
         """Play all the states stored in self.states."""
         if len(self.states) == 0:
             logger.warning("No states to play")
             self.messageSignal.emit("No states to play")
+            self.is_playing = False
             return
 
-        for step, states in sorted(
-            self.states.items()
-        ):  # Ensure states are played in order
-            self.messageSignal.emit(f"Playing step {step}")
-            logger.info(f"Playing step {step}")
-            self.current_step = step
-            self._current_step_index = self._state_step_index(step)
+        if self.is_playing:
+            self.stop_playing()
+            return
 
-            # Update the slider position
-            self.parentWidget().timeline_slider.setValue(self._current_step_index)
-            # Clear the current drawing states
+        self.is_playing = True
+        fps = max(1, int(self.config.fps or 2))
+        frame_delay_ms = max(250, int(1000 / fps))
 
-            for state in states:
-                # Get the layer corresponding to the state
-                layer = self.get_layer(state.layer_id)
-                if layer:
-                    # Update the layer's state
-                    update_opacities = False
-                    logger.debug(
-                        f"Updating layer {layer.layer_name} with state: {state}"
-                    )
+        try:
+            for step, states in sorted(
+                self.states.items()
+            ):  # Ensure states are played in order
+                if not self.is_playing:
+                    break
+                self.messageSignal.emit(f"Playing step {step}")
+                logger.info(f"Playing step {step}")
+                self.current_step = step
+                self._current_step_index = self._state_step_index(step)
 
-                    if (
-                        layer.edge_width != state.edge_width
-                        or layer.edge_opacity != state.edge_opacity
-                    ):
-                        update_opacities = True
-                    layer.layer_state = state
-                    if update_opacities:
-                        layer._apply_edge_opacity()
-                    layer.update()
+                # Update the slider position
+                parent = self.parentWidget()
+                if parent is not None and hasattr(parent, "timeline_slider"):
+                    parent.timeline_slider.blockSignals(True)
+                    parent.timeline_slider.setValue(self._current_step_index)
+                    parent.timeline_slider.blockSignals(False)
 
-            # Update the UI to reflect the changes
-            self.update()  # Update the current widget
+                for state in states:
+                    # Get the layer corresponding to the state
+                    layer = self.get_layer(state.layer_id)
+                    if layer:
+                        # Update the layer's state
+                        update_opacities = False
+                        logger.debug(
+                            f"Updating layer {layer.layer_name} with state: {state}"
+                        )
 
-            QApplication.processEvents()  # Process pending events to refresh the UI
+                        if (
+                            layer.edge_width != state.edge_width
+                            or layer.edge_opacity != state.edge_opacity
+                        ):
+                            update_opacities = True
+                        layer.layer_state = state
+                        if update_opacities:
+                            layer._apply_edge_opacity()
+                        layer.update()
 
-            # Wait for the next frame
-            QThread.msleep(int(1000 / self.config.fps))  # Convert FPS to milliseconds
+                # Update the UI to reflect the changes
+                self.update()  # Update the current widget
 
-        logger.info("Finished playing states")
-        self.messageSignal.emit("Finished playing states")
+                # Wait in small slices so pause/stop clicks are responsive
+                elapsed = 0
+                slice_ms = 25
+                while elapsed < frame_delay_ms and self.is_playing:
+                    QApplication.processEvents()
+                    if not self.is_playing:
+                        break
+                    QThread.msleep(slice_ms)
+                    elapsed += slice_ms
+        finally:
+            was_stopped = not self.is_playing
+            self.is_playing = False
+            if not was_stopped:
+                logger.info("Finished playing states")
+                self.messageSignal.emit("Finished playing states")
 
     def randomize_states(self, num_states: int):
         """Create randomized states for all layers."""

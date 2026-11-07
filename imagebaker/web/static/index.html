@@ -36,7 +36,7 @@
 
       <!-- Top-Right Utilities & Theme Toggle -->
       <div class="header-right">
-        <div class="zoom-group" title="Zoom Controls (Ctrl+Scroll or +/-)">
+        <div class="zoom-group" id="top-zoom-group" title="Zoom Controls (Ctrl+Scroll or +/-)">
           <button class="zoom-btn" id="btn-zoom-out" title="Zoom Out (-)">−</button>
           <button class="zoom-readout" id="btn-zoom-reset" title="Reset Zoom to 100% (0)">100%</button>
           <button class="zoom-btn" id="btn-zoom-in" title="Zoom In (+)">+</button>
@@ -82,25 +82,22 @@
 
           <!-- Center Area: Label Studio Bar + Left Tool Strip + AnnotableLayer Canvas -->
           <div class="center-studio-column">
-            <!-- Label Studio-Style Interactive Label Chips & Model Action Bar -->
+            <!-- Label Dropdown & Model Action Bar -->
             <div class="ls-label-bar" id="ls-label-bar">
               <div class="ls-label-bar-left">
-                <span class="ls-bar-tag">Labels</span>
-                <div class="ls-label-chips" id="ls-label-chips"></div>
-                <button class="btn btn-sm" id="btn-quick-label-color" title="Change color of selected label">🎨</button>
+                <select id="select-label" class="combo-box" title="Select active annotation label (Hotkeys 0-9)."></select>
+                <button class="btn btn-sm color-picker-btn" id="btn-quick-label-color" title="Change color of selected label">
+                  <span class="ls-chip-swatch" id="active-label-swatch" title="Active label color"></span>
+                  <span class="color-picker-icon" aria-hidden="true">🎨</span>
+                </button>
                 <input type="color" id="input-label-color-picker" class="hidden-color-input" value="#ffffff" />
-                <button class="btn btn-sm" id="btn-quick-manage-label" title="Edit, rename, recolor, or delete labels">⚙️ Labels</button>
+                <button class="btn btn-sm" id="btn-quick-manage-label" title="Add, edit, rename, recolor, or delete labels">⚙️ Labels</button>
               </div>
               <div class="ls-label-bar-right">
                 <span class="ls-bar-tag">Model</span>
                 <select id="select-model" class="combo-box" title="Select a model for prediction."></select>
                 <input type="text" id="input-predict-prompt" class="text-input prompt-input" placeholder="Prompt (optional)..." title="Optional text prompt for model prediction" />
                 <button class="btn btn-sm btn-primary" id="btn-predict" title="Run model prediction on the current image (P).">🔮 Predict (P)</button>
-                <span class="top-divider"></span>
-                <button class="btn btn-sm" id="btn-layerify-all" title="Create layers from all visible annotations (L).">🧅 Layerify All</button>
-                <button class="btn btn-sm" id="btn-save-annotations" title="Save annotations to file.">💾 Save</button>
-                <button class="btn btn-sm" id="btn-load-annotations" title="Load annotations from file.">📂 Load</button>
-                <button class="btn btn-sm" id="btn-clear-annotations" title="Clear all annotations from the current image.">🗑️ Clear</button>
               </div>
             </div>
 
@@ -132,10 +129,9 @@
                   <span class="ls-tool-label">Brush</span>
                   <kbd class="ls-tool-kbd">B</kbd>
                 </button>
-                <button class="ls-tool-btn mode-btn" data-mode="Pan" id="strip-mode-pan" title="Pan Canvas (Hold Space or Ctrl + Drag)">
+                <button class="ls-tool-btn mode-btn" data-mode="Pan" id="strip-mode-pan" title="Pan Canvas (Ctrl + Drag)">
                   <span class="ls-tool-icon">✋</span>
                   <span class="ls-tool-label">Pan</span>
-                  <kbd class="ls-tool-kbd">␣</kbd>
                 </button>
 
                 <div class="ls-tool-sep"></div>
@@ -182,8 +178,12 @@
                   <span class="hud-mode-pill" id="hud-mode-pill">Mode: Rectangle (E)</span>
                   <span class="hud-mode-hint" id="hud-mode-hint">Drag to draw rectangle • Click any region to select/move/resize</span>
                   <div class="hud-brush-wrap hidden" id="hud-brush-wrap">
-                    <label for="input-lyr-brush-size">Brush:</label>
-                    <input type="range" id="input-lyr-brush-size" min="3" max="80" value="18" />
+                    <button class="btn btn-sm active" id="btn-lyr-brush-paint" title="Paint brush mask (adds to selected brush mask or creates new)">🖌️ Paint</button>
+                    <button class="btn btn-sm" id="btn-lyr-brush-erase" title="Erase from brush mask (or hold Alt while dragging)">🧹 Erase</button>
+                    <button class="btn btn-sm" id="btn-lyr-brush-move" title="Move brush mask around as a whole">✥ Move</button>
+                    <button class="btn btn-sm" id="btn-lyr-brush-new" title="Deselect current brush mask to start a separate brush annotation">+ New</button>
+                    <label for="input-lyr-brush-size">Size:</label>
+                    <input type="range" id="input-lyr-brush-size" min="3" max="120" value="18" />
                     <span id="val-lyr-brush-size">18px</span>
                   </div>
                   <button class="btn btn-sm btn-primary hidden" id="btn-finish-polygon" title="Finish Polygon (Enter)">
@@ -224,6 +224,12 @@
                   <div class="inspector-sub" id="inspector-region-sub"></div>
                 </div>
                 <div id="annotation-list-items" class="scroll-list"></div>
+                <div class="dock-bottom-action row-gap">
+                  <button class="btn btn-sm btn-primary flex-1" id="btn-layerify-all" title="Create layers from all visible annotations (L).">🧅 Layerify All</button>
+                  <button class="btn btn-sm flex-1" id="btn-save-annotations" title="Save annotations to file.">💾 Save</button>
+                  <button class="btn btn-sm flex-1" id="btn-load-annotations" title="Load annotations from file.">📂 Load</button>
+                  <button class="btn btn-sm flex-1" id="btn-clear-annotations" title="Clear all annotations from the current image.">🗑️ Clear</button>
+                </div>
               </div>
             </div>
 

@@ -16,7 +16,7 @@
   }
 
   function getAnnotationGeometryTag(ann) {
-    if (ann.has_mask || ann.mask_png_b64) return { icon: "🖌️", tag: "Brush" };
+    if (ann.type === "brush" || ann.type === "brushlabels" || ann.has_mask || ann.mask_png_b64 || (ann.rle && ann.rle.length > 0)) return { icon: "🖌️", tag: "Brush" };
     if (ann.polygon && ann.polygon.length >= 3) return { icon: "🔷", tag: `Poly(${ann.polygon.length})` };
     if (ann.rectangle && ann.rectangle.length === 4) return { icon: "🔳", tag: "Rect" };
     if (ann.points && ann.points.length > 0) return { icon: "📍", tag: "Point" };
@@ -86,6 +86,22 @@
     const annTotal = document.getElementById("badge-ann-total");
     if (annTotal) annTotal.textContent = String(annotations.length);
 
+    const selectAllBtn = document.getElementById("btn-select-all-anns");
+    if (selectAllBtn) {
+      const allSelected = annotations.length > 0 && annotations.every(a => Boolean(a.selected));
+      selectAllBtn.textContent = allSelected ? "☑" : "☐";
+      selectAllBtn.classList.toggle("active", allSelected);
+      selectAllBtn.disabled = annotations.length === 0;
+    }
+
+    const toggleAllVisBtn = document.getElementById("btn-toggle-all-anns-vis");
+    if (toggleAllVisBtn) {
+      const anyVisible = annotations.length === 0 || annotations.some(a => a.visible !== false);
+      toggleAllVisBtn.textContent = anyVisible ? "👀" : "👁️";
+      toggleAllVisBtn.classList.toggle("active", !anyVisible && annotations.length > 0);
+      toggleAllVisBtn.disabled = annotations.length === 0;
+    }
+
     const inspector = document.getElementById("selected-region-inspector");
     const selIndices = annotations.map((a, i) => (a.selected ? i : -1)).filter(i => i >= 0);
     if (inspector) {
@@ -133,11 +149,13 @@
 
       row.addEventListener("mouseenter", () => {
         lyrView.hoveredIdx = idx;
+        lyrView.hoverAnnIdx = idx;
         window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
       });
       row.addEventListener("mouseleave", () => {
-        if (lyrView.hoveredIdx === idx) {
+        if (lyrView.hoveredIdx === idx || lyrView.hoverAnnIdx === idx) {
           lyrView.hoveredIdx = null;
+          lyrView.hoverAnnIdx = null;
           window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
         }
       });
@@ -217,42 +235,27 @@
 
   function renderLabelAndModelControls() {
     const labels = state.layerify.labels || [];
-    const chipsWrap = document.getElementById("ls-label-chips");
-    if (chipsWrap) {
-      chipsWrap.innerHTML = "";
+    const currentLabelName = (state.layerify.current_label || "Undefined").trim() || "Undefined";
+    const labelSelect = document.getElementById("select-label");
+    if (labelSelect) {
+      labelSelect.innerHTML = "";
       labels.forEach((lbl, idx) => {
-        const [r, g, b] = lbl.color || [255, 255, 255];
-        const hex = utils.rgbToHex(r, g, b);
-        const isCurrent = lbl.name === (state.layerify.current_label || "Undefined");
-        const chip = document.createElement("button");
-        chip.className = `ls-label-chip ${isCurrent ? "active" : ""}`;
-        if (isCurrent) chip.style.borderColor = hex;
-        chip.title = lbl.name === "Undefined"
-          ? `Default label "Undefined" (active when no other label is selected)`
-          : `Select label "${lbl.name}" ${idx < 10 ? `(Hotkey: ${idx})` : ""}`;
-        chip.innerHTML = `
-          <span class="ls-chip-swatch" style="background-color: ${hex};"></span>
-          <span>${utils.escapeHtml(lbl.name)}</span>
-          ${idx < 10 ? `<kbd class="ls-chip-key">${idx}</kbd>` : ""}
-        `;
-        chip.addEventListener("click", async () => {
-          chip.blur();
-          const nextLabel = isCurrent && lbl.name !== "Undefined" ? "Undefined" : lbl.name;
-          await selectLabelAndMaybeAssign(nextLabel);
-        });
-        chip.addEventListener("dblclick", e => {
-          e.stopPropagation();
-          openManageLabelsModal();
-        });
-        chipsWrap.appendChild(chip);
+        const opt = document.createElement("option");
+        opt.value = lbl.name;
+        opt.textContent = idx < 10 ? `[${idx}] ${lbl.name}` : lbl.name;
+        if (lbl.name === currentLabelName) opt.selected = true;
+        labelSelect.appendChild(opt);
       });
     }
 
-    const curLblObj = labels.find(l => l.name === state.layerify.current_label);
+    const curLblObj = labels.find(l => l.name === currentLabelName) || labels[0];
     const colorPicker = document.getElementById("input-label-color-picker");
-    if (curLblObj && curLblObj.color && colorPicker) {
+    const activeSwatch = document.getElementById("active-label-swatch");
+    if (curLblObj && curLblObj.color) {
       const [r, g, b] = curLblObj.color;
-      colorPicker.value = utils.rgbToHex(r, g, b);
+      const hex = utils.rgbToHex(r, g, b);
+      if (colorPicker) colorPicker.value = hex;
+      if (activeSwatch) activeSwatch.style.backgroundColor = hex;
     }
 
     const modelSelect = document.getElementById("select-model");
@@ -494,6 +497,13 @@
     const layerifyAllBtn = document.getElementById("btn-layerify-all");
     if (layerifyAllBtn) layerifyAllBtn.addEventListener("click", runLayerifyAll);
 
+    const labelSelect = document.getElementById("select-label");
+    if (labelSelect) {
+      labelSelect.addEventListener("change", async e => {
+        await selectLabelAndMaybeAssign(e.target.value);
+      });
+    }
+
     const modelSelect = document.getElementById("select-model");
     if (modelSelect) {
       modelSelect.addEventListener("change", async e => {
@@ -532,6 +542,126 @@
     const redoBtn = document.getElementById("strip-btn-redo");
     if (undoBtn) undoBtn.addEventListener("click", window.ImageBaker.canvasLayerify.performLayerifyUndo);
     if (redoBtn) redoBtn.addEventListener("click", window.ImageBaker.canvasLayerify.performLayerifyRedo);
+
+    // Header icons in Regions / Annotations dock: Select/Deselect All (☑) & Show/Hide All (👀)
+    const selectAllAnnsBtn = document.getElementById("btn-select-all-anns");
+    if (selectAllAnnsBtn) {
+      selectAllAnnsBtn.addEventListener("click", async e => {
+        e.currentTarget.blur();
+        const annotations = state.layerify.annotations || [];
+        if (!annotations.length) {
+          showToast("layerify", "No annotations to select");
+          return;
+        }
+        const allSelected = annotations.every(a => Boolean(a.selected));
+        const nextSelected = !allSelected;
+        annotations.forEach(a => {
+          a.selected = nextSelected;
+        });
+        window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
+        renderAnnotationList();
+        await window.ImageBaker.canvasLayerify.syncAnnotationsToServer(
+          false,
+          nextSelected ? "Selected all annotations" : "Deselected all annotations"
+        );
+        showToast(
+          "layerify",
+          nextSelected ? `Selected all ${annotations.length} annotation(s)` : "Deselected all annotations"
+        );
+      });
+    }
+
+    const toggleAllAnnsVisBtn = document.getElementById("btn-toggle-all-anns-vis");
+    if (toggleAllAnnsVisBtn) {
+      toggleAllAnnsVisBtn.addEventListener("click", async e => {
+        e.currentTarget.blur();
+        const annotations = state.layerify.annotations || [];
+        if (!annotations.length) {
+          showToast("layerify", "No annotations to show or hide");
+          return;
+        }
+        const anyVisible = annotations.some(a => a.visible !== false);
+        const nextVisible = !anyVisible;
+        annotations.forEach(a => {
+          a.visible = nextVisible;
+        });
+        window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
+        renderAnnotationList();
+        await window.ImageBaker.canvasLayerify.syncAnnotationsToServer(
+          false,
+          nextVisible ? "Shown all annotations" : "Hidden all annotations"
+        );
+        showToast("layerify", nextVisible ? "Shown all annotations" : "Hidden all annotations");
+      });
+    }
+
+    // Left tool strip action buttons: Caption (C), Hide (H), Delete (Del) & Inspector Caption button
+    const stripCaptionBtn = document.getElementById("strip-btn-caption");
+    const inspCaptionBtn = document.getElementById("btn-insp-caption");
+    const handleEditSelectedCaption = e => {
+      if (e && e.currentTarget) e.currentTarget.blur();
+      const annotations = state.layerify.annotations || [];
+      const selIdx = annotations.findIndex(a => a.selected);
+      if (selIdx >= 0) {
+        openEditCaptionModal(selIdx);
+      } else {
+        showToast("layerify", "Select a region first to edit its caption or label");
+      }
+    };
+    if (stripCaptionBtn) stripCaptionBtn.addEventListener("click", handleEditSelectedCaption);
+    if (inspCaptionBtn) inspCaptionBtn.addEventListener("click", handleEditSelectedCaption);
+
+    const stripVisBtn = document.getElementById("strip-btn-vis");
+    if (stripVisBtn) {
+      stripVisBtn.addEventListener("click", async e => {
+        e.currentTarget.blur();
+        const annotations = state.layerify.annotations || [];
+        if (!annotations.length) {
+          showToast("layerify", "No annotations available");
+          return;
+        }
+        const selected = annotations.filter(a => a.selected);
+        const targets = selected.length > 0 ? selected : annotations;
+        const anyVisible = targets.some(a => a.visible !== false);
+        const nextVisible = !anyVisible;
+        targets.forEach(a => {
+          a.visible = nextVisible;
+        });
+        window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
+        renderAnnotationList();
+        await window.ImageBaker.canvasLayerify.syncAnnotationsToServer(
+          false,
+          nextVisible ? "Shown annotation(s)" : "Hidden annotation(s)"
+        );
+        showToast(
+          "layerify",
+          selected.length > 0
+            ? `${nextVisible ? "Shown" : "Hidden"} ${selected.length} selected annotation(s)`
+            : `${nextVisible ? "Shown" : "Hidden"} all annotations`
+        );
+      });
+    }
+
+    const stripDeleteBtn = document.getElementById("strip-btn-delete");
+    if (stripDeleteBtn) {
+      stripDeleteBtn.addEventListener("click", async e => {
+        e.currentTarget.blur();
+        const annotations = state.layerify.annotations || [];
+        const selectedCount = annotations.filter(a => a.selected).length;
+        if (selectedCount === 0) {
+          showToast("layerify", "Select a region first to delete");
+          return;
+        }
+        state.layerify.annotations = annotations.filter(a => !a.selected);
+        window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
+        renderAnnotationList();
+        await window.ImageBaker.canvasLayerify.syncAnnotationsToServer(
+          true,
+          `Deleted ${selectedCount} annotation(s)`
+        );
+        showToast("layerify", `Deleted ${selectedCount} annotation(s)`);
+      });
+    }
 
     // Tool strip mode buttons
     document.querySelectorAll(".ls-tool-btn.mode-btn").forEach(btn => {
@@ -652,7 +782,8 @@
         (data.quick_paths || []).forEach(qp => {
           const pill = document.createElement("button");
           pill.className = "quick-path-pill";
-          pill.textContent = `📌 ${qp.name}`;
+          const qpName = qp.name || qp.label || qp.path || "";
+          pill.textContent = `📌 ${qpName}`;
           pill.title = qp.path;
           pill.addEventListener("click", () => browseFolder(qp.path));
           quickWrap.appendChild(pill);

@@ -16,6 +16,7 @@ import os
 import random
 import sys
 import threading
+import zipfile
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -436,8 +437,18 @@ class WebAppEngine:
                                 for d in sdata.get("drawings", [])
                             ],
                         )
+                        matched_lyr = cv.get_layer(st.layer_id, st.layer_name)
+                        if matched_lyr is not None:
+                            st.layer_id = matched_lyr.layer_id
                         slist.append(st)
                     cv.states[step_int] = slist
+
+                if cv.states:
+                    last_step = max(cv.states.keys())
+                    for st in cv.states[last_step]:
+                        matched_lyr = cv.get_layer(st.layer_id, st.layer_name)
+                        if matched_lyr is not None:
+                            matched_lyr.previous_state = st.copy()
 
                 restored_canvases.append(cv)
 
@@ -646,16 +657,16 @@ class WebAppEngine:
         parent_str = str(target.parent) if target.parent != target else str(target)
 
         quick_paths = [
-            {"label": "Project", "path": str(self.project_dir)},
-            {"label": "Assets", "path": str(self.layer_config.assets_folder.resolve())},
+            {"name": "Project", "label": "Project", "path": str(self.project_dir)},
+            {"name": "Assets", "label": "Assets", "path": str(self.layer_config.assets_folder.resolve())},
         ]
         home_dir = Path.home()
         if home_dir.exists():
-            quick_paths.append({"label": "Home", "path": str(home_dir.resolve())})
+            quick_paths.append({"name": "Home", "label": "Home", "path": str(home_dir.resolve())})
             for sub_name in ("Desktop", "Pictures", "Downloads"):
                 candidate = home_dir / sub_name
                 if candidate.exists() and candidate.is_dir():
-                    quick_paths.append({"label": sub_name, "path": str(candidate.resolve())})
+                    quick_paths.append({"name": sub_name, "label": sub_name, "path": str(candidate.resolve())})
 
         return {
             "current": str(target),
@@ -1514,12 +1525,43 @@ class WebAppEngine:
 
             for ann in targets:
                 local_ann = ann.copy()
-                if ann.rectangle:
-                    rect = ann.rectangle.toRect().intersected(source_pixmap.rect())
-                    if rect.width() <= 0 or rect.height() <= 0:
+                if ann.mask is not None and np.any(ann.mask):
+                    raw_mask = np.asarray(ann.mask)
+                    if raw_mask.ndim == 3:
+                        raw_mask = (
+                            raw_mask[:, :, -1]
+                            if raw_mask.shape[2] == 4
+                            else raw_mask[:, :, 0]
+                        )
+                    img_h, img_w = source_pixmap.height(), source_pixmap.width()
+                    mask_u8 = np.zeros((img_h, img_w), dtype=np.uint8)
+                    mh = min(img_h, raw_mask.shape[0])
+                    mw = min(img_w, raw_mask.shape[1])
+                    mask_u8[:mh, :mw] = (raw_mask[:mh, :mw] > 0).astype(np.uint8) * 255
+                    ys, xs = np.nonzero(mask_u8)
+                    if len(xs) == 0 or len(ys) == 0:
                         continue
-                    cropped_pixmap = source_pixmap.copy(rect)
-                    local_ann.rectangle = QRectF(0, 0, rect.width(), rect.height())
+                    x0, x1 = max(0, int(xs.min())), min(img_w, int(xs.max()) + 1)
+                    y0, y1 = max(0, int(ys.min())), min(img_h, int(ys.max()) + 1)
+                    if x1 <= x0 or y1 <= y0:
+                        continue
+                    raw_arr = qpixmap_to_numpy(source_pixmap)[y0:y1, x0:x1].copy()
+                    src_alpha = raw_arr[:, :, 3].astype(np.uint16)
+                    msk_alpha = mask_u8[y0:y1, x0:x1].astype(np.uint16)
+                    raw_arr[:, :, 3] = ((src_alpha * msk_alpha) // 255).astype(np.uint8)
+                    raw_arr = np.ascontiguousarray(raw_arr)
+                    qimg = QImage(
+                        raw_arr.data,
+                        raw_arr.shape[1],
+                        raw_arr.shape[0],
+                        raw_arr.shape[1] * 4,
+                        QImage.Format_RGBA8888,
+                    )
+                    cropped_pixmap = QPixmap.fromImage(qimg.copy())
+                    local_ann.mask = (mask_u8[y0:y1, x0:x1] > 0).astype(np.uint8)
+                    local_ann.rectangle = None
+                    if local_ann.polygon and len(local_ann.polygon) >= 3:
+                        local_ann.polygon = local_ann.polygon.translated(-QPointF(x0, y0))
                 elif ann.polygon and len(ann.polygon) >= 3:
                     bounding_rect = ann.polygon.boundingRect().toRect().intersected(source_pixmap.rect())
                     if bounding_rect.width() <= 0 or bounding_rect.height() <= 0:
@@ -1551,23 +1593,13 @@ class WebAppEngine:
                     )
                     cropped_pixmap = QPixmap.fromImage(qimg.copy())
                     local_ann.polygon = translated_poly
-                elif ann.mask is not None and np.any(ann.mask):
-                    mask_u8 = (np.asarray(ann.mask) > 0).astype(np.uint8) * 255
-                    ys, xs = np.nonzero(mask_u8)
-                    x0, x1 = int(xs.min()), int(xs.max()) + 1
-                    y0, y1 = int(ys.min()), int(ys.max()) + 1
-                    raw_arr = qpixmap_to_numpy(source_pixmap)[y0:y1, x0:x1].copy()
-                    raw_arr[:, :, 3] = mask_u8[y0:y1, x0:x1]
-                    raw_arr = np.ascontiguousarray(raw_arr)
-                    qimg = QImage(
-                        raw_arr.data,
-                        raw_arr.shape[1],
-                        raw_arr.shape[0],
-                        raw_arr.shape[1] * 4,
-                        QImage.Format_RGBA8888,
-                    )
-                    cropped_pixmap = QPixmap.fromImage(qimg.copy())
-                    local_ann.mask = (mask_u8[y0:y1, x0:x1] > 0).astype(np.uint8)
+                    local_ann.rectangle = None
+                elif ann.rectangle:
+                    rect = ann.rectangle.toRect().intersected(source_pixmap.rect())
+                    if rect.width() <= 0 or rect.height() <= 0:
+                        continue
+                    cropped_pixmap = source_pixmap.copy(rect)
+                    local_ann.rectangle = QRectF(0, 0, rect.width(), rect.height())
                 else:
                     cropped_pixmap = source_pixmap.copy()
 
@@ -2112,9 +2144,17 @@ class WebAppEngine:
         group_idx = canvas.layers.index(grouped_layer)
         group_tf = self._compose_layer_transform(grouped_layer)
 
+        existing_ids = {
+            lyr.layer_id for lyr in canvas.layers if lyr is not grouped_layer
+        }
         restored: list[WebLayerItem] = []
         for child_rel in grouped_layer.layers:
-            child = child_rel.clone_as_new()
+            if child_rel.layer_id not in existing_ids:
+                child = child_rel.copy()
+                existing_ids.add(child.layer_id)
+            else:
+                child = child_rel.clone_as_new()
+                existing_ids.add(child.layer_id)
             child_local_tf = self._compose_layer_transform(child)
             world_tf = group_tf * child_local_tf
             pos, rot, sx, sy = self._decompose_transform(world_tf)
@@ -2374,8 +2414,9 @@ class WebAppEngine:
         canvas.current_step = step_key
         canvas._current_step_index = canvas.state_step_index(step_key)
         for st in canvas.states[step_key]:
-            layer = canvas.get_layer(st.layer_id)
+            layer = canvas.get_layer(st.layer_id, st.layer_name)
             if layer is not None:
+                st.layer_id = layer.layer_id
                 update_edge = (
                     layer.edge_width != st.edge_width or layer.edge_opacity != st.edge_opacity
                 )
@@ -2391,11 +2432,30 @@ class WebAppEngine:
     # -------------------------------------------------------------------------
     # Baking & Exporting (Exact BakerWorker + CanvasLayer.handle_baker_results)
     # -------------------------------------------------------------------------
+    @staticmethod
+    def _layer_scene_transform(
+        pos: QPointF,
+        width: float,
+        height: float,
+        scale_x: float,
+        scale_y: float,
+        rotation: float,
+        origin_offset: QPointF = QPointF(0.0, 0.0),
+    ) -> QTransform:
+        cx = (width * scale_x) / 2.0
+        cy = (height * scale_y) / 2.0
+        tf = QTransform()
+        tf.translate(pos.x() - origin_offset.x() + cx, pos.y() - origin_offset.y() + cy)
+        tf.rotate(rotation)
+        tf.translate(-cx, -cy)
+        tf.scale(scale_x, scale_y)
+        return tf
+
     def bake_and_export(self, mode: str, annotation_format: str = "default") -> dict[str, Any]:
         """
         Modes:
         - "current_local": Export Current State locally to assets/exports
-        - "states_local": Export all saved states locally to assets/exports
+        - "states_local" / "all_local": Export all saved states locally to assets/exports
         - "predict_state": Bake current state and add to Layerify tab
         - "annotate_states": Bake all saved states and add to Layerify tab
         """
@@ -2414,8 +2474,9 @@ class WebAppEngine:
             is_current_only = mode in {"current_local", "predict_state"}
             export_to_annotation_tab = mode in {"predict_state", "annotate_states"}
 
-            if canvas.states:
-                if is_current_only:
+            timeline_total_steps = max(1, len(canvas.states)) if canvas.states else 1
+            if is_current_only or not canvas.states:
+                if canvas.states:
                     step_key = (
                         int(canvas.current_step)
                         if int(canvas.current_step) in canvas.states
@@ -2423,14 +2484,39 @@ class WebAppEngine:
                     )
                     if step_key is None:
                         step_key = min(canvas.states.keys())
-                    export_states = {int(step_key): canvas.states[int(step_key)]}
                 else:
-                    export_states = dict(canvas.states)
-                timeline_total_steps = max(1, len(canvas.states))
+                    step_key = 0
+                export_states = {
+                    int(step_key): canvas.build_states_for_step(
+                        step=int(step_key), total_steps=timeline_total_steps
+                    )
+                }
             else:
-                export_states = {0: canvas.build_states_for_step(step=0, total_steps=1)}
-                timeline_total_steps = 1
+                export_states = {}
+                for raw_step_key, raw_step_states in sorted(canvas.states.items()):
+                    step_int = int(raw_step_key)
+                    resolved_list: list[LayerState] = []
+                    seen_lids: set[int] = set()
+                    for st in raw_step_states:
+                        lyr = canvas.get_layer(st.layer_id, st.layer_name)
+                        if lyr is not None and lyr.layer_id not in seen_lids:
+                            st_copy = st.copy()
+                            st_copy.layer_id = lyr.layer_id
+                            resolved_list.append(st_copy)
+                            seen_lids.add(lyr.layer_id)
+                    for order_idx, lyr in enumerate(canvas.layers):
+                        if lyr.layer_id not in seen_lids:
+                            fallback_st = lyr.layer_state.copy()
+                            fallback_st.order = order_idx
+                            fallback_st.selected = False
+                            fallback_st = canvas.apply_plugins_to_state(
+                                lyr, fallback_st, step_int, timeline_total_steps
+                            )
+                            resolved_list.append(fallback_st)
+                            seen_lids.add(lyr.layer_id)
+                    export_states[step_int] = resolved_list
 
+            self.canvas_config.export_folder.mkdir(parents=True, exist_ok=True)
             base_filename = self.canvas_config.filename_format.format(
                 project_name=self.canvas_config.project_name,
                 timestamp=datetime.now().strftime("%Y%m%d_%H%M%S"),
@@ -2450,8 +2536,9 @@ class WebAppEngine:
                     rendered_images: dict[int, QImage] = {}
 
                     for st in step_states:
-                        layer = canvas.get_layer(st.layer_id)
+                        layer = canvas.get_layer(st.layer_id, st.layer_name)
                         if layer and st.visible and not layer.image.isNull():
+                            st.layer_id = layer.layer_id
                             update_edge = (
                                 layer.edge_width != st.edge_width
                                 or layer.edge_opacity != st.edge_opacity
@@ -2464,12 +2551,16 @@ class WebAppEngine:
                                 layer, timeline_step, timeline_total_steps
                             )
                             qimg = pix.toImage().convertToFormat(QImage.Format_RGBA8888)
-                            rendered_images[st.layer_id] = qimg
+                            rendered_images[layer.layer_id] = qimg
 
-                            tf = QTransform()
-                            tf.translate(layer.position.x(), layer.position.y())
-                            tf.rotate(layer.rotation)
-                            tf.scale(layer.scale_x, layer.scale_y)
+                            tf = self._layer_scene_transform(
+                                layer.position,
+                                qimg.width(),
+                                qimg.height(),
+                                layer.scale_x,
+                                layer.scale_y,
+                                layer.rotation,
+                            )
                             t_rect = tf.mapRect(QRectF(QPointF(0, 0), qimg.size()))
 
                             top_left.setX(min(top_left.x(), t_rect.left()))
@@ -2477,8 +2568,8 @@ class WebAppEngine:
                             bottom_right.setX(max(bottom_right.x(), t_rect.right()))
                             bottom_right.setY(max(bottom_right.y(), t_rect.bottom()))
 
-                    width = int(bottom_right.x() - top_left.x())
-                    height = int(bottom_right.y() - top_left.y())
+                    width = int(math.ceil(bottom_right.x() - top_left.x()))
+                    height = int(math.ceil(bottom_right.y() - top_left.y()))
                     if width <= 0 or height <= 0:
                         continue
 
@@ -2494,24 +2585,32 @@ class WebAppEngine:
                     )
                     try:
                         for st in step_states:
-                            layer = canvas.get_layer(st.layer_id)
-                            render_image = rendered_images.get(st.layer_id)
-                            if not layer or not st.visible or render_image is None:
+                            layer = canvas.get_layer(st.layer_id, st.layer_name)
+                            if not layer:
+                                continue
+                            render_image = rendered_images.get(layer.layer_id)
+                            if not st.visible or render_image is None:
                                 continue
 
+                            layer_tf = self._layer_scene_transform(
+                                layer.position,
+                                render_image.width(),
+                                render_image.height(),
+                                layer.scale_x,
+                                layer.scale_y,
+                                layer.rotation,
+                                top_left,
+                            )
+
                             painter.save()
-                            painter.translate(layer.position - top_left)
-                            painter.rotate(layer.rotation)
-                            painter.scale(layer.scale_x, layer.scale_y)
+                            painter.setTransform(layer_tf, combine=False)
                             painter.setOpacity(layer.opacity / 255.0)
                             painter.drawImage(QPoint(0, 0), render_image)
                             painter.restore()
 
                             if st.drawing_states:
                                 painter.save()
-                                painter.translate(layer.position - top_left)
-                                painter.rotate(layer.rotation)
-                                painter.scale(layer.scale_x, layer.scale_y)
+                                painter.setTransform(layer_tf, combine=False)
                                 for ds in st.drawing_states:
                                     painter.setPen(
                                         QPen(
@@ -2532,9 +2631,7 @@ class WebAppEngine:
                             mp.setRenderHints(
                                 QPainter.Antialiasing | QPainter.SmoothPixmapTransform
                             )
-                            mp.translate(layer.position - top_left)
-                            mp.rotate(layer.rotation)
-                            mp.scale(layer.scale_x, layer.scale_y)
+                            mp.setTransform(layer_tf, combine=False)
                             mp.drawImage(QPoint(0, 0), render_image)
                             if st.drawing_states:
                                 for ds in st.drawing_states:
@@ -2578,9 +2675,7 @@ class WebAppEngine:
                                         cmp.setRenderHints(
                                             QPainter.Antialiasing | QPainter.SmoothPixmapTransform
                                         )
-                                        cmp.translate(layer.position - top_left)
-                                        cmp.rotate(layer.rotation)
-                                        cmp.scale(layer.scale_x, layer.scale_y)
+                                        cmp.setTransform(layer_tf, combine=False)
                                         cmp.translate(child.position.x(), child.position.y())
                                         cmp.rotate(child.rotation)
                                         cmp.scale(child.scale_x, child.scale_y)
@@ -2613,6 +2708,9 @@ class WebAppEngine:
                                     new_annotations.append(brush_ann)
                     finally:
                         painter.end()
+
+                    for ann_idx, gen_ann in enumerate(new_annotations, start=1):
+                        gen_ann.annotation_id = ann_idx
 
                     step_filename = base_filepath.parent / f"{base_filepath.stem}_{step_key}.png"
                     results.append(
@@ -2720,9 +2818,27 @@ class WebAppEngine:
                     self.active_tab = "Layerify"
                     exported_files.append(str(filepath))
 
+            download_url = None
+            download_filename = None
             if export_to_annotation_tab:
                 self.last_message = f"Baked result added ({len(results)} state(s))"
             else:
+                zip_filename = f"{base_filename}_{fmt_norm}.zip"
+                zip_path = self.canvas_config.export_folder / zip_filename
+                with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                    for img_path_str in exported_files:
+                        img_p = Path(img_path_str)
+                        if img_p.is_file():
+                            zf.write(img_p, arcname=img_p.name)
+                    for ann_exp in annotation_exports:
+                        ann_p = Path(ann_exp["path"])
+                        if ann_p.is_file():
+                            zf.write(ann_p, arcname=ann_p.name)
+                    if fmt_norm == "yolo" and annotation_exports:
+                        classes_content = annotation_exports[-1].get("classes_txt") or ""
+                        zf.writestr("classes.txt", classes_content)
+                download_filename = zip_filename
+                download_url = f"/api/baker/exported-file?name={zip_filename}"
                 self.last_message = (
                     f"Exported {len(results)} baked state(s) ({fmt_norm.upper()}) "
                     f"to {self.canvas_config.export_folder}"
@@ -2735,6 +2851,8 @@ class WebAppEngine:
                 "format": fmt_norm,
                 "exported_files": exported_files,
                 "annotation_exports": annotation_exports,
+                "download_url": download_url,
+                "download_filename": download_filename,
                 "switched_to_layerify": export_to_annotation_tab,
             }
 
@@ -2749,7 +2867,10 @@ class WebAppEngine:
             caption=ann.caption,
             is_model_generated=ann.is_model_generated,
         )
-        if ann.points:
+        if ann.mask is not None and np.any(ann.mask) and (ann.polygon is None or len(ann.polygon) == 0):
+            # Brush mask layer: preserve transformed binary mask (for RLE export & Layerify roundtrip)
+            new_ann.mask = (alpha_channel > 0).astype(np.uint8)
+        elif ann.polygon and len(ann.polygon) >= 3:
             polygons = mask_to_polygons(alpha_channel, merge_polygons=True)
             if polygons:
                 new_ann.polygon = QPolygonF([QPointF(p[0], p[1]) for p in polygons[0]])
@@ -2757,11 +2878,13 @@ class WebAppEngine:
                 xywhs = mask_to_rectangles(alpha_channel, merge_rectangles=True)
                 if xywhs:
                     new_ann.rectangle = QRectF(*xywhs[0])
+            if ann.mask is not None and np.any(ann.mask):
+                new_ann.mask = (alpha_channel > 0).astype(np.uint8)
         elif ann.rectangle:
             xywhs = mask_to_rectangles(alpha_channel, merge_rectangles=True)
             if xywhs:
                 new_ann.rectangle = QRectF(*xywhs[0])
-        elif ann.polygon:
+        else:
             polygons = mask_to_polygons(alpha_channel, merge_polygons=True)
             if polygons:
                 new_ann.polygon = QPolygonF([QPointF(p[0], p[1]) for p in polygons[0]])
@@ -2948,9 +3071,13 @@ class WebAppEngine:
                             ],
                             "plugins": plugin_names,
                             "annotation_type": (
-                                "polygon"
-                                if (ann and ann.polygon is not None)
-                                else ("rectangle" if (ann and ann.rectangle is not None) else "other")
+                                "brush"
+                                if (ann and ann.mask is not None and np.any(ann.mask) and not ann.polygon)
+                                else (
+                                    "polygon"
+                                    if (ann and ann.polygon is not None)
+                                    else ("rectangle" if (ann and ann.rectangle is not None) else "other")
+                                )
                             ),
                             "drawing_states": [
                                 {

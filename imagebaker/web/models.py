@@ -161,20 +161,20 @@ class WebLayerItem:
         if not np.any(non_zero):
             return
 
-        if annotation.rectangle is not None:
-            xs = np.minimum(np.arange(width), width - 1 - np.arange(width))[None, :]
-            ys = np.minimum(np.arange(height), height - 1 - np.arange(height))[:, None]
-            dist = np.minimum(xs, ys).astype(np.float32)
+        if annotation.polygon is not None or annotation.mask is not None:
+            binary = np.where(non_zero, 255, 0).astype(np.uint8)
+            dist = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
+            # Subtract 1 so boundary pixels have distance 0 like pointPolygonTest
+            dist = np.maximum(0.0, dist - 1.0)
             in_edge = non_zero & (dist < edge_width)
             factor = np.clip((edge_width - dist) / float(edge_width), 0.0, 1.0)
             scale = (1.0 - factor) + (factor * (edge_opacity / 255.0))
             new_alpha = np.where(in_edge, alpha * scale, alpha)
             arr[:, :, 3] = np.clip(new_alpha, 0, 255).astype(np.uint8)
-        elif annotation.polygon is not None or annotation.mask is not None:
-            binary = np.where(non_zero, 255, 0).astype(np.uint8)
-            dist = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
-            # Subtract 1 so boundary pixels have distance 0 like pointPolygonTest
-            dist = np.maximum(0.0, dist - 1.0)
+        elif annotation.rectangle is not None:
+            xs = np.minimum(np.arange(width), width - 1 - np.arange(width))[None, :]
+            ys = np.minimum(np.arange(height), height - 1 - np.arange(height))[:, None]
+            dist = np.minimum(xs, ys).astype(np.float32)
             in_edge = non_zero & (dist < edge_width)
             factor = np.clip((edge_width - dist) / float(edge_width), 0.0, 1.0)
             scale = (1.0 - factor) + (factor * (edge_opacity / 255.0))
@@ -361,7 +361,7 @@ class WebCanvasItem:
         self.viewport_width = 960
         self.viewport_height = 640
 
-    def get_layer(self, layer_id: int | str) -> WebLayerItem | None:
+    def get_layer(self, layer_id: int | str, layer_name: str | None = None) -> WebLayerItem | None:
         try:
             target_id = int(layer_id)
         except (ValueError, TypeError):
@@ -369,6 +369,10 @@ class WebCanvasItem:
         for layer in self.layers:
             if (target_id is not None and layer.layer_id == target_id) or str(layer.layer_id) == str(layer_id):
                 return layer
+        if layer_name:
+            for layer in self.layers:
+                if layer.layer_name == layer_name:
+                    return layer
         return None
 
     def _snapshot_layers(self) -> dict:

@@ -34,10 +34,43 @@ class LayerifyWorker(QObject):
 
     def process(self):
         try:
+            import numpy as np
+
+            from imagebaker.utils.image import qpixmap_to_numpy
+
             for annotation in self.annotations:
                 logger.info(f"Layerifying annotation {annotation}")
-                if annotation.rectangle:
-                    cropped_image = self.image.copy(annotation.rectangle.toRect())
+                if annotation.mask is not None and np.any(annotation.mask):
+                    raw_mask = np.asarray(annotation.mask)
+                    if raw_mask.ndim == 3:
+                        raw_mask = (
+                            raw_mask[:, :, -1]
+                            if raw_mask.shape[2] == 4
+                            else raw_mask[:, :, 0]
+                        )
+                    img_h, img_w = self.image.height(), self.image.width()
+                    mask_u8 = np.zeros((img_h, img_w), dtype=np.uint8)
+                    mh = min(img_h, raw_mask.shape[0])
+                    mw = min(img_w, raw_mask.shape[1])
+                    mask_u8[:mh, :mw] = (raw_mask[:mh, :mw] > 0).astype(np.uint8) * 255
+                    ys, xs = np.nonzero(mask_u8)
+                    if len(xs) == 0 or len(ys) == 0:
+                        continue
+                    x0, x1 = max(0, int(xs.min())), min(img_w, int(xs.max()) + 1)
+                    y0, y1 = max(0, int(ys.min())), min(img_h, int(ys.max()) + 1)
+                    raw_arr = qpixmap_to_numpy(self.image)[y0:y1, x0:x1].copy()
+                    src_alpha = raw_arr[:, :, 3].astype(np.uint16)
+                    msk_alpha = mask_u8[y0:y1, x0:x1].astype(np.uint16)
+                    raw_arr[:, :, 3] = ((src_alpha * msk_alpha) // 255).astype(np.uint8)
+                    raw_arr = np.ascontiguousarray(raw_arr)
+                    qimg = QImage(
+                        raw_arr.data,
+                        raw_arr.shape[1],
+                        raw_arr.shape[0],
+                        raw_arr.shape[1] * 4,
+                        QImage.Format_RGBA8888,
+                    )
+                    cropped_image = QPixmap.fromImage(qimg.copy())
                 elif annotation.polygon:
                     # Get bounding box and crop
                     bounding_rect = annotation.polygon.boundingRect().toRect()
@@ -77,6 +110,8 @@ class LayerifyWorker(QObject):
 
                     # Convert back to pixmap with proper alpha
                     cropped_image = QPixmap.fromImage(cropped_image)
+                elif annotation.rectangle:
+                    cropped_image = self.image.copy(annotation.rectangle.toRect())
                 else:
                     cropped_image = self.image
 

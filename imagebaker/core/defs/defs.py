@@ -204,6 +204,8 @@ class Annotation:
 
         import numpy as np
 
+        from imagebaker.utils.annotation_formats import mask_to_rle
+
         annotations_dict = []
         for annotation in annotations:
             rectangle = None
@@ -220,17 +222,38 @@ class Annotation:
             points = None
             if annotation.points:
                 points = [[p.x(), p.y()] for p in annotation.points]
-            mask = None
-            if annotation.mask is not None:
-                mask = np.asarray(annotation.mask).tolist()
+            rle = None
+            mask_size = None
+            if annotation.mask is not None and np.any(annotation.mask):
+                mask_arr = np.asarray(annotation.mask)
+                if mask_arr.ndim == 3:
+                    mask_arr = (
+                        mask_arr[:, :, -1]
+                        if mask_arr.shape[2] == 4
+                        else mask_arr[:, :, 0]
+                    )
+                rle = mask_to_rle(mask_arr)
+                mask_size = [int(mask_arr.shape[0]), int(mask_arr.shape[1])]
+            is_brush = bool(rle and not polygon and not rectangle)
             data = {
                 "annotation_id": annotation.annotation_id,
                 "label": annotation.label,
                 "color": annotation.color.getRgb(),
+                "type": "brushlabels"
+                if is_brush
+                else (
+                    "polygon"
+                    if polygon
+                    else ("rectangle" if rectangle else "point")
+                ),
+                "format": "rle" if rle else None,
+                "brushlabels": [annotation.label] if rle else None,
+                "rle": rle,
+                "mask_size": mask_size,
                 "points": points,
                 "rectangle": rectangle,
                 "polygon": polygon,
-                "mask": mask,
+                "mask": None,
                 "is_complete": annotation.is_complete,
                 "selected": annotation.selected,
                 "score": annotation.score,
@@ -253,6 +276,11 @@ class Annotation:
 
         import numpy as np
 
+        from imagebaker.utils.annotation_formats import (
+            load_annotations_from_path,
+            rle_to_mask,
+        )
+
         # if path does not exist, return empty list
         if not Path(path).exists():
             return []
@@ -263,20 +291,29 @@ class Annotation:
         if isinstance(data, dict) and (
             "categories" in data or "images" in data or "annotations" in data
         ):
-            from imagebaker.utils.annotation_formats import load_annotations_from_path
-
             return load_annotations_from_path(path, fmt="auto")
 
         annotations = []
         for d in data:
+            val_dict = d.get("value") if isinstance(d.get("value"), dict) else {}
+            brushlabels = d.get("brushlabels") or val_dict.get("brushlabels") or []
+            lbl = (
+                d.get("label")
+                or (
+                    brushlabels[0]
+                    if isinstance(brushlabels, list) and brushlabels
+                    else "Undefined"
+                )
+            )
+            col = d.get("color") or [255, 255, 255]
             annotation = Annotation(
-                annotation_id=d["annotation_id"],
-                label=d["label"],
-                color=QColor(*d["color"]),
-                is_complete=d.get("is_complete", False),
+                annotation_id=d.get("annotation_id", len(annotations)),
+                label=lbl,
+                color=QColor(*col[:3]),
+                is_complete=d.get("is_complete", True),
                 selected=d.get("selected", False),
                 score=d.get("score", None),
-                annotator=d.get("annotator", None),
+                annotator=d.get("annotator", "User"),
                 annotation_time=d.get(
                     "annotation_time", datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 ),
@@ -318,10 +355,26 @@ class Annotation:
                     polygon_data = polygon_data[0]
                 annotation.polygon = QPolygonF([QPointF(*p) for p in polygon_data])
 
-            # Handle mask safely
-            mask_data = d.get("mask")
-            if mask_data is not None:
-                annotation.mask = np.array(mask_data, dtype=np.uint8)
+            # Handle RLE or legacy 2D mask safely
+            rle_data = d.get("rle") or val_dict.get("rle")
+            mask_size = (
+                d.get("mask_size")
+                or d.get("size")
+                or val_dict.get("mask_size")
+                or (
+                    [int(d["original_height"]), int(d["original_width"])]
+                    if "original_height" in d and "original_width" in d
+                    else None
+                )
+            )
+            if rle_data is not None and mask_size and len(mask_size) == 2:
+                annotation.mask = rle_to_mask(
+                    rle_data, int(mask_size[0]), int(mask_size[1])
+                )
+            else:
+                mask_data = d.get("mask")
+                if mask_data is not None:
+                    annotation.mask = np.array(mask_data, dtype=np.uint8)
 
             annotations.append(annotation)
 
