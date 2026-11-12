@@ -165,6 +165,7 @@ class BakerWorker(QObject):
                 new_annotations = []
 
                 painter = QPainter(image)
+                layer_entries: list[dict] = []
                 try:
                     painter.setRenderHints(
                         QPainter.Antialiasing | QPainter.SmoothPixmapTransform
@@ -210,9 +211,7 @@ class BakerWorker(QObject):
                                                 Qt.RoundJoin,
                                             )
                                         )
-                                        painter.drawPoint(
-                                            drawing_state.position - top_left
-                                        )
+                                        painter.drawPoint(drawing_state.position)
                                 except Exception as e:
                                     logger.error(
                                         f"Error drawing state for layer {layer.layer_name}: {e}"
@@ -257,43 +256,77 @@ class BakerWorker(QObject):
 
                             # Convert mask to 8-bit
                             mask_arr = qpixmap_to_numpy(layer_mask)
-                            alpha_channel = mask_arr[:, :, 3].copy()  # Extract alpha
-
-                            # Binarize the mask (0 or 255)
-                            alpha_channel[alpha_channel > 0] = 255
-
-                            masks.append(alpha_channel)
-                            mask_names.append(layer.layer_name)
-
-                            # Generate annotations
-                            if layer.allow_annotation_export:
-                                base_ann: Annotation | None = (
-                                    layer.annotations[0] if layer.annotations else None
-                                )
-                                if base_ann is not None:
-                                    new_annotation = self._generate_annotation(
-                                        base_ann, alpha_channel
-                                    )
-                                    new_annotation.caption = layer.caption
-                                    new_annotations.append(new_annotation)
-
-                                brush_mask = self._render_brush_mask(
+                            raw_alpha = mask_arr[:, :, 3].copy()
+                            alpha_channel = np.where(raw_alpha > 0, 255, 0).astype(
+                                np.uint8
+                            )
+                            occluder_mask = (
+                                raw_alpha.astype(np.float32) * (layer.opacity / 255.0)
+                            ) >= 128.0
+                            brush_mask = (
+                                self._render_brush_mask(
                                     width=width,
                                     height=height,
                                     layer=layer,
                                     state=state,
                                     top_left=top_left,
                                 )
-                                brush_annotation = self._generate_brush_annotation(
-                                    base_ann=base_ann,
-                                    brush_mask=brush_mask,
-                                    fallback_name=layer.layer_name,
-                                    caption=layer.caption,
-                                )
-                                if brush_annotation is not None:
-                                    new_annotations.append(brush_annotation)
+                                if layer.allow_annotation_export
+                                else None
+                            )
+                            layer_entries.append(
+                                {
+                                    "layer": layer,
+                                    "alpha_channel": alpha_channel,
+                                    "occluder_mask": occluder_mask,
+                                    "brush_mask": brush_mask,
+                                }
+                            )
                 finally:
                     painter.end()
+
+                # Compute true visible (occluded) masks top-to-bottom across z-order
+                upper_occluder = np.zeros((height, width), dtype=bool)
+                visible_entries: list[tuple[dict, np.ndarray, np.ndarray | None]] = []
+                for entry in reversed(layer_entries):
+                    vis_alpha = np.where(
+                        upper_occluder, 0, entry["alpha_channel"]
+                    ).astype(np.uint8)
+                    vis_brush = (
+                        np.where(upper_occluder, 0, entry["brush_mask"]).astype(
+                            np.uint8
+                        )
+                        if entry["brush_mask"] is not None
+                        else None
+                    )
+                    visible_entries.append((entry, vis_alpha, vis_brush))
+                    upper_occluder |= entry["occluder_mask"]
+
+                for entry, alpha_channel, brush_mask in reversed(visible_entries):
+                    layer = entry["layer"]
+                    masks.append(alpha_channel)
+                    mask_names.append(layer.layer_name)
+
+                    if layer.allow_annotation_export:
+                        base_ann: Annotation | None = (
+                            layer.annotations[0] if layer.annotations else None
+                        )
+                        if base_ann is not None and np.any(alpha_channel):
+                            new_annotation = self._generate_annotation(
+                                base_ann, alpha_channel
+                            )
+                            new_annotation.caption = layer.caption
+                            new_annotations.append(new_annotation)
+
+                        if brush_mask is not None and np.any(brush_mask):
+                            brush_annotation = self._generate_brush_annotation(
+                                base_ann=base_ann,
+                                brush_mask=brush_mask,
+                                fallback_name=layer.layer_name,
+                                caption=layer.caption,
+                            )
+                            if brush_annotation is not None:
+                                new_annotations.append(brush_annotation)
 
                 # Save the image
                 filename = self.filename.parent / f"{self.filename.stem}_{step}.png"
@@ -327,7 +360,7 @@ class BakerWorker(QObject):
         return None
 
     def _generate_annotation(self, ann: Annotation, alpha_channel):
-        """Generate an annotation based on the alpha channel."""
+        """Generate an annotation based on the visible alpha channel."""
         new_annotation = Annotation(
             label=ann.label,
             color=ann.color,
@@ -338,7 +371,18 @@ class BakerWorker(QObject):
             is_model_generated=ann.is_model_generated,
         )
 
-        if ann.points:
+        raw_polygons = mask_to_polygons(
+            alpha_channel, min_polygon_area=2, merge_polygons=False
+        )
+        is_brush_or_split = (
+            (ann.mask is not None and np.any(ann.mask) and (ann.polygon is None or len(ann.polygon) == 0))
+            or len(raw_polygons) > 1
+        )
+
+        if is_brush_or_split:
+            # Brush mask or occluded instance split into multiple parts: keep unified RLE mask
+            new_annotation.mask = (alpha_channel > 0).astype(np.uint8)
+        elif ann.points:
             # Avoid exporting point clouds for baked results; use shape geometry.
             polygons = mask_to_polygons(alpha_channel, merge_polygons=True)
             if polygons:
@@ -355,7 +399,6 @@ class BakerWorker(QObject):
             xywhs = mask_to_rectangles(alpha_channel, merge_rectangles=True)
             if len(xywhs) == 0:
                 logger.info("No rectangles found")
-                # return None
             else:
                 logger.info(f"Found {len(xywhs)} rectangles")
                 new_annotation.rectangle = QRectF(
@@ -373,7 +416,7 @@ class BakerWorker(QObject):
                         xywhs[0][0], xywhs[0][1], xywhs[0][2], xywhs[0][3]
                     )
         else:
-            logger.info("No annotation found")
+            new_annotation.mask = (alpha_channel > 0).astype(np.uint8)
         return new_annotation
 
     def _render_brush_mask(self, width, height, layer, state, top_left):
@@ -434,21 +477,10 @@ class BakerWorker(QObject):
             annotation_id=annotation_id,
             label=label,
             color=color,
-            mask=brush_mask,
+            mask=(brush_mask > 0).astype(np.uint8),
             is_complete=True,
             visible=True,
             caption=caption or (base_ann.caption if base_ann is not None else ""),
         )
-
-        polygons = mask_to_polygons(brush_mask, merge_polygons=True)
-        if polygons:
-            brush_annotation.polygon = QPolygonF(
-                [QPointF(p[0], p[1]) for p in polygons[0]]
-            )
-        else:
-            xywhs = mask_to_rectangles(brush_mask, merge_rectangles=True)
-            if xywhs:
-                x, y, w, h = xywhs[0]
-                brush_annotation.rectangle = QRectF(x, y, w, h)
 
         return brush_annotation

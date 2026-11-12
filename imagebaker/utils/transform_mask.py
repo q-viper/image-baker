@@ -96,12 +96,82 @@ def mask_to_rectangles(
         rectangles.append((x, y, w, h))
 
     if merge_rectangles and len(rectangles) > 1:
-        # Convert rectangles to the format expected by groupRectangles
-        rects = np.array(rectangles)
-        # groupRectangles requires [x, y, w, h] format
-        grouped_rects, _ = cv2.groupRectangles(
-            rects.tolist(), merge_threshold, merge_epsilon
-        )
-        rectangles = [tuple(map(int, rect)) for rect in grouped_rects]
+        x0 = min(r[0] for r in rectangles)
+        y0 = min(r[1] for r in rectangles)
+        x1 = max(r[0] + r[2] for r in rectangles)
+        y1 = max(r[1] + r[3] for r in rectangles)
+        rectangles = [(int(x0), int(y0), int(x1 - x0), int(y1 - y0))]
 
     return rectangles
+
+
+def merge_contours_with_bridge(
+    contours: list[np.ndarray] | list[list[list[float]]],
+) -> np.ndarray:
+    """Merge disconnected closed contours into a single closed polygon.
+
+    Uses zero-width closest-vertex bridges (same convention as Ultralytics YOLO
+    segment merging) so a multi-part occluded object remains one instance.
+    """
+    pts_list: list[np.ndarray] = []
+    for contour in contours or []:
+        arr = np.asarray(contour, dtype=np.float64)
+        if arr.ndim == 3 and arr.shape[1] == 1 and arr.shape[2] == 2:
+            arr = arr[:, 0, :]
+        if arr.ndim != 2 or arr.shape[1] != 2 or len(arr) < 3:
+            continue
+        # Normalize orientation via signed shoelace area so island areas add up.
+        x = arr[:, 0]
+        y = arr[:, 1]
+        signed_area = 0.5 * float(np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y))
+        if signed_area < 0:
+            arr = arr[::-1].copy()
+        pts_list.append(arr)
+
+    if not pts_list:
+        return np.empty((0, 2), dtype=np.float64)
+    if len(pts_list) == 1:
+        return pts_list[0]
+
+    def _poly_area(p: np.ndarray) -> float:
+        return abs(
+            0.5
+            * float(
+                np.sum(p[:, 0] * np.roll(p[:, 1], -1) - np.roll(p[:, 0], -1) * p[:, 1])
+            )
+        )
+
+    pts_list.sort(key=_poly_area, reverse=True)
+    merged = pts_list[0]
+    remaining = pts_list[1:]
+
+    while remaining:
+        best_dist2 = float("inf")
+        best_r_idx = 0
+        best_i = 0
+        best_j = 0
+        for r_idx, cand in enumerate(remaining):
+            diff = merged[:, None, :] - cand[None, :, :]
+            dist2 = np.sum(diff * diff, axis=2)
+            flat_idx = int(np.argmin(dist2))
+            i, j = divmod(flat_idx, dist2.shape[1])
+            d2 = float(dist2[i, j])
+            if d2 < best_dist2:
+                best_dist2 = d2
+                best_r_idx = r_idx
+                best_i = i
+                best_j = j
+
+        cand = remaining.pop(best_r_idx)
+        c_rot = np.roll(cand, -best_j, axis=0)
+        merged = np.vstack(
+            [
+                merged[: best_i + 1],
+                c_rot,
+                c_rot[0:1],
+                merged[best_i : best_i + 1],
+                merged[best_i + 1 :],
+            ]
+        )
+
+    return merged

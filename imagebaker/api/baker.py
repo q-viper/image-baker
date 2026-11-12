@@ -7,6 +7,7 @@ Provides the main ImageBaker class for programmatic image composition and annota
 from datetime import datetime
 from pathlib import Path
 
+import cv2
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QImage, QPainter, QPixmap, QTransform
@@ -15,6 +16,7 @@ from imagebaker import logger
 from imagebaker.core.configs import CanvasConfig
 from imagebaker.core.defs import Annotation, BakingResult, LayerState
 from imagebaker.utils.image import qpixmap_to_numpy
+from imagebaker.utils.transform_mask import mask_to_polygons
 
 
 class ImageBaker:
@@ -283,53 +285,116 @@ class ImageBaker:
         masks = []
         mask_names = []
         annotations = []
+        rendered_entries = []
 
-        # Paint layers
+        # Paint layers in z-order while recording alpha/occlusion maps
         for state in sorted(states, key=lambda s: s.order):
             layer = self.layers[state.layer_id]
             if not layer["visible"] or layer["image"].isNull():
                 continue
 
-            painter.save()
-
-            # Apply transformations relative to bounding box
-            painter.translate(
+            transform = QTransform()
+            transform.translate(
                 state.position.x() - top_left.x(),
-                state.position.y() - top_left.y()
+                state.position.y() - top_left.y(),
             )
-            painter.rotate(state.rotation)
-            painter.scale(state.scale_x, state.scale_y)
+            transform.rotate(state.rotation)
+            transform.scale(state.scale_x, state.scale_y)
 
-            # Apply opacity
+            painter.save()
+            painter.setTransform(transform, combine=False)
             painter.setOpacity(state.opacity / 255.0)
             painter.drawPixmap(0, 0, layer["image"])
-
             painter.restore()
 
-            # Collect masks and annotations
-            if include_annotations and layer["annotations"]:
-                for ann in layer["annotations"]:
-                    if ann.visible:
-                        # Transform annotation coordinates
-                        transform = QTransform()
-                        transform.translate(
-                            state.position.x() - top_left.x(),
-                            state.position.y() - top_left.y()
-                        )
-                        transform.rotate(state.rotation)
-                        transform.scale(state.scale_x, state.scale_y)
+            layer_mask_img = QImage(width, height, QImage.Format_ARGB32)
+            layer_mask_img.fill(Qt.transparent)
+            mp = QPainter(layer_mask_img)
+            mp.setRenderHints(
+                QPainter.RenderHint.Antialiasing
+                | QPainter.RenderHint.SmoothPixmapTransform
+            )
+            mp.setTransform(transform, combine=False)
+            mp.drawPixmap(0, 0, layer["image"])
+            mp.end()
 
-                        transformed_ann = ann.copy()
+            raw_alpha = qpixmap_to_numpy(layer_mask_img)[:, :, 3].copy()
+            alpha_ch = np.where(raw_alpha > 0, 255, 0).astype(np.uint8)
+            occ_mask = (raw_alpha.astype(np.float32) * (state.opacity / 255.0)) >= 128.0
+            rendered_entries.append(
+                {
+                    "layer": layer,
+                    "transform": transform,
+                    "alpha_ch": alpha_ch,
+                    "occluder_mask": occ_mask,
+                }
+            )
+
+        painter.end()
+
+        # Apply top-to-bottom occlusion so split objects retain all visible parts
+        upper_occluder = np.zeros((height, width), dtype=bool)
+        resolved_entries = []
+        for entry in reversed(rendered_entries):
+            vis_alpha = np.where(upper_occluder, 0, entry["alpha_ch"]).astype(np.uint8)
+            resolved_entries.append((entry, vis_alpha))
+            upper_occluder |= entry["occluder_mask"]
+
+        for entry, vis_alpha in reversed(resolved_entries):
+            layer = entry["layer"]
+            transform = entry["transform"]
+            masks.append(vis_alpha)
+            mask_names.append(layer.get("name", f"layer_{len(masks) - 1}"))
+
+            if include_annotations and layer["annotations"] and np.any(vis_alpha):
+                for ann in layer["annotations"]:
+                    if not ann.visible:
+                        continue
+                    transformed_ann = ann.copy()
+                    # Check if annotation has explicit mask or if occlusion split it
+                    raw_polys = mask_to_polygons(
+                        vis_alpha, min_polygon_area=2, merge_polygons=False
+                    )
+                    if ann.mask is not None and np.any(ann.mask):
+                        m_u8 = (np.asarray(ann.mask) > 0).astype(np.uint8) * 255
+                        mat = np.array(
+                            [
+                                [transform.m11(), transform.m21(), transform.dx()],
+                                [transform.m12(), transform.m22(), transform.dy()],
+                            ],
+                            dtype=np.float32,
+                        )
+                        warped = cv2.warpAffine(
+                            m_u8,
+                            mat,
+                            (width, height),
+                            flags=cv2.INTER_NEAREST,
+                            borderMode=cv2.BORDER_CONSTANT,
+                            borderValue=0,
+                        )
+                        warped_vis = np.where((vis_alpha > 0) & (warped > 0), 1, 0).astype(
+                            np.uint8
+                        )
+                        if not np.any(warped_vis):
+                            continue
+                        transformed_ann.mask = warped_vis
+                        transformed_ann.polygon = None
+                        transformed_ann.rectangle = None
+                    elif len(raw_polys) > 1:
+                        # Upper layers occluded and split this object into multiple parts
+                        transformed_ann.mask = (vis_alpha > 0).astype(np.uint8)
+                        transformed_ann.polygon = None
+                        transformed_ann.rectangle = None
+                    else:
                         if ann.polygon:
                             transformed_ann.polygon = transform.map(ann.polygon)
                         if ann.rectangle:
                             transformed_ann.rectangle = transform.mapRect(ann.rectangle)
                         if ann.points:
-                            transformed_ann.points = [transform.map(p) for p in ann.points]
-
-                        annotations.append(transformed_ann)
-
-        painter.end()
+                            transformed_ann.points = [
+                                transform.map(p) for p in ann.points
+                            ]
+                    annotations.append(transformed_ann)
 
         # Generate filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

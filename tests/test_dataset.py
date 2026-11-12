@@ -288,8 +288,125 @@ class TestDatasetGeneration(unittest.TestCase):
         self.assertIn("labels", target)
         self.assertIn("area", target)
         self.assertIn("polygons", target)
+        self.assertIn("masks", target)
         self.assertEqual(target["width"], 256)
         self.assertEqual(target["height"], 256)
+
+    def test_brush_rle_two_part_instance_dataset_and_pytorch_masks(self):
+        """Verify two-part occluded RLE brush asset preserves single-instance COCO/YOLO/Default & PyTorch masks."""
+        from imagebaker.utils.annotation_formats import mask_to_rle, rle_to_mask
+
+        split_dir = Path(tempfile.mkdtemp(prefix="test_brush_rle_ds_"))
+        try:
+            cache_dir = split_dir / "cache"
+            layers_dir = cache_dir / "baker_layers"
+            layers_dir.mkdir(parents=True, exist_ok=True)
+
+            bg = np.full((320, 320, 4), (35, 45, 55, 255), dtype=np.uint8)
+            cv2.imwrite(str(layers_dir / "bg.png"), bg)
+
+            # Single instance visually split by an occluder gap into left + right islands
+            part_rgba = np.zeros((60, 140, 4), dtype=np.uint8)
+            part_rgba[10:50, 10:50] = (20, 180, 240, 255)
+            part_rgba[10:50, 90:130] = (20, 180, 240, 255)
+            cv2.imwrite(str(layers_dir / "split_part.png"), part_rgba)
+
+            bin_mask = (part_rgba[:, :, 3] > 0).astype(np.uint8)
+            rle = mask_to_rle(bin_mask)
+
+            cache_data = {
+                "version": 1,
+                "canvases": [
+                    {
+                        "canvas_id": "c_split",
+                        "layers": [
+                            {
+                                "layer_id": "bg_0",
+                                "name": "background_0",
+                                "label": "background",
+                                "image_file": "baker_layers/bg.png",
+                                "is_background": True,
+                            },
+                            {
+                                "layer_id": "fg_split",
+                                "name": "split_plate",
+                                "label": "split_plate",
+                                "image_file": "baker_layers/split_part.png",
+                                "is_background": False,
+                                "annotation": {
+                                    "annotation_id": 1,
+                                    "label": "split_plate",
+                                    "type": "brushlabels",
+                                    "format": "rle",
+                                    "rle": rle,
+                                    "mask_size": [60, 140],
+                                },
+                            },
+                        ],
+                    }
+                ],
+            }
+            (cache_dir / "baker_cache.json").write_text(json.dumps(cache_data), encoding="utf-8")
+
+            cfg = DatasetBakeConfig(
+                seed=7,
+                background_size=(256, 256),
+                split_ratios={"train": 1.0},
+                layers_per_image=(1, 1),
+                layer_min_size=20,
+                layer_max_size=200,
+                rotation_range=(0.0, 0.0),
+                scale_range=(1.0, 1.0),
+                opacity_range=(255.0, 255.0),
+                position_mode="center",
+            )
+            gen = CacheDatasetGenerator(cache_dir=cache_dir, config=cfg)
+            self.assertEqual(len(gen.foreground_assets), 1)
+            self.assertIsNotNone(gen.foreground_assets[0].mask)
+
+            # Default export preserves RLE two-island brush annotation
+            out_def = split_dir / "out_default"
+            gen.extract_dataset(output_dir=out_def, num_samples=2, format="default")
+            ann_files = list((out_def / "train" / "annotations").glob("*.json"))
+            self.assertGreaterEqual(len(ann_files), 1)
+            def_anns = json.loads(ann_files[0].read_text())
+            self.assertEqual(len(def_anns), 1)
+            self.assertEqual(def_anns[0]["type"], "brushlabels")
+            self.assertEqual(def_anns[0]["format"], "rle")
+            self.assertTrue(len(def_anns[0]["rle"]) > 0)
+            decoded = rle_to_mask(
+                def_anns[0]["rle"],
+                height=int(def_anns[0]["mask_size"][0]),
+                width=int(def_anns[0]["mask_size"][1]),
+            )
+            num_labels, _ = cv2.connectedComponents((decoded > 0).astype(np.uint8))
+            self.assertEqual(num_labels - 1, 2)
+
+            # COCO export has 1 instance annotation with >= 2 segmentation polygons
+            out_coco = split_dir / "out_coco"
+            gen.extract_dataset(output_dir=out_coco, num_samples=2, format="coco")
+            coco_data = json.loads((out_coco / "annotations" / "instances_train.json").read_text())
+            self.assertGreaterEqual(len(coco_data["annotations"]), 1)
+            first_coco = coco_data["annotations"][0]
+            self.assertGreaterEqual(len(first_coco["segmentation"]), 2)
+
+            # YOLO export bridges islands onto 1 instance segmentation line
+            out_yolo = split_dir / "out_yolo"
+            gen.extract_dataset(output_dir=out_yolo, num_samples=2, format="yolo")
+            txt_files = list((out_yolo / "labels" / "train").glob("*.txt"))
+            self.assertGreaterEqual(len(txt_files), 1)
+            yolo_lines = [ln for ln in txt_files[0].read_text().splitlines() if ln.strip()]
+            self.assertEqual(len(yolo_lines), 1)
+            self.assertGreaterEqual(len(yolo_lines[0].split()), 9)
+
+            # PyTorch dataset returns valid per-instance binary masks matching RLE islands
+            ds = ImageBakerTorchDataset(cache_dir=cache_dir, config=cfg, split="train", length=2)
+            _img, target = ds[0]
+            masks = target["masks"]
+            self.assertEqual(tuple(masks.shape), (1, 256, 256))
+            self.assertGreater(int(masks.sum()), 0)
+        finally:
+            shutil.rmtree(split_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

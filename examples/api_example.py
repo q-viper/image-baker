@@ -25,6 +25,9 @@ from PySide6.QtWidgets import QApplication
 app = QApplication.instance() or QApplication(sys.argv)
 
 from imagebaker import AnnotationType, ImageBaker, create_annotation  # noqa: E402
+from imagebaker.api.annotation import brush_annotation  # noqa: E402
+from imagebaker.utils.annotation_formats import export_annotations_data  # noqa: E402
+import numpy as np
 
 
 def main():
@@ -122,6 +125,40 @@ def main():
         print(f"  Rotation: {info['rotation']}°")
         print(f"  Scale: {info['scale']}")
         print(f"  Annotations: {info['annotation_count']}")
+
+    print("\n" + "=" * 40)
+    print("Example 4: Occluded Instance Segmentation with Brush & Z-Order Occlusion")
+    print("-" * 40)
+    occ_baker = ImageBaker(output_dir="./examples/output")
+
+    # Background + Underlying object (left+right parts via brush mask or polygon) + Upper occluder pole
+    bg_arr = np.full((200, 260, 4), (50, 60, 70, 255), dtype=np.uint8)
+    car_arr = np.zeros((200, 260, 4), dtype=np.uint8)
+    car_arr[80:140, 40:220] = (40, 120, 230, 255)
+    pole_arr = np.zeros((200, 260, 4), dtype=np.uint8)
+    pole_arr[20:190, 115:145] = (220, 220, 220, 255)
+
+    occ_baker.add_layer_from_array(bg_arr, layer_name="StreetBg")
+    car_mask = (car_arr[:, :, 3] > 0).astype(np.uint8)
+    car_idx = occ_baker.add_layer_from_array(car_arr, layer_name="Car")
+    occ_baker.add_annotation(
+        car_idx,
+        brush_annotation(
+            label="car",
+            mask=car_mask,
+            color=(40, 120, 230),
+            caption="Car split by foreground pole",
+        ),
+    )
+    occ_baker.add_layer_from_array(pole_arr, layer_name="ForegroundPole")
+    occ_res = occ_baker.bake()
+    coco_out = export_annotations_data(
+        occ_res.annotations, fmt="coco", image_name="occluded_scene.png", image_width=260, image_height=200
+    )
+    print(f"✓ Baked occluded scene annotations: {len(occ_res.annotations)} instance(s)")
+    if coco_out["data"]["annotations"]:
+        segs = coco_out["data"]["annotations"][0]["segmentation"]
+        print(f"✓ Single COCO instance segmentation parts after pole occlusion: {len(segs)}")
 
     print("\n" + "=" * 40)
     print("✓ All examples completed successfully!")

@@ -225,6 +225,20 @@ class CustomJitterPlugin(BasePlugin):
                     "visible": True,
                     "caption": "Crosswalk keypoint",
                 },
+                {
+                    "annotation_id": 3,
+                    "label": "Vehicle",
+                    "type": "brush",
+                    "brush_strokes": [
+                        # Left and right parts of one occluded vehicle split by a signpost
+                        {"points": [[25, 130], [50, 130]], "size": 16, "erase": False},
+                        {"points": [[82, 130], [108, 130]], "size": 16, "erase": False},
+                    ],
+                    "mask_size": [240, 320],
+                    "selected": False,
+                    "visible": True,
+                    "caption": "Occluded single-instance brush mask (split into 2 parts)",
+                },
             ]
             upd_res = _http_post_json(
                 base_url,
@@ -232,32 +246,55 @@ class CustomJitterPlugin(BasePlugin):
                 {
                     "annotations": scene0_anns,
                     "push_undo": True,
-                    "message": "Annotated street scene",
+                    "message": "Annotated street scene (incl. occluded brush instance)",
                 },
             )
-            assert len(upd_res["state"]["layerify"]["annotations"]) == 3
+            assert len(upd_res["state"]["layerify"]["annotations"]) == 4
 
             # Copy, Paste, Undo, Redo
             _http_post_json(base_url, "/api/layerify/annotations/action", {"action": "copy"})
             paste_res = _http_post_json(
                 base_url, "/api/layerify/annotations/action", {"action": "paste"}
             )
-            assert len(paste_res["state"]["layerify"]["annotations"]) == 4
+            assert len(paste_res["state"]["layerify"]["annotations"]) == 5
             undo_res = _http_post_json(
                 base_url, "/api/layerify/annotations/action", {"action": "undo"}
             )
-            assert len(undo_res["state"]["layerify"]["annotations"]) == 3
+            assert len(undo_res["state"]["layerify"]["annotations"]) == 4
 
-            # Export & Import merged annotations JSON
+            # Export Default (RLE), COCO (multi-polygon for split instance), and YOLO (bridged)
             merged_json_path = workspace / "merged_dataset_annotations.json"
             save_ann_res = _http_post_json(
                 base_url,
                 "/api/layerify/annotations/save",
-                {"all_layers": True, "file_path": str(merged_json_path)},
+                {"all_layers": True, "file_path": str(merged_json_path), "format": "default"},
             )
             assert save_ann_res["ok"] is True
             assert merged_json_path.exists()
-            print("  [OK] Annotated street scene, verified Undo/Redo/Copy/Paste & JSON export.")
+
+            coco_json_path = workspace / "scene0_coco.json"
+            coco_res = _http_post_json(
+                base_url,
+                "/api/layerify/annotations/save",
+                {"all_layers": False, "file_path": str(coco_json_path), "format": "coco"},
+            )
+            assert coco_res["ok"] is True
+            coco_payload = json.loads(coco_json_path.read_text(encoding="utf-8"))
+            brush_coco_entries = [
+                a for a in coco_payload["annotations"] if len(a.get("segmentation", [])) > 1
+            ]
+            assert len(brush_coco_entries) == 1, "Expected multi-polygon COCO entry for occluded brush instance"
+
+            yolo_txt_path = workspace / "scene0_yolo.txt"
+            yolo_res = _http_post_json(
+                base_url,
+                "/api/layerify/annotations/save",
+                {"all_layers": False, "file_path": str(yolo_txt_path), "format": "yolo"},
+            )
+            assert yolo_res["ok"] is True
+            print(
+                "  [OK] Annotated street scene w/ occluded 2-part Brush instance; exported Default RLE, COCO multi-polygon & YOLO."
+            )
 
             # ------------------------------------------------------------------
             # SCENARIO 2: AI-Assisted Annotation with Multiple Model Types
@@ -303,10 +340,10 @@ class CustomJitterPlugin(BasePlugin):
             )
             assert lyr_res["ok"] is True
 
-            # Also switch back to image 0 and layerify the Vehicle & TrafficSign
+            # Also switch back to image 0 and extract (Layerify) Vehicle, TrafficSign, and Occluded Brush
             _http_post_json(base_url, "/api/layerify/select-image", {"index": 0})
             lyr_res_0 = _http_post_json(
-                base_url, "/api/layerify/layerify", {"annotation_ids": [0, 1]}
+                base_url, "/api/layerify/layerify", {"annotation_ids": [0, 1, 3]}
             )
             assert lyr_res_0["ok"] is True
 

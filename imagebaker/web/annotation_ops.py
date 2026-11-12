@@ -12,7 +12,7 @@ from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import QColor, QPolygonF
 
 from imagebaker.core.defs import Annotation
-from imagebaker.utils.annotation_formats import mask_to_rle, rle_to_mask
+from imagebaker.utils.annotation_formats import mask_to_rle, rle_to_mask, shift_binary_mask
 from imagebaker.web.models import qcolor_to_hex
 
 
@@ -248,18 +248,6 @@ def deserialize_annotation(
     offset_x = int(round(float(d.get("mask_offset_x", 0.0) or 0.0)))
     offset_y = int(round(float(d.get("mask_offset_y", 0.0) or 0.0)))
     if ann.mask is not None and (offset_x != 0 or offset_y != 0):
-        h, w = ann.mask.shape[:2]
-        shifted = np.zeros_like(ann.mask)
-        sx1 = max(0, -offset_x)
-        sy1 = max(0, -offset_y)
-        sx2 = min(w, w - offset_x)
-        sy2 = min(h, h - offset_y)
-        dx1 = max(0, offset_x)
-        dy1 = max(0, offset_y)
-        dx2 = min(w, offset_x + (sx2 - sx1))
-        dy2 = min(h, offset_y + (sy2 - sy1))
-        if sx2 > sx1 and sy2 > sy1 and dx2 > dx1 and dy2 > dy1:
-            shifted[dy1:dy2, dx1:dx2] = ann.mask[sy1:sy2, sx1:sx2]
-        ann.mask = shifted
+        ann.mask = shift_binary_mask(ann.mask, offset_x, offset_y)
 
     return ann

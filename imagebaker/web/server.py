@@ -35,6 +35,12 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
         pass
 
     def _send_json(self, payload: dict, status: int = HTTPStatus.OK):
+        msg = payload.get("message")
+        if msg and getattr(self, "command", "") == "POST":
+            if payload.get("ok", True):
+                logger.info(f"[{self.path}] {msg}")
+            else:
+                logger.warning(f"[{self.path}] {msg}")
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -204,6 +210,12 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
                 with engine.lock:
                     engine._select_image_by_index(idx, save_previous=True)
                 self._send_json({"ok": True, "state": engine.get_state_dict()})
+                return
+
+            if route == "/api/layerify/remove-image":
+                idx = int(payload.get("index", -1))
+                ok, msg = engine.remove_image(idx)
+                self._send_json({"ok": ok, "message": msg, "state": engine.get_state_dict()})
                 return
 
             if route == "/api/layerify/select-folder":

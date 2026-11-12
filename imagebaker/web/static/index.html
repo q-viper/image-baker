@@ -9,6 +9,9 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png" />
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png" />
   <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/css/workspace.css" />
+  <link rel="stylesheet" href="/static/css/panels.css" />
+  <link rel="stylesheet" href="/static/css/modals_and_help.css" />
 </head>
 <body class="theme-dark">
   <div id="app-shell">
@@ -225,7 +228,8 @@
                 </div>
                 <div id="annotation-list-items" class="scroll-list"></div>
                 <div class="dock-bottom-action row-gap">
-                  <button class="btn btn-sm btn-primary flex-1" id="btn-layerify-all" title="Create layers from all visible annotations (L).">🧅 Layerify All</button>
+                  <button class="btn btn-sm btn-primary flex-1" id="btn-layerify-selected" title="Extract selected visible annotations into Baker layers (L).">✂️ Extract</button>
+                  <button class="btn btn-sm flex-1" id="btn-layerify-all" title="Create layers from all visible annotations.">🧅 Layerify All</button>
                   <button class="btn btn-sm flex-1" id="btn-save-annotations" title="Save annotations to file.">💾 Save</button>
                   <button class="btn btn-sm flex-1" id="btn-load-annotations" title="Load annotations from file.">📂 Load</button>
                   <button class="btn btn-sm flex-1" id="btn-clear-annotations" title="Clear all annotations from the current image.">🗑️ Clear</button>
@@ -515,6 +519,18 @@
           </div>
 
           <div class="help-card">
+            <h2>🖌️ Instance Segmentation & Occluded Objects (Brush Labels)</h2>
+            <ul>
+              <li><strong>Single Instance Across Occluders</strong><span>When a foreground object (e.g., a pole or person) splits an underlying object into separated visual pieces, use <strong>Brush (B)</strong> so all fragments share one annotation ID and one instance mask.</span></li>
+              <li><strong>Continuous Multi-Part Painting</strong><span>After your first stroke, the brush mask stays selected automatically—just paint across the gap onto the remaining parts to merge them into the same instance (shown with a shared dashed bounding box).</span></li>
+              <li><strong>Carving & Moving</strong><span>Use <strong>Erase</strong> or hold <strong>Alt + Drag</strong> to cut out occluding pixels cleanly. Use <strong>Move</strong> (or Select mode) to reposition all islands of an instance together.</span></li>
+              <li><strong>Starting the Next Instance</strong><span>Click <strong>+ New</strong> on the Brush bar (or Right-Click empty canvas) to finish the current mask and begin painting a separate instance.</span></li>
+              <li><strong>Extract & Multi-Format Export</strong><span>Click <strong>✂️ Extract</strong> (<strong>L</strong>) to cut out multi-island sprite layers with clean transparent gaps. Default JSON saves Label Studio <strong>RLE</strong>; <strong>COCO</strong> exports all islands inside one multi-polygon entry (and reloads them back as unified Brush masks); <strong>YOLO</strong> bridges contours into one instance row.</span></li>
+              <li><strong>Baker Z-Order Occlusion</strong><span>When upper layers overlap lower layers during Bake or Dataset Extraction, ImageBaker subtracts opaque upper pixels automatically so occluded lower layers keep accurate single-instance Brush/RLE segmentation masks.</span></li>
+            </ul>
+          </div>
+
+          <div class="help-card">
             <h2>💡 Workflow Hints</h2>
             <ul>
               <li><strong>Layerify to Baker</strong><span>Use Layerify for annotating source images, and Baker for composing, augmenting, and synthesizing new states.</span></li>
@@ -527,9 +543,24 @@
       </section>
     </main>
 
+    <!-- Collapsible Web Logs Drawer -->
+    <div id="web-log-drawer" class="web-log-drawer hidden">
+      <div class="web-log-header">
+        <span>📋 Application Logs</span>
+        <div class="web-log-actions">
+          <button class="btn btn-xs" id="btn-clear-logs">Clear</button>
+          <button class="btn btn-xs" id="btn-close-logs">&times;</button>
+        </div>
+      </div>
+      <div id="web-log-entries" class="web-log-entries"></div>
+    </div>
+
     <!-- Bottom Status Bar (matching MainWindow QStatusBar) -->
     <footer id="status-bar">
       <span id="status-bar-text">Ready</span>
+      <button class="btn btn-xs" id="btn-toggle-logs" title="Show or hide application logs">
+        📋 Logs <span class="dock-badge" id="badge-log-count">0</span>
+      </button>
     </footer>
   </div>
 
@@ -732,8 +763,11 @@
   <script src="/static/js/api.js"></script>
   <script src="/static/js/grid.js"></script>
   <script src="/static/js/splitters.js"></script>
+  <script src="/static/js/canvas_layerify_masks.js"></script>
+  <script src="/static/js/canvas_layerify_render.js"></script>
   <script src="/static/js/canvas_layerify.js"></script>
   <script src="/static/js/canvas_baker.js"></script>
+  <script src="/static/js/ui_layerify_modals.js"></script>
   <script src="/static/js/ui_layerify.js"></script>
   <script src="/static/js/ui_baker.js"></script>
   <script src="/static/js/shortcuts.js"></script>

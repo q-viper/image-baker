@@ -11,7 +11,7 @@ from imagebaker.dataset import (
     ImageBakerTorchDataset,
 )
 
-from .annotation import AnnotationType, create_annotation
+from .annotation import AnnotationType, brush_annotation, create_annotation
 from .baker import ImageBaker
 from .layer import Layer
 from .models import load_model
@@ -19,6 +19,7 @@ from .models import load_model
 __all__ = [
     "ImageBaker",
     "Layer",
+    "brush_annotation",
     "create_annotation",
     "AnnotationType",
     "load_model",

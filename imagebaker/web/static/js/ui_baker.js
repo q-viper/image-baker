@@ -780,35 +780,46 @@
     if (titleEl) titleEl.textContent = title;
     if (descEl) descEl.textContent = desc;
 
+    const runExport = async (skipDownload) => {
+      const fmt = document.getElementById("select-baker-export-format")?.value || "default";
+      closeAllModals();
+      showToast(
+        "baker",
+        skipDownload
+          ? `Exporting ${mode} (${fmt.toUpperCase()}) locally (skipping download)...`
+          : `Exporting ${mode} (${fmt.toUpperCase()})...`
+      );
+      if (window.ImageBaker.canvasBaker?.syncLayersToServer) {
+        await window.ImageBaker.canvasBaker.syncLayersToServer(false, "");
+      }
+      const res = await api.exportBaker(mode, fmt);
+      if (res.ok) {
+        if (res.state) {
+          window.ImageBaker.applyServerState(res.state);
+        }
+        showToast("baker", res.message || "Export complete");
+        if (!skipDownload && res.download_url) {
+          const link = document.createElement("a");
+          link.href = res.download_url;
+          if (res.download_filename) {
+            link.download = res.download_filename;
+          }
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+        }
+      } else {
+        showToast("baker", res.message || "Export failed");
+      }
+    };
+
     const confirmBtn = document.getElementById("btn-baker-export-confirm") || document.getElementById("btn-confirm-baker-export");
     if (confirmBtn) {
-      confirmBtn.onclick = async () => {
-        const fmt = document.getElementById("select-baker-export-format")?.value || "default";
-        closeAllModals();
-        showToast("baker", `Exporting ${mode} (${fmt.toUpperCase()})...`);
-        if (window.ImageBaker.canvasBaker?.syncLayersToServer) {
-          await window.ImageBaker.canvasBaker.syncLayersToServer(false, "");
-        }
-        const res = await api.exportBaker(mode, fmt);
-        if (res.ok) {
-          if (res.state) {
-            window.ImageBaker.applyServerState(res.state);
-          }
-          showToast("baker", res.message || "Export complete");
-          if (res.download_url) {
-            const link = document.createElement("a");
-            link.href = res.download_url;
-            if (res.download_filename) {
-              link.download = res.download_filename;
-            }
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-          }
-        } else {
-          showToast("baker", res.message || "Export failed");
-        }
-      };
+      confirmBtn.onclick = () => runExport(false);
+    }
+    const skipBtn = document.getElementById("btn-baker-export-skip");
+    if (skipBtn) {
+      skipBtn.onclick = () => runExport(true);
     }
     openModal("modal-baker-export-prompt");
   }

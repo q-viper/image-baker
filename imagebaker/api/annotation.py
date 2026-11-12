@@ -7,6 +7,7 @@ Provides simplified annotation creation and manipulation.
 from datetime import datetime
 from enum import Enum
 
+import numpy as np
 from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import QColor, QPolygonF
 
@@ -20,16 +21,18 @@ class AnnotationType(Enum):
     RECTANGLE = "rectangle"
     POLYGON = "polygon"
     MASK = "mask"
+    BRUSH = "brush"
 
 
 def create_annotation(
     label: str,
     annotation_type: AnnotationType,
-    coordinates: list[tuple[float, float]],
+    coordinates: list[tuple[float, float]] | None = None,
     color: tuple[int, int, int] | None = None,
     annotation_id: int | None = None,
     score: float | None = None,
-    caption: str = ""
+    caption: str = "",
+    mask: np.ndarray | None = None,
 ) -> CoreAnnotation:
     """
     Create an annotation.
@@ -84,6 +87,8 @@ def create_annotation(
         annotation_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     )
 
+    coordinates = coordinates or []
+
     # Set coordinates based on type
     if annotation_type == AnnotationType.POINT:
         annotation.points = [QPointF(x, y) for x, y in coordinates]
@@ -106,15 +111,39 @@ def create_annotation(
         annotation.polygon = QPolygonF([QPointF(x, y) for x, y in coordinates])
         logger.debug(f"Created POLYGON annotation with {len(coordinates)} vertices")
 
-    elif annotation_type == AnnotationType.MASK:
-        # For mask, coordinates should be polygon points
-        annotation.polygon = QPolygonF([QPointF(x, y) for x, y in coordinates])
-        logger.debug(f"Created MASK annotation with {len(coordinates)} points")
+    elif annotation_type in (AnnotationType.MASK, AnnotationType.BRUSH):
+        if mask is not None:
+            annotation.mask = (np.asarray(mask) > 0).astype(np.uint8)
+            logger.debug(f"Created BRUSH mask annotation with shape {annotation.mask.shape}")
+        elif coordinates:
+            annotation.polygon = QPolygonF([QPointF(x, y) for x, y in coordinates])
+            logger.debug(f"Created MASK annotation with {len(coordinates)} points")
+        else:
+            raise ValueError(f"{annotation_type.name} requires mask array or polygon coordinates")
 
     else:
         raise ValueError(f"Unsupported annotation type: {annotation_type}")
 
     return annotation
+
+
+def brush_annotation(
+    label: str,
+    mask: np.ndarray,
+    color: tuple[int, int, int] | None = None,
+    score: float | None = None,
+    caption: str = "",
+) -> CoreAnnotation:
+    """Create a Brush segmentation mask annotation (supports multi-island occluded instances)."""
+    return create_annotation(
+        label=label,
+        annotation_type=AnnotationType.BRUSH,
+        coordinates=[],
+        color=color,
+        score=score,
+        caption=caption,
+        mask=mask,
+    )
 
 
 def rectangle_annotation(

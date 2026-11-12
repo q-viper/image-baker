@@ -1,4 +1,10 @@
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from imagebaker.core.defs import ImageEntry
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
@@ -19,6 +25,7 @@ from imagebaker import logger
 
 class ImageListPanel(QDockWidget):
     imageSelected = Signal(object)
+    imageRemoved = Signal(object)
     activeImageEntries = Signal(list)
 
     def __init__(
@@ -145,6 +152,14 @@ class ImageListPanel(QDockWidget):
             item_layout.addWidget(name_label)
 
             item_layout.addStretch()
+
+            remove_btn = QPushButton("✕")
+            remove_btn.setFixedWidth(24)
+            remove_btn.setToolTip("Remove image from list")
+            remove_btn.clicked.connect(
+                lambda _checked=False, entry=image_entry: self.imageRemoved.emit(entry)
+            )
+            item_layout.addWidget(remove_btn)
 
             # Add the custom widget to the list
             list_item = QListWidgetItem(self.list_widget)

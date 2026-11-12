@@ -61,6 +61,16 @@ def create_demo_cache(cache_dir: Path) -> None:
     cv2.rectangle(fg2, (15, 15), (85, 85), (50, 200, 240, 255), -1)
     cv2.imwrite(str(layers_dir / "obj_gear.png"), fg2)
 
+    # Object 3: "split_plate" (two separated halves representing a brush-labeled occluded instance)
+    fg3 = np.zeros((100, 140, 4), dtype=np.uint8)
+    cv2.rectangle(fg3, (5, 15), (45, 85), (190, 90, 220, 255), -1)
+    cv2.rectangle(fg3, (95, 15), (135, 85), (190, 90, 220, 255), -1)
+    cv2.imwrite(str(layers_dir / "obj_split_plate.png"), fg3)
+    fg3_mask = (fg3[:, :, 3] > 0).astype(np.uint8)
+
+    from imagebaker.utils.annotation_formats import mask_to_rle
+    fg3_rle = mask_to_rle(fg3_mask)
+
     # 3. Noise distractor layer: "noise" (baked visually, but should have no label)
     noise = np.zeros((90, 90, 4), dtype=np.uint8)
     cv2.rectangle(noise, (10, 30), (80, 60), (120, 120, 120, 180), -1)
@@ -130,6 +140,25 @@ def create_demo_cache(cache_dir: Path) -> None:
                         "scale": [1.0, 1.0],
                         "rotation": 0.0,
                         "opacity": 1.0,
+                    },
+                    {
+                        "layer_id": "fg_3",
+                        "name": "split_plate",
+                        "label": "split_plate",
+                        "image_file": "baker_layers/obj_split_plate.png",
+                        "is_background": False,
+                        "position": [420, 260],
+                        "scale": [1.0, 1.0],
+                        "rotation": 0.0,
+                        "opacity": 1.0,
+                        "annotation": {
+                            "type": "brushlabels",
+                            "format": "rle",
+                            "label": "split_plate",
+                            "brushlabels": ["split_plate"],
+                            "rle": fg3_rle,
+                            "mask_size": list(fg3_mask.shape),
+                        },
                     },
                     {
                         "layer_id": "noise_1",
@@ -221,6 +250,7 @@ def run_pytorch_dataset_example(cache_dir: Path) -> None:
     logger.info(f"Sample 0 image shape/type: {type(sample_image)} - {getattr(sample_image, 'shape', None)}")
     logger.info(f"Sample 0 target keys: {list(sample_target.keys())}")
     logger.info(f"Sample 0 boxes count: {len(sample_target['boxes'])}")
+    logger.info(f"Sample 0 masks shape: {getattr(sample_target.get('masks'), 'shape', None)}")
     logger.info(f"Sample 0 labels: {sample_target['labels']}")
 
     try:
@@ -237,8 +267,8 @@ def run_pytorch_dataset_example(cache_dir: Path) -> None:
             logger.info(f"DataLoader Batch {batch_idx}: images tensor {batch_images.shape}, {len(batch_targets)} targets")
             if batch_idx >= 1:
                 break
-    except ImportError:
-        logger.info("PyTorch is not installed in current environment; demonstrated standalone tensor conversion.")
+    except Exception:  # noqa: BLE001 - handle missing or unloadable PyTorch runtime
+        logger.info("PyTorch is unavailable in current environment; demonstrated NumPy array output.")
 
 
 def main() -> None:

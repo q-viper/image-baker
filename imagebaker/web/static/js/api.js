@@ -45,6 +45,10 @@
       return await apiPost("/api/layerify/select-image", { index });
     },
 
+    async removeImage(index) {
+      return await apiPost("/api/layerify/remove-image", { index });
+    },
+
     async selectFolder(folderPath) {
       return await apiPost("/api/layerify/select-folder", { folder_path: folderPath });
     },

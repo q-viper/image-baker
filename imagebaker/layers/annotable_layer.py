@@ -1,27 +1,7 @@
 from pathlib import Path
 
-import cv2
-from PySide6.QtCore import (
-    QLineF,
-    QPoint,
-    QPointF,
-    QRectF,
-    Qt,
-    QThread,
-    Signal,
-)
-from PySide6.QtGui import (
-    QBrush,
-    QColor,
-    QFont,
-    QKeyEvent,
-    QMouseEvent,
-    QPainter,
-    QPen,
-    QPixmap,
-    QPolygonF,
-    QWheelEvent,
-)
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QInputDialog,
@@ -31,15 +11,22 @@ from PySide6.QtWidgets import (
 )
 
 from imagebaker import logger
-from imagebaker.core.configs import CanvasConfig, CursorDef, LayerConfig
+from imagebaker.core.configs import CanvasConfig, LayerConfig
 from imagebaker.core.defs import Annotation, MouseMode
+from imagebaker.layers.annotable_history import AnnotableHistoryMixin
+from imagebaker.layers.annotable_interaction import AnnotableInteractionMixin
+from imagebaker.layers.annotable_rendering import AnnotableRenderMixin
 from imagebaker.layers.base_layer import BaseLayer
 from imagebaker.layers.canvas_layer import CanvasLayer
-from imagebaker.utils import mask_to_polygons
 from imagebaker.workers import LayerifyWorker
 
 
-class AnnotableLayer(BaseLayer):
+class AnnotableLayer(
+    AnnotableHistoryMixin,
+    AnnotableRenderMixin,
+    AnnotableInteractionMixin,
+    BaseLayer,
+):
     annotationAdded = Signal(Annotation)
     annotationRemoved = Signal()
     annotationUpdated = Signal(Annotation)
@@ -47,6 +34,7 @@ class AnnotableLayer(BaseLayer):
     annotationMoved = Signal()
     layersChanged = Signal()
     labelUpdated = Signal(tuple)
+    brushSizeChanged = Signal(int)
 
     def __init__(self, parent, config: LayerConfig, canvas_config: CanvasConfig):
         super().__init__(parent, config)
@@ -61,128 +49,13 @@ class AnnotableLayer(BaseLayer):
         self.is_annotable = True
         self.handle_zoom: float = 1
 
-        # Brush annotation state
-        self._brush_mask = None  # Numpy array for brush mask
+        self.brush_size = 18
+        self._brush_mask = None
         self._brush_last_pos = None
+        self._target_brush_annotation = None
         self._history_by_file: dict[str, tuple[list, list]] = {}
         self._max_history = 100
         self._drag_start_snapshot = None
-
-    def _history_pair(self) -> tuple[list, list]:
-        key = str(self.file_path or "Runtime")
-        if key not in self._history_by_file:
-            self._history_by_file[key] = ([], [])
-        return self._history_by_file[key]
-
-    @property
-    def _undo_stack(self) -> list:
-        return self._history_pair()[0]
-
-    @_undo_stack.setter
-    def _undo_stack(self, value: list):
-        key = str(self.file_path or "Runtime")
-        _, redo_s = self._history_pair()
-        self._history_by_file[key] = (list(value), redo_s)
-
-    @property
-    def _redo_stack(self) -> list:
-        return self._history_pair()[1]
-
-    @_redo_stack.setter
-    def _redo_stack(self, value: list):
-        key = str(self.file_path or "Runtime")
-        undo_s, _ = self._history_pair()
-        self._history_by_file[key] = (undo_s, list(value))
-
-    @staticmethod
-    def _annotation_signature(ann: Annotation) -> tuple:
-        pts = tuple((round(p.x(), 3), round(p.y(), 3)) for p in (ann.points or []))
-        rect = (
-            (
-                round(ann.rectangle.x(), 3),
-                round(ann.rectangle.y(), 3),
-                round(ann.rectangle.width(), 3),
-                round(ann.rectangle.height(), 3),
-            )
-            if ann.rectangle
-            else None
-        )
-        poly = (
-            tuple((round(p.x(), 3), round(p.y(), 3)) for p in ann.polygon)
-            if ann.polygon
-            else None
-        )
-        mask_sig = (
-            (ann.mask.shape, int(ann.mask.sum()))
-            if ann.mask is not None
-            else None
-        )
-        col = (
-            (ann.color.red(), ann.color.green(), ann.color.blue())
-            if ann.color
-            else (255, 255, 255)
-        )
-        return (
-            ann.label,
-            col,
-            pts,
-            rect,
-            poly,
-            mask_sig,
-            bool(ann.visible),
-            getattr(ann, "caption", ""),
-        )
-
-    @classmethod
-    def _annotations_equal(
-        cls, before: list[Annotation], after: list[Annotation]
-    ) -> bool:
-        if len(before) != len(after):
-            return False
-        return all(
-            cls._annotation_signature(a) == cls._annotation_signature(b)
-            for a, b in zip(before, after, strict=False)
-        )
-
-    def _snapshot_annotations(self):
-        return [ann.copy() for ann in self.annotations]
-
-    def _restore_annotations(self, snapshot):
-        self.annotations = [ann.copy() for ann in snapshot]
-        for idx, ann in enumerate(self.annotations):
-            ann.annotation_id = idx
-            ann.selected = False
-        self.selected_annotation = None
-        self.current_annotation = None
-        self.update()
-
-    def _push_undo_state(self):
-        snapshot = self._snapshot_annotations()
-        if self._undo_stack and self._annotations_equal(self._undo_stack[-1], snapshot):
-            self._redo_stack.clear()
-            return
-        self._undo_stack.append(snapshot)
-        if len(self._undo_stack) > self._max_history:
-            self._undo_stack.pop(0)
-        self._redo_stack.clear()
-
-    def undo(self):
-        if not self._undo_stack:
-            self.messageSignal.emit("Nothing to undo.")
-            return
-        self._redo_stack.append(self._snapshot_annotations())
-        self._restore_annotations(self._undo_stack.pop())
-        self.annotationRemoved.emit()
-        self.messageSignal.emit("Undo applied.")
-
-    def redo(self):
-        if not self._redo_stack:
-            self.messageSignal.emit("Nothing to redo.")
-            return
-        self._undo_stack.append(self._snapshot_annotations())
-        self._restore_annotations(self._redo_stack.pop())
-        self.annotationRemoved.emit()
-        self.messageSignal.emit("Redo applied.")
 
     def init_ui(self):
         logger.info(f"Initializing Layer UI of {self.layer_name}")
@@ -198,130 +71,13 @@ class AnnotableLayer(BaseLayer):
         self.update()
 
     def toggle_annotation_visibility(self):
-        """Toggle visibility of all annotations."""
+        """Toggle visibility of selected annotation."""
         selected_annotation = self._get_selected_annotation()
         if selected_annotation is not None:
             self._push_undo_state()
             selected_annotation.visible = not selected_annotation.visible
             self.annotationUpdated.emit(selected_annotation)
             self.update()
-
-    def handle_key_press(self, event: QKeyEvent):
-        # Handle Ctrl key for panning
-        if event.key() == Qt.Key_Control:
-            # disable this for now to allow pannings
-            # if (
-            #     self.mouse_mode != MouseMode.POLYGON
-            # ):  # Only activate pan mode when not drawing polygons
-
-            self.mouse_mode = MouseMode.PAN
-            event.accept()
-            return
-
-        # Handle Ctrl+C for copy
-        if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_C:
-            self._copy_annotation()
-            event.accept()
-            return
-
-        # Handle Ctrl+V for paste
-        if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_V:
-            self._paste_annotation()
-            event.accept()
-            return
-
-        # Handle Ctrl+A for select all
-        if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_A:
-            self.select_all_annotations()
-            event.accept()
-            return
-        if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_Z:
-            if event.modifiers() & Qt.ShiftModifier:
-                self.redo()
-            else:
-                self.undo()
-            event.accept()
-            return
-        if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_Y:
-            self.redo()
-            event.accept()
-            return
-
-        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_Delete:
-            self.delete_selected_annotations()
-            event.accept()
-            return
-
-        if event.modifiers() == Qt.NoModifier and Qt.Key_0 <= event.key() <= Qt.Key_9:
-            label_index = event.key() - Qt.Key_0
-            if label_index < len(self.config.predefined_labels):
-                label_info = self.config.predefined_labels[label_index]
-                self.current_label = label_info.name
-                self.current_color = label_info.color
-
-                selected_annotations = [ann for ann in self.annotations if ann.selected]
-                if not selected_annotations and self.selected_annotation is not None:
-                    selected_annotations = [self.selected_annotation]
-
-                if selected_annotations:
-                    self._push_undo_state()
-                for annotation in selected_annotations:
-                    annotation.label = label_info.name
-                    annotation.color = label_info.color
-                    self.annotationUpdated.emit(annotation)
-
-                self.messageSignal.emit(f"Label changed to: {label_info.name}")
-                self.update()
-                event.accept()
-                return
-
-        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_Q:
-            self.set_mode(MouseMode.POINT)
-            self.messageSignal.emit("Mouse mode set to POINT.")
-            event.accept()
-            return
-
-        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_W:
-            self.set_mode(MouseMode.POLYGON)
-            self.messageSignal.emit("Mouse mode set to POLYGON.")
-            event.accept()
-            return
-
-        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_E:
-            self.set_mode(MouseMode.RECTANGLE)
-            self.messageSignal.emit("Mouse mode set to RECTANGLE.")
-            event.accept()
-            return
-
-        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_H:
-            self.toggle_annotation_visibility()
-            event.accept()
-            return
-
-        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_L:
-            selected_annotations = [ann for ann in self.annotations if ann.selected]
-            if selected_annotations:
-                self.layerify_annotation(selected_annotations)
-            else:
-                self.layerify_annotation(self.annotations)
-            event.accept()
-            return
-
-        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_C:
-            self.edit_selected_annotation_caption()
-            event.accept()
-            return
-
-    def handle_key_release(self, event):
-        if event.key() == Qt.Key_Control:
-            if self.mouse_mode == MouseMode.PAN:
-                self.mouse_mode = MouseMode.IDLE
-
-    def copy_annotation(self):
-        self._copy_annotation()
-
-    def paste_annotation(self):
-        self._paste_annotation()
 
     def delete_selected_annotations(self):
         selected_annotations = [ann for ann in self.annotations if ann.selected]
@@ -368,1019 +124,15 @@ class AnnotableLayer(BaseLayer):
     def apply_opacity(self):
         """Apply opacity to the QPixmap image."""
         if self.image and self.opacity < 255:
-            # Create a new transparent pixmap with the same size
             transparent_pixmap = QPixmap(self.image.size())
             transparent_pixmap.fill(Qt.transparent)
-
-            # Create a painter to draw on the new pixmap
             painter = QPainter(transparent_pixmap)
             try:
-                # Set the opacity
                 painter.setOpacity(self.opacity / 255.0)
-
-                # Draw the original image onto the new pixmap
                 painter.drawPixmap(0, 0, self.image)
             finally:
-                # Ensure the painter is properly ended
                 painter.end()
-
-            # Replace the original image with the transparent version
             self.image = transparent_pixmap
-
-    def paint_layer(self, painter: QPainter):
-        painter.setRenderHints(
-            QPainter.Antialiasing | QPainter.SmoothPixmapTransform
-        )
-        self.label_rects.clear()
-
-        if not self.image.isNull():
-            painter.save()
-            painter.translate(self.offset)
-            painter.scale(self.scale, self.scale)
-            painter.drawPixmap(0, 0, self.image)
-
-            # Draw all annotations
-            for annotation in self.annotations:
-                self.draw_annotation(painter, annotation)
-
-            # Draw current annotation
-            if self.current_annotation:
-                self.draw_annotation(painter, self.current_annotation, is_temp=True)
-
-            painter.restore()
-
-    def draw_annotation(self, painter, annotation: Annotation, is_temp=False):
-        """
-        Draw annotation on the image.
-        """
-
-        if not annotation.visible:
-            return
-        painter.save()
-        base_color = annotation.color
-        pen_color = QColor(
-            base_color.red(),
-            base_color.green(),
-            base_color.blue(),
-            self.config.normal_draw_config.pen_alpha,
-        )
-        brush_color = QColor(
-            base_color.red(),
-            base_color.green(),
-            base_color.blue(),
-            self.config.normal_draw_config.brush_alpha,
-        )
-
-        pen = QPen(pen_color, self.config.normal_draw_config.line_width / self.scale)
-        brush = QBrush(brush_color, Qt.DiagCrossPattern)
-
-        # Draw mask if present
-        if annotation.mask is not None:
-            import numpy as np
-            from PySide6.QtGui import QImage
-
-            mask = annotation.mask
-            if mask.dtype != np.uint8:
-                mask = (mask * 255).astype(np.uint8)
-            h, w = mask.shape
-            # Create an RGBA image with the annotation color and alpha from mask
-            color = annotation.color
-            rgba = np.zeros((h, w, 4), dtype=np.uint8)
-            rgba[..., 0] = color.red()
-            rgba[..., 1] = color.green()
-            rgba[..., 2] = color.blue()
-            rgba[..., 3] = (mask * (self.config.normal_draw_config.brush_alpha)).astype(
-                np.uint8
-            )
-            qimg = QImage(rgba.data, w, h, QImage.Format_RGBA8888)
-            painter.drawImage(0, 0, qimg)
-
-        if annotation.selected:
-            painter.setPen(
-                QPen(
-                    self.config.selected_draw_config.color,
-                    self.config.selected_draw_config.line_width / self.scale,
-                )
-            )
-            painter.setBrush(
-                QBrush(
-                    QColor(
-                        self.config.selected_draw_config.color.red(),
-                        self.config.selected_draw_config.color.green(),
-                        self.config.selected_draw_config.color.blue(),
-                        self.config.selected_draw_config.brush_alpha,
-                    )
-                )
-            )
-            if annotation.polygon:
-                painter.drawPolygon(annotation.polygon)
-            elif annotation.rectangle:
-                painter.drawRect(annotation.rectangle)
-            elif annotation.points:
-                painter.drawEllipse(
-                    annotation.points[0],
-                    self.config.selected_draw_config.ellipse_size / self.scale,
-                    self.config.selected_draw_config.ellipse_size / self.scale,
-                )
-
-        if is_temp:
-            pen.setStyle(Qt.DashLine)
-            brush.setStyle(Qt.Dense4Pattern)
-
-        painter.setPen(pen)
-        painter.setBrush(brush)
-
-        # Draw main shape if no mask
-        if annotation.mask is None:
-            if annotation.points and not annotation.polygon and not annotation.rectangle:
-                for point in annotation.points:
-                    painter.drawEllipse(
-                        point,
-                        self.config.normal_draw_config.point_size / self.scale,
-                        self.config.normal_draw_config.point_size / self.scale,
-                    )
-            elif annotation.polygon:
-                if len(annotation.polygon) > 1:
-                    if annotation.is_complete:
-                        painter.drawPolygon(annotation.polygon)
-                    else:
-                        painter.drawPolyline(annotation.polygon)
-            elif annotation.rectangle:
-                painter.drawRect(annotation.rectangle)
-
-        is_hovered = getattr(self, "hovered_annotation", None) is annotation
-        show_points = is_temp or not annotation.is_complete or annotation.selected or is_hovered
-
-        # Draw control points only when incomplete, selected, or hovered
-        if show_points and not annotation.polygon and annotation.rectangle:
-            rect = annotation.rectangle
-            corners = [
-                rect.topLeft(),
-                rect.topRight(),
-                rect.bottomLeft(),
-                rect.bottomRight(),
-            ]
-            painter.save()
-            painter.setPen(
-                QPen(
-                    Qt.black,
-                    self.config.normal_draw_config.control_point_size / self.scale,
-                )
-            )
-            painter.setBrush(QBrush(Qt.white))
-            for corner in corners:
-                painter.drawEllipse(
-                    corner,
-                    self.config.normal_draw_config.point_size / self.scale,
-                    self.config.normal_draw_config.point_size / self.scale,
-                )
-            painter.restore()
-
-        if show_points and annotation.polygon and len(annotation.polygon) > 0:
-            painter.save()
-            painter.setPen(
-                QPen(
-                    Qt.white,
-                    self.config.normal_draw_config.control_point_size / self.scale,
-                )
-            )
-            painter.setBrush(QBrush(Qt.darkGray))
-            for point in annotation.polygon:
-                painter.drawEllipse(
-                    point,
-                    self.config.normal_draw_config.point_size / self.scale,
-                    self.config.normal_draw_config.point_size / self.scale,
-                )
-            painter.restore()
-
-        is_active_annotation = (
-            annotation is self.current_annotation
-            or (
-                annotation is self.selected_annotation
-                and hasattr(self, "active_handle")
-                and self.active_handle is not None
-            )
-        )
-
-        # Draw labels only for completed, non-active annotations.
-        if (
-            annotation.is_complete
-            and annotation.label
-            and not is_temp
-            and not is_active_annotation
-        ):
-            label_pos = self.get_label_position(annotation)
-            text = annotation.label
-
-            # Convert to widget coordinates because we draw labels in screen space.
-            widget_pos = QPointF(
-                label_pos.x() * self.scale + self.offset.x(),
-                label_pos.y() * self.scale + self.offset.y(),
-            )
-
-            if annotation.points:
-                widget_pos += QPointF(10, 10)
-
-            zoom = max(0.1, float(self.scale))
-            label_px = int(
-                round(self.config.normal_draw_config.label_font_size * zoom)
-            )
-            label_px = max(9, min(48, label_px))
-
-            painter.resetTransform()
-
-            label_font = painter.font()
-            label_font.setPixelSize(label_px)
-            label_font.setItalic(False)
-            label_font.setWeight(QFont.DemiBold)
-            painter.setFont(label_font)
-
-            label_metrics = painter.fontMetrics()
-            label_width = label_metrics.horizontalAdvance(text)
-            label_height = label_metrics.height()
-
-            bg_rect = QRectF(
-                widget_pos.x() - label_width / 2 - 4,
-                widget_pos.y() - label_height / 2 - 3,
-                label_width + 8,
-                label_height + 6,
-            )
-            self.label_rects.append((bg_rect, annotation))
-
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(self.config.normal_draw_config.label_font_background_color)
-            painter.drawRoundedRect(bg_rect, 3, 3)
-
-            painter.setPen(Qt.white)
-            painter.drawText(bg_rect, Qt.AlignCenter, text)
-
-            if annotation.caption:
-                caption_text = annotation.caption
-                caption_px = int(
-                    round(self.config.selected_draw_config.label_font_size * zoom)
-                )
-                caption_px = max(8, min(40, caption_px))
-
-                caption_font = painter.font()
-                caption_font.setItalic(True)
-                caption_font.setPixelSize(caption_px)
-                caption_font.setWeight(QFont.Light)
-                painter.setFont(caption_font)
-
-                caption_metrics = painter.fontMetrics()
-                caption_width = caption_metrics.horizontalAdvance(caption_text)
-                caption_height = caption_metrics.height()
-                caption_rect = QRectF(
-                    widget_pos.x() - caption_width / 2 - 4,
-                    bg_rect.bottom() + 2,
-                    caption_width + 8,
-                    caption_height + 4,
-                )
-
-                painter.setPen(Qt.NoPen)
-                painter.setBrush(
-                    self.config.normal_draw_config.label_font_background_color
-                )
-                painter.drawRoundedRect(caption_rect, 3, 3)
-
-                painter.setPen(Qt.white)
-                painter.drawText(caption_rect, Qt.AlignCenter, caption_text)
-
-        painter.restore()
-
-        # Draw transformation handles for selected or hovered annotations
-        if (annotation.selected or is_hovered) and annotation.is_complete:
-            painter.save()
-            handle_color = self.config.selected_draw_config.handle_color
-            painter.setPen(
-                QPen(
-                    handle_color,
-                    self.config.selected_draw_config.handle_width / self.scale,
-                )
-            )
-            painter.setBrush(QBrush(handle_color))
-
-            if not annotation.polygon and annotation.rectangle:
-                rect = annotation.rectangle
-                # Draw corner handles
-                for corner in [
-                    rect.topLeft(),
-                    rect.topRight(),
-                    rect.bottomLeft(),
-                    rect.bottomRight(),
-                ]:
-                    painter.drawEllipse(
-                        corner,
-                        self.config.selected_draw_config.handle_point_size / self.scale,
-                        self.config.selected_draw_config.handle_point_size / self.scale,
-                    )
-                # Draw edge handles
-                for edge in [
-                    QPointF(rect.center().x(), rect.top()),
-                    QPointF(rect.center().x(), rect.bottom()),
-                    QPointF(rect.left(), rect.center().y()),
-                    QPointF(rect.right(), rect.center().y()),
-                ]:
-                    painter.drawEllipse(
-                        edge,
-                        self.config.selected_draw_config.handle_edge_size / self.scale,
-                        self.config.selected_draw_config.handle_edge_size / self.scale,
-                    )
-
-            elif annotation.polygon:
-                # Draw vertex handles
-                for point in annotation.polygon:
-                    painter.drawEllipse(
-                        point,
-                        self.config.selected_draw_config.handle_point_size / self.scale,
-                        self.config.selected_draw_config.handle_point_size / self.scale,
-                    )
-
-            elif annotation.points:
-                for point in annotation.points:
-                    painter.drawEllipse(
-                        point,
-                        self.config.selected_draw_config.handle_point_size / self.scale,
-                        self.config.selected_draw_config.handle_point_size / self.scale,
-                    )
-
-            painter.restore()
-
-    def get_label_position(self, annotation: Annotation):
-        if annotation.points:
-            return annotation.points[0]
-        if annotation.rectangle:
-            return annotation.rectangle.center()
-        if annotation.polygon:
-            return annotation.polygon.boundingRect().center()
-        return QPointF()
-
-    def handle_wheel(self, event: QWheelEvent):
-        if event.modifiers() & Qt.ControlModifier:
-            # Get mouse position before zoom
-            old_pos = self.widget_to_image_pos(event.position())
-
-            # Calculate zoom factor
-            zoom_factor = (
-                self.config.zoom_in_factor
-                if event.angleDelta().y() > 0
-                else self.config.zoom_out_factor
-            )
-            new_scale = max(0.1, min(self.scale * zoom_factor, 10.0))
-
-            # Calculate position shift to keep cursor over same image point
-            self.offset += old_pos * self.scale - old_pos * new_scale
-            self.scale = new_scale
-
-            # is wheel going forward or backward
-            if event.angleDelta().y() > 0:
-                self.mouse_mode = MouseMode.ZOOM_IN
-            else:
-                self.mouse_mode = MouseMode.ZOOM_OUT
-
-            self.zoomChanged.emit(self.scale)
-
-    def handle_mouse_release(self, event: QMouseEvent):
-        if event.button() == Qt.LeftButton:
-            if self.mouse_mode in (MouseMode.DRAW, MouseMode.ERASE) and self._brush_mask is not None:
-                import numpy as np
-
-                mask = self._brush_mask.copy()
-                target_ann = getattr(self, "_target_brush_annotation", None)
-                if target_ann is not None and target_ann in self.annotations:
-                    self._push_undo_state()
-                    if np.any(mask):
-                        target_ann.mask = mask
-                        self.annotationUpdated.emit(target_ann)
-                    else:
-                        self.annotations.remove(target_ann)
-                        self.annotationRemoved.emit(target_ann)
-                elif np.any(mask) and self.mouse_mode != MouseMode.ERASE:
-                    self._push_undo_state()
-                    label = self.current_label or self.config.default_label.name
-                    color = self.current_color or self.config.get_label_color(label)
-
-                    ann = Annotation(
-                        file_path=self.file_path,
-                        annotation_id=len(self.annotations),
-                        label=label,
-                        color=color,
-                        mask=mask,
-                        rectangle=None,
-                        polygon=None,
-                        is_complete=True,
-                    )
-                    self.annotations.append(ann)
-                    self.annotationAdded.emit(ann)
-                self._brush_mask = None
-                self._brush_last_pos = None
-                self._target_brush_annotation = None
-                self.update()
-                return
-            if self.mouse_mode == MouseMode.RECTANGLE and self.current_annotation:
-                rect = self.current_annotation.rectangle
-                # Ignore click-only rectangle annotations (no meaningful drag).
-                if rect and (
-                    rect.width() >= self.config.drag_threshold
-                    and rect.height() >= self.config.drag_threshold
-                ):
-                    self.finalize_annotation()
-                else:
-                    self.current_annotation = None
-            elif self.mouse_mode == MouseMode.POLYGON and self.current_annotation:
-                pass
-            elif self.mouse_mode in [
-                MouseMode.PAN,
-                MouseMode.ZOOM_IN,
-                MouseMode.ZOOM_OUT,
-            ]:
-                if self.current_annotation:
-                    if (
-                        self.current_annotation.polygon
-                        and not self.current_annotation.is_complete
-                    ):
-                        self.mouse_mode = MouseMode.POLYGON
-                else:
-                    self.mouse_mode = MouseMode.IDLE
-
-        # Clean up transformation state
-        if hasattr(self, "selected_annotation"):
-            self.selected_annotation = None
-        if hasattr(self, "active_handle"):
-            del self.active_handle
-        if hasattr(self, "active_point_index"):
-            del self.active_point_index
-        if hasattr(self, "initial_rect"):
-            del self.initial_rect
-        if hasattr(self, "initial_polygon"):
-            del self.initial_polygon
-
-        self.pan_start = None
-        self.drag_start = None
-        if self._drag_start_snapshot is not None:
-            before = self._drag_start_snapshot
-            after = self._snapshot_annotations()
-            if not self._annotations_equal(before, after):
-                self._undo_stack.append(before)
-                if len(self._undo_stack) > self._max_history:
-                    self._undo_stack.pop(0)
-                self._redo_stack.clear()
-            self._drag_start_snapshot = None
-
-    def handle_mouse_move(self, event: QMouseEvent):
-        # logger.info(f"Mouse move event: {event.position()} with {self.mouse_mode}")
-        img_pos = self.widget_to_image_pos(event.position())
-        clamped_pos = QPointF(
-            max(0, min(self.image.width(), img_pos.x())),
-            max(0, min(self.image.height(), img_pos.y())),
-        )
-        self.mouseMoved.emit(img_pos)
-        self.messageSignal.emit(f"X: {img_pos.x()}, Y: {img_pos.y()}")
-
-        # if we are not clicking
-        if not event.buttons():
-            annotation, handle = self.find_annotation_and_handle_at(img_pos)
-            prev_hovered = getattr(self, "hovered_annotation", None)
-            self.hovered_annotation = annotation
-            if prev_hovered is not annotation:
-                self.update()
-            if annotation and handle and self.mouse_mode == MouseMode.IDLE:
-                if "point_" in handle or handle in [
-                    "top_left",
-                    "top_right",
-                    "bottom_left",
-                    "bottom_right",
-                ]:
-                    self.mouse_mode = MouseMode.RESIZE
-                elif "center" in handle:
-                    if "top" in handle or "bottom" in handle:
-                        self.mouse_mode = MouseMode.RESIZE_HEIGHT
-                    else:
-                        self.mouse_mode = MouseMode.RESIZE_WIDTH
-                elif handle == "move":
-                    self.mouse_mode = MouseMode.GRAB
-
-            elif not handle and self.mouse_mode in [
-                MouseMode.RESIZE,
-                MouseMode.RESIZE_HEIGHT,
-                MouseMode.RESIZE_WIDTH,
-                MouseMode.GRAB,
-            ]:
-                self.mouse_mode = MouseMode.IDLE
-                # self.mouse_mode = MouseMode.IDLE
-                pass
-            self.update_cursor()
-        else:
-            if (
-                event.buttons() & Qt.LeftButton
-                and self.selected_annotation
-                and self.active_handle
-            ):
-                if self.active_handle == "move":
-                    self.setCursor(CursorDef.GRABBING_CURSOR)
-                    new_pos = img_pos - self.drag_offset
-                    delta = new_pos - self.get_annotation_position(
-                        self.selected_annotation
-                    )
-                    targets = (
-                        [ann for ann in self.annotations if ann.selected]
-                        if self.selected_annotation.selected
-                        else [self.selected_annotation]
-                    )
-                    for target_ann in targets:
-                        target_pos = self.get_annotation_position(target_ann) + delta
-                        self.move_annotation(target_ann, target_pos)
-                        self.annotationUpdated.emit(target_ann)
-                elif self.selected_annotation.rectangle:
-                    rect = QRectF(self.initial_rect)
-
-                    if "top" in self.active_handle:
-                        rect.setTop(img_pos.y())
-                    if "bottom" in self.active_handle:
-                        rect.setBottom(img_pos.y())
-                    if "left" in self.active_handle:
-                        rect.setLeft(img_pos.x())
-                    if "right" in self.active_handle:
-                        rect.setRight(img_pos.x())
-
-                    self.selected_annotation.rectangle = rect.normalized()
-                elif self.selected_annotation.polygon and hasattr(
-                    self, "active_point_index"
-                ):
-                    self.selected_annotation.polygon[self.active_point_index] = (
-                        clamped_pos
-                    )
-                elif self.selected_annotation.points:
-                    self.selected_annotation.points[0] = clamped_pos
-                self.annotationMoved.emit()
-                self.annotationUpdated.emit(self.selected_annotation)
-                self.update()
-                return
-
-            if self.mouse_mode in (MouseMode.DRAW, MouseMode.ERASE) and event.buttons() & Qt.LeftButton:
-                if self._brush_mask is not None and self._brush_last_pos is not None:
-                    import cv2
-
-                    x0, y0 = self._brush_last_pos
-                    x1, y1 = int(clamped_pos.x()), int(clamped_pos.y())
-                    brush_size = getattr(self, "brush_size", 5)
-                    color_val = 0 if self.mouse_mode == MouseMode.ERASE else 1
-                    cv2.line(
-                        self._brush_mask,
-                        (x0, y0),
-                        (x1, y1),
-                        color=color_val,
-                        thickness=brush_size,
-                    )
-                    self._brush_last_pos = (x1, y1)
-                    self.update()
-                return
-
-            if self.mouse_mode == MouseMode.PAN and event.buttons() & Qt.LeftButton:
-                if self.pan_start:
-                    delta = event.position() - self.pan_start
-                    self.offset += delta
-                    self.pan_start = event.position()
-                    self.update()
-            elif self.mouse_mode == MouseMode.RECTANGLE and self.drag_start:
-                self.current_annotation.rectangle = QRectF(
-                    self.drag_start, clamped_pos
-                ).normalized()
-                self.update()
-            elif self.mouse_mode == MouseMode.POLYGON and self.current_annotation:
-                if self.current_annotation.polygon:
-                    temp_points = QPolygonF(self.current_annotation.polygon)
-                    if temp_points:
-                        temp_points[-1] = clamped_pos
-                        self.current_annotation.polygon = temp_points
-                        self.update()
-
-    def move_annotation(self, annotation, new_pos: QPointF):
-        delta = new_pos - self.get_annotation_position(annotation)
-
-        if annotation.rectangle:
-            annotation.rectangle.translate(delta)
-        if annotation.polygon:
-            annotation.polygon.translate(delta)
-        if annotation.points:
-            annotation.points = [p + delta for p in annotation.points]
-
-        if annotation.mask is not None:
-            import numpy as np
-
-            dx = int(round(delta.x()))
-            dy = int(round(delta.y()))
-            if dx != 0 or dy != 0:
-                h, w = annotation.mask.shape[:2]
-                shifted = np.zeros_like(annotation.mask)
-                sx1 = max(0, -dx)
-                sy1 = max(0, -dy)
-                sx2 = min(w, w - dx)
-                sy2 = min(h, h - dy)
-                dx1 = max(0, dx)
-                dy1 = max(0, dy)
-                dx2 = min(w, dx + (sx2 - sx1))
-                dy2 = min(h, dy + (sy2 - sy1))
-                if sx2 > sx1 and sy2 > sy1 and dx2 > dx1 and dy2 > dy1:
-                    shifted[dy1:dy2, dx1:dx2] = annotation.mask[sy1:sy2, sx1:sx2]
-                annotation.mask = shifted
-
-    def handle_mouse_press(self, event: QMouseEvent):
-        # logger.info(f"Mouse press event: {event.position()} with {self.mouse_mode}")
-        img_pos = self.widget_to_image_pos(event.position())
-        clamped_pos = QPointF(
-            max(0, min(self.image.width(), img_pos.x())),
-            max(0, min(self.image.height(), img_pos.y())),
-        )
-
-        # If right-clicked
-        if event.button() == Qt.RightButton:
-            # If polygon drawing, remove the last point
-            if self.current_annotation and self.mouse_mode == MouseMode.POLYGON:
-                if len(self.current_annotation.polygon) > 0:
-                    self.current_annotation.polygon = QPolygonF(
-                        list(self.current_annotation.polygon)[:-1]
-                    )
-
-                # If the polygon is now empty, reset to idle mode
-                if len(self.current_annotation.polygon) == 0:
-                    self.current_annotation = None
-                    self.mouse_mode = MouseMode.IDLE
-
-            # If not drawing a polygon, go to idle mode and deselect when right-clicking on empty space
-            if not self.current_annotation:
-                self.mouse_mode = MouseMode.IDLE
-                ann_at_pos, _ = self.find_annotation_and_handle_at(img_pos)
-                if ann_at_pos is None:
-                    for ann in self.annotations:
-                        ann.selected = False
-                        self.annotationUpdated.emit(ann)
-            self.update()
-
-        # If left-clicked
-        if event.button() == Qt.LeftButton:
-            self._drag_start_snapshot = None
-            if self.mouse_mode in (MouseMode.DRAW, MouseMode.ERASE):
-                import cv2
-                import numpy as np
-
-                selected_brush = next(
-                    (a for a in self.annotations if a.selected and a.mask is not None and not a.polygon and not a.rectangle),
-                    None,
-                )
-                if selected_brush is not None:
-                    self._brush_mask = selected_brush.mask
-                    self._target_brush_annotation = selected_brush
-                else:
-                    self._target_brush_annotation = None
-                    self._brush_mask = np.zeros(
-                        (self.image.height(), self.image.width()), dtype=np.uint8
-                    )
-                pt = (int(clamped_pos.x()), int(clamped_pos.y()))
-                self._brush_last_pos = pt
-                brush_size = getattr(self, "brush_size", 5)
-                color_val = 0 if self.mouse_mode == MouseMode.ERASE else 1
-                cv2.circle(self._brush_mask, pt, max(1, brush_size // 2), color_val, -1)
-                self.current_label = (
-                    self.current_label or (selected_brush.label if selected_brush else self.config.default_label.name)
-                )
-                self.current_color = (
-                    self.current_color
-                    or (selected_brush.color if selected_brush else self.config.get_label_color(self.current_label))
-                )
-                self.update()
-                return
-
-            # If actively drawing an incomplete polygon, do not steal click for existing annotations
-            is_drawing_polygon = (
-                self.mouse_mode == MouseMode.POLYGON
-                and self.current_annotation is not None
-                and self.current_annotation.polygon is not None
-                and len(self.current_annotation.polygon) > 0
-            )
-
-            if not is_drawing_polygon:
-                # Check if clicked on any label badge in screen space
-                widget_pos = event.position()
-                for lrect, ann in reversed(self.label_rects):
-                    if lrect.contains(widget_pos):
-                        self.selected_annotation = ann
-                        self.active_handle = "move"
-                        break
-
-                if not self.selected_annotation:
-                    self.selected_annotation, self.active_handle = (
-                        self.find_annotation_and_handle_at(img_pos)
-                    )
-            else:
-                self.selected_annotation = None
-                self.active_handle = None
-
-            # Handle dragging later on
-            if self.selected_annotation:
-                self._drag_start_snapshot = self._snapshot_annotations()
-                is_multi_select = bool(event.modifiers() & Qt.ControlModifier)
-                self.drag_offset = img_pos - self.get_annotation_position(
-                    self.selected_annotation
-                )
-                if is_multi_select:
-                    # Toggle selection state without clearing existing selections.
-                    self.selected_annotation.selected = not self.selected_annotation.selected
-                    self.annotationUpdated.emit(self.selected_annotation)
-                else:
-                    if not (
-                        self.selected_annotation.selected
-                        and self.active_handle == "move"
-                    ):
-                        self.selected_annotation.selected = True
-                        # Make all other annotations unselected
-                        for ann in self.annotations:
-                            if ann != self.selected_annotation:
-                                ann.selected = False
-                            self.annotationUpdated.emit(ann)
-
-                if self.selected_annotation.rectangle:
-                    self.initial_rect = QRectF(self.selected_annotation.rectangle)
-                elif self.selected_annotation.polygon:
-                    self.initial_polygon = QPolygonF(self.selected_annotation.polygon)
-                    if self.active_handle and "point_" in self.active_handle:
-                        self.active_point_index = int(self.active_handle.split("_")[1])
-                elif self.selected_annotation.points:
-                    self.active_point_index = 0
-
-                self.update()
-                return
-
-            # If pan mode
-            if self.mouse_mode == MouseMode.PAN:
-                self.pan_start = event.position()
-                return
-
-            # If drawing mode
-            if self.mouse_mode == MouseMode.POINT:
-                self.current_annotation = Annotation(
-                    label=self.current_label,
-                    annotation_id=len(self.annotations),
-                    points=[clamped_pos],
-                )
-                self.finalize_annotation()
-            elif self.mouse_mode == MouseMode.RECTANGLE:
-                # The incomplete annotation
-                self.current_annotation = Annotation(
-                    file_path=self.file_path,
-                    annotation_id=len(self.annotations),
-                    label="Incomplete",
-                    color=self.current_color,
-                    rectangle=QRectF(clamped_pos, clamped_pos),
-                )
-                self.drag_start = clamped_pos
-            elif self.mouse_mode == MouseMode.POLYGON:
-                eff_margin = 10.0 / max(0.1, float(self.scale))
-                # If not double-click
-                if not self.current_annotation:
-                    # if this point is equal to the last point of the previous polygon, then ignore it
-                    if len(self.annotations) > 0:
-                        last_polygon = self.annotations[-1].polygon
-                        if last_polygon:
-                            last_point = last_polygon[-1]
-                            if (last_point - clamped_pos).manhattanLength() < 1.0:
-                                logger.info(
-                                    "Ignoring point, same as last polygon point"
-                                )
-                                return
-
-                    self.current_annotation = Annotation(
-                        file_path=self.file_path,
-                        annotation_id=len(self.annotations),
-                        label="Incomplete",
-                        color=self.current_color,
-                        polygon=QPolygonF([clamped_pos]),
-                    )
-                else:
-                    poly = self.current_annotation.polygon
-                    if (
-                        len(poly) >= 3
-                        and (poly[0] - clamped_pos).manhattanLength() < eff_margin
-                    ):
-                        self.current_annotation.is_complete = True
-                        self.finalize_annotation()
-                        self.current_annotation = None
-                    elif len(poly) == 0 or (poly[-1] - clamped_pos).manhattanLength() > 1.0:
-                        logger.info(f"Adding point to polygon: {clamped_pos}")
-                        self.current_annotation.polygon.append(clamped_pos)
-
-            self.update()
-
-    def get_annotation_position(self, annotation: Annotation):
-        if annotation.rectangle:
-            return annotation.rectangle.center()
-        elif annotation.polygon:
-            return annotation.polygon.boundingRect().center()
-        elif annotation.points:
-            return annotation.points[0]
-        elif annotation.mask is not None and np.any(annotation.mask):
-            ys, xs = np.nonzero(annotation.mask)
-            if len(xs) > 0 and len(ys) > 0:
-                return QPointF((float(xs.min()) + float(xs.max())) / 2.0, (float(ys.min()) + float(ys.max())) / 2.0)
-        return QPointF()
-
-    @staticmethod
-    def _find_polygon_edge_at(
-        polygon: QPolygonF, pos: QPointF
-    ) -> tuple[int | None, QPointF | None, float]:
-        if not polygon or len(polygon) < 2:
-            return None, None, float("inf")
-        best_idx = None
-        best_proj = None
-        best_dist = float("inf")
-        n = len(polygon)
-        for i in range(n):
-            start_point = polygon[i]
-            end_point = polygon[(i + 1) % n]
-            line_vector = end_point - start_point
-            point_vector = pos - start_point
-            line_length_squared = (
-                line_vector.x() ** 2 + line_vector.y() ** 2
-            )
-            if line_length_squared == 0:
-                continue
-            projection = (
-                point_vector.x() * line_vector.x()
-                + point_vector.y() * line_vector.y()
-            ) / line_length_squared
-            projection = max(0.0, min(1.0, projection))
-            projection_point = QPointF(
-                start_point.x() + projection * line_vector.x(),
-                start_point.y() + projection * line_vector.y(),
-            )
-            perpendicular_distance = (pos - projection_point).manhattanLength()
-            if perpendicular_distance < best_dist:
-                best_dist = perpendicular_distance
-                best_idx = i
-                best_proj = projection_point
-        return best_idx, best_proj, best_dist
-
-    def find_annotation_and_handle_at(self, pos: QPointF, margin=10.0):
-        """Find annotation and specific handle at given position"""
-        eff_margin = margin / max(0.1, float(self.scale)) if getattr(self, "scale", None) else margin
-        for annotation in reversed(self.annotations):
-            if not annotation.visible or not annotation.is_complete:
-                continue
-
-            # Check mask for brush annotations
-            if annotation.mask is not None and np.any(annotation.mask) and not annotation.polygon and not annotation.rectangle:
-                ix, iy = int(round(pos.x())), int(round(pos.y()))
-                mh, mw = annotation.mask.shape[:2]
-                if 0 <= ix < mw and 0 <= iy < mh and annotation.mask[iy, ix] > 0:
-                    return annotation, "move"
-
-            # Check rectangle handles (only when not a polygon annotation)
-            if not annotation.polygon and annotation.rectangle:
-                rect = annotation.rectangle
-                handles = {
-                    "top_left": rect.topLeft(),
-                    "top_right": rect.topRight(),
-                    "bottom_left": rect.bottomLeft(),
-                    "bottom_right": rect.bottomRight(),
-                    "top_center": QPointF(rect.center().x(), rect.top()),
-                    "bottom_center": QPointF(rect.center().x(), rect.bottom()),
-                    "left_center": QPointF(rect.left(), rect.center().y()),
-                    "right_center": QPointF(rect.right(), rect.center().y()),
-                }
-
-                for handle_name, handle_pos in handles.items():
-                    if (handle_pos - pos).manhattanLength() < eff_margin:
-                        return annotation, handle_name
-
-                if rect.contains(pos):
-                    return annotation, "move"
-
-            # Check polygon points and edges
-            elif annotation.polygon:
-                for i, point in enumerate(annotation.polygon):
-                    if (point - pos).manhattanLength() < eff_margin:
-                        return annotation, f"point_{i}"
-
-                edge_idx, _, edge_dist = self._find_polygon_edge_at(annotation.polygon, pos)
-                if edge_idx is not None and edge_dist < eff_margin:
-                    return annotation, f"edge_{edge_idx}"
-
-                if annotation.polygon.containsPoint(pos, Qt.OddEvenFill):
-                    return annotation, "move"
-
-            # Check points
-            elif annotation.points:
-                if (annotation.points[0] - pos).manhattanLength() < eff_margin:
-                    return annotation, "point_0"
-
-            # Check mask
-            elif annotation.mask is not None:
-                ix, iy = int(round(pos.x())), int(round(pos.y()))
-                mh, mw = annotation.mask.shape[:2]
-                if 0 <= ix < mw and 0 <= iy < mh and annotation.mask[iy, ix] > 0:
-                    return annotation, "move"
-
-        return None, None
-
-    def handle_mouse_double_click(self, event: QMouseEvent, pos: QPoint | None = None):
-        pos = event.position()
-        for rect, annotation in self.label_rects:
-            if rect.contains(pos):
-                self.edit_annotation_label(annotation)
-                break
-        # if left double click
-        if event.button() == Qt.LeftButton:
-            img_pos = self.widget_to_image_pos(event.position())
-            eff_margin = 10.0 / max(0.1, float(self.scale)) if getattr(self, "scale", None) else 10.0
-
-            # if actively drawing a polygon with >= 3 points, close the polygon first
-            if (
-                self.current_annotation
-                and self.mouse_mode == MouseMode.POLYGON
-                and len(self.current_annotation.polygon) >= 3
-            ):
-                pts = list(self.current_annotation.polygon)
-                while len(pts) > 3 and (pts[-1] - pts[-2]).manhattanLength() < 2.0:
-                    pts.pop()
-                self.current_annotation.polygon = QPolygonF(pts)
-                self.current_annotation.is_complete = True
-
-                self.finalize_annotation()
-                self.current_annotation = None
-
-                return
-
-            self.selected_annotation, self.active_handle = (
-                self.find_annotation_and_handle_at(img_pos)
-            )
-
-            if self.selected_annotation:
-                if self.selected_annotation.polygon and self.active_handle:
-                    if "point_" in self.active_handle:
-                        index = int(self.active_handle.split("_")[1])
-                        # Remove the point at the clicked index
-                        polygon = self.selected_annotation.polygon
-                        if len(polygon) > 3:
-                            self._push_undo_state()
-                            polygon = QPolygonF(
-                                [p for i, p in enumerate(polygon) if i != index]
-                            )
-
-                            self.selected_annotation.polygon = polygon
-                            self.current_annotation = None
-                            self.annotationUpdated.emit(self.selected_annotation)
-                            self.update()
-                            logger.info(f"Removed point at index {index}")
-                        return
-
-                # Check if an edge was double-clicked to insert a new vertex
-                polygon = self.selected_annotation.polygon
-                if polygon:
-                    edge_idx, projection_point, perpendicular_distance = (
-                        self._find_polygon_edge_at(polygon, img_pos)
-                    )
-                    if edge_idx is not None and perpendicular_distance < eff_margin:
-                        self._push_undo_state()
-                        pts = list(polygon)
-                        pts.insert(edge_idx + 1, projection_point)
-                        self.selected_annotation.polygon = QPolygonF(pts)
-                        self.current_annotation = None
-                        self.annotationUpdated.emit(self.selected_annotation)
-                        self.update()
-                        logger.info(f"Inserted point at index {edge_idx + 1}: {projection_point}")
-                        return
-
-            # did we click on an annotation?
-            # annotation = self.find_annotation_at(self.widget_to_image_pos(pos))
-            # if annotation:
-            #     # toggle selection
-            #     annotation.selected = not annotation.selected
-
-            #     # make all other annotations unselected
-            #     for ann in self.annotations:
-            #         if ann != annotation:
-            #             ann.selected = False
-            # else:
-            #     # we clicked on the background
-            #     # make all annotations unselected
-            #     for ann in self.annotations:
-            #         ann.selected = False
-            # update the view
-            for ann in self.annotations:
-                self.annotationUpdated.emit(ann)
-            self.update()
-
-    def find_annotation_at(self, pos: QPointF):
-        for ann in reversed(self.annotations):
-            if ann.rectangle and ann.rectangle.contains(pos):
-                return ann
-            elif ann.polygon and ann.polygon.containsPoint(pos, Qt.OddEvenFill):
-                return ann
-            elif ann.points:
-                for p in ann.points:
-                    if QLineF(pos, p).length() < 5:
-                        return ann
-        return None
 
     def edit_annotation_label(self, annotation: Annotation):
         new_label, ok = QInputDialog.getText(
@@ -1389,7 +141,7 @@ class AnnotableLayer(BaseLayer):
         if ok and new_label:
             self.labelUpdated.emit((annotation.label, new_label))
             annotation.label = new_label
-            self.annotationUpdated.emit(annotation)  # Emit signal
+            self.annotationUpdated.emit(annotation)
             self.update()
 
     def finalize_annotation(self):
@@ -1412,8 +164,6 @@ class AnnotableLayer(BaseLayer):
         self.current_annotation = None
         self.update()
 
-    # in update, update cursor
-
     def select_all_annotations(self):
         if not self.annotations:
             self.messageSignal.emit("No annotations to select.")
@@ -1425,51 +175,6 @@ class AnnotableLayer(BaseLayer):
         self.selected_annotation = self.annotations[-1]
         self.messageSignal.emit(f"Selected {len(self.annotations)} annotations")
         self.update()
-
-    def _copy_annotation(self):
-        selected_annotations = [ann for ann in self.annotations if ann.selected]
-        if not selected_annotations:
-            self.selected_annotation = self._get_selected_annotation()
-            if self.selected_annotation:
-                selected_annotations = [self.selected_annotation]
-
-        if selected_annotations:
-            copied_annotations = [ann.copy() for ann in selected_annotations]
-            for ann in copied_annotations:
-                ann.selected = False
-            BaseLayer.annotation_clipboard = copied_annotations
-            self.copied_annotation = copied_annotations[0]
-            self.messageSignal.emit(
-                f"Copied {len(copied_annotations)} annotation(s)"
-            )
-            self.mouse_mode = MouseMode.IDLE
-        else:
-            self.messageSignal.emit("No annotation selected to copy.")
-
-    def _paste_annotation(self):
-        clipboard = BaseLayer.annotation_clipboard
-        if clipboard:
-            self._push_undo_state()
-            pasted_annotations = []
-            for copied_annotation in clipboard:
-                new_annotation = copied_annotation.copy()
-                new_annotation.annotation_id = len(self.annotations)
-                new_annotation.selected = False
-                new_annotation.file_path = self.file_path
-                new_annotation._skip_label_registry = True
-                self.annotations.append(new_annotation)
-                self.annotationAdded.emit(new_annotation)
-                self.thumbnails[new_annotation.annotation_id] = self.get_thumbnail(
-                    new_annotation
-                )
-                pasted_annotations.append(new_annotation)
-
-            self.messageSignal.emit(
-                f"Pasted {len(pasted_annotations)} annotation(s)"
-            )
-            self.update()
-        else:
-            self.messageSignal.emit("No annotation copied to paste.")
 
     def _get_selected_annotation(self):
         for annotation in self.annotations:
@@ -1484,46 +189,35 @@ class AnnotableLayer(BaseLayer):
                 self.parentWidget(), "Info", "No visible annotations to layerify"
             )
             return
-        # Create and configure loading dialog
         self.loading_dialog = QProgressDialog(
             "Processing annotation...",
-            "Cancel",  # Optional cancel button
+            "Cancel",
             0,
             0,
             self.parentWidget(),
         )
         self.loading_dialog.setWindowTitle("Please Wait")
         self.loading_dialog.setWindowModality(Qt.WindowModal)
-        # self.loading_dialog.setCancelButton()
         self.loading_dialog.show()
-
-        # Force UI update
         QApplication.processEvents()
 
-        # Setup worker thread
         self.worker_thread = QThread()
         self.worker = LayerifyWorker(self.image, annotations, self.config)
         self.worker.moveToThread(self.worker_thread)
 
-        # Connect signals
         self.worker_thread.started.connect(self.worker.process)
         self.worker.finished.connect(self.handle_layerify_result)
         self.worker.finished.connect(self.worker_thread.quit)
         self.worker.error.connect(self.handle_layerify_error)
 
-        # Cleanup connections
         self.worker.finished.connect(self.worker.deleteLater)
         self.worker_thread.finished.connect(self.worker_thread.deleteLater)
         self.worker_thread.finished.connect(self.loading_dialog.close)
 
-        # Start processing
         self.worker_thread.start()
 
     def handle_layerify_result(self, annotation: Annotation, cropped_image: QPixmap):
-        # Create new canvas with results
         new_layer = CanvasLayer(parent=self.parent_obj, config=self.canvas_config)
-        # get top left corner of the annotation
-
         new_layer.set_image(cropped_image)
         new_layer.annotations = [annotation]
         new_layer.layer_name = (
@@ -1535,7 +229,6 @@ class AnnotableLayer(BaseLayer):
         new_layer.update()
         self.messageSignal.emit(f"Layerified: {new_layer.layer_name}")
         logger.info(f"Num annotations: {len(self.annotations)}")
-
         self.layerSignal.emit(new_layer)
 
     def handle_layerify_error(self, error_msg: str):

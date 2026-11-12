@@ -268,7 +268,61 @@
     };
   }
 
+  const webLogs = [];
+
+  function renderWebLogs() {
+    const badge = document.getElementById("badge-log-count");
+    if (badge) badge.textContent = String(webLogs.length);
+    const listEl = document.getElementById("web-log-entries");
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    webLogs.forEach(entry => {
+      const row = document.createElement("div");
+      row.className = "web-log-entry";
+      const timeSpan = document.createElement("span");
+      timeSpan.className = "web-log-time";
+      timeSpan.textContent = entry.time;
+      const srcSpan = document.createElement("span");
+      srcSpan.className = "web-log-src";
+      srcSpan.textContent = `[${entry.source}]`;
+      const msgSpan = document.createElement("span");
+      msgSpan.className = "web-log-msg";
+      msgSpan.textContent = entry.text;
+      row.appendChild(timeSpan);
+      row.appendChild(srcSpan);
+      row.appendChild(msgSpan);
+      listEl.appendChild(row);
+    });
+    listEl.scrollTop = listEl.scrollHeight;
+  }
+
+  function appendLog(source, text) {
+    if (!text) return;
+    const msg = String(text);
+    const src = String(source || "app");
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(now.getMinutes()).padStart(2, "0");
+    const ss = String(now.getSeconds()).padStart(2, "0");
+    const time = `${hh}:${mm}:${ss}`;
+    const last = webLogs[webLogs.length - 1];
+    if (last && last.source === src && last.text === msg) {
+      last.time = time;
+    } else {
+      webLogs.push({ time, source: src, text: msg });
+      if (webLogs.length > 200) webLogs.shift();
+      console.info(`[ImageBaker:${src}] ${msg}`);
+    }
+    renderWebLogs();
+  }
+
+  function clearLogs() {
+    webLogs.length = 0;
+    renderWebLogs();
+  }
+
   function showToast(tab, text, durationMs = 2200) {
+    appendLog(tab || "app", text);
     const toast = document.getElementById(`${tab}-toast`);
     if (!toast) return;
     toast.textContent = text;
@@ -378,6 +432,9 @@
   window.ImageBaker.imageToScreen = imageToScreen;
   window.ImageBaker.sceneToLayerLocal = sceneToLayerLocal;
   window.ImageBaker.showToast = showToast;
+  window.ImageBaker.appendLog = appendLog;
+  window.ImageBaker.clearLogs = clearLogs;
+  window.ImageBaker.logs = webLogs;
   window.ImageBaker.showLayerifyLoading = showLayerifyLoading;
   window.ImageBaker.hideLayerifyLoading = hideLayerifyLoading;
   window.ImageBaker.openModal = openModal;

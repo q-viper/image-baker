@@ -118,8 +118,12 @@
 
     // 4. Status Bar
     const statusEl = el("status-bar-text");
+    const statusText = state.status_bar || state.status_message || "Ready";
     if (statusEl) {
-      statusEl.textContent = state.status_bar || state.status_message || "Ready";
+      if (statusEl.textContent !== statusText && statusText !== "Ready") {
+        window.ImageBaker.appendLog?.("server", statusText);
+      }
+      statusEl.textContent = statusText;
     }
 
     // 5. Layerify Subsystem
@@ -389,6 +393,28 @@
     uiLayerify.initLayerifyUI();
     uiBaker.initBakerUI();
     shortcuts.initShortcuts();
+
+    const logDrawer = el("web-log-drawer");
+    const toggleLogsBtn = el("btn-toggle-logs");
+    const closeLogsBtn = el("btn-close-logs");
+    const clearLogsBtn = el("btn-clear-logs");
+    if (toggleLogsBtn && logDrawer) {
+      toggleLogsBtn.addEventListener("click", () => {
+        logDrawer.classList.toggle("hidden");
+        toggleLogsBtn.classList.toggle("active", !logDrawer.classList.contains("hidden"));
+      });
+    }
+    if (closeLogsBtn && logDrawer) {
+      closeLogsBtn.addEventListener("click", () => {
+        logDrawer.classList.add("hidden");
+        if (toggleLogsBtn) toggleLogsBtn.classList.remove("active");
+      });
+    }
+    if (clearLogsBtn) {
+      clearLogsBtn.addEventListener("click", () => {
+        window.ImageBaker.clearLogs?.();
+      });
+    }
 
     // 4. Window resize listener
     window.addEventListener("resize", () => {

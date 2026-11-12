@@ -1,26 +1,10 @@
-"""
-Dataset extraction and on-the-fly PyTorch Dataset synthesis from ImageBaker cache.
-
-Features:
-  - CacheDatasetGenerator: Reads ImageBaker cache, composes baked dataset splits,
-    and exports in 'default', 'coco', or 'yolo' formats.
-  - Reproducible generation with fixed or custom seeds.
-  - Configurable train / val / test splits with strict isolation of original images
-    across splits to prevent background data leakage.
-  - Flexible state variables (position, scale, rotation, opacity, edge feathering).
-  - Selective annotation filtering (e.g. noise/distractors baked visually without labels).
-  - Background resizing (preserving aspect ratio by default) and optional cropping.
-  - Layer min / max size constraints.
-  - ImageBakerTorchDataset: On-the-fly PyTorch Dataset subclass synthesizing samples dynamically.
-"""
+"""Cache discovery and synthetic dataset composition generator."""
 
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import cv2
 import numpy as np
@@ -28,131 +12,14 @@ from PIL import Image
 
 from imagebaker import logger
 from imagebaker.core.defs.defs import AnnotationFormat
+from imagebaker.dataset.config import CachedLayerAsset, DatasetBakeConfig
 from imagebaker.utils.annotation_formats import (
     UNDEFINED_LABEL,
     export_annotations_data,
+    mask_to_rle,
+    rle_to_mask,
     save_annotations_to_path,
 )
-
-try:
-    import torch
-    from torch.utils.data import Dataset as _TorchBaseDataset
-
-    TORCH_AVAILABLE = True
-except ImportError:
-    TORCH_AVAILABLE = False
-
-    class _TorchBaseDataset:  # type: ignore[no-redef]
-        """Fallback when torch is not installed."""
-
-        pass
-
-
-__all__ = [
-    "DatasetBakeConfig",
-    "CachedLayerAsset",
-    "CacheDatasetGenerator",
-    "ImageBakerTorchDataset",
-]
-
-
-@dataclass
-class DatasetBakeConfig:
-    """
-    Configuration for dataset generation from ImageBaker cache.
-    All properties are reproducible when `seed` is provided.
-    """
-
-    seed: int | None = 42
-
-    # Output formatting and splits
-    export_format: AnnotationFormat | str = AnnotationFormat.DEFAULT
-    split_ratios: dict[str, float] = field(
-        default_factory=lambda: {"train": 0.7, "val": 0.2, "test": 0.1}
-    )
-    prevent_background_leakage: bool = True  # Keep each original image in only one split
-
-    # Background sizing & cropping
-    background_size: tuple[int, int] = (640, 640)  # (width, height)
-    preserve_aspect_ratio: bool = True
-    crop_large_background: bool = True  # Optionally crop background if larger than target size
-    crop_mode: Literal["random", "center"] = "random"
-    pad_color: tuple[int, int, int] = (114, 114, 114)
-
-    # Foreground layers selection
-    layers_per_image: tuple[int, int] = (1, 4)
-    background_labels: list[str] = field(
-        default_factory=lambda: ["background", "bg", "backdrop"]
-    )
-
-    # Layer dimensions constraints
-    layer_min_size: tuple[int, int] | int | None = 20  # (min_w, min_h) or min_side
-    layer_max_size: tuple[int, int] | int | None = 480  # (max_w, max_h) or max_side
-
-    # Annotation labeling controls (e.g. noise baked into composite without labels)
-    labeled_labels: list[str] | None = None  # None means label all foregrounds
-    unlabeled_labels: list[str] = field(
-        default_factory=lambda: ["noise", "distractor", "background", "bg"]
-    )
-
-    # State variable ranges
-    scale_range: tuple[float, float] = (0.6, 1.4)
-    scale_x_range: tuple[float, float] | None = None
-    scale_y_range: tuple[float, float] | None = None
-    rotation_range: tuple[float, float] = (0.0, 360.0)
-    opacity_range: tuple[float, float] = (200.0, 255.0)
-    edge_opacity_range: tuple[int, int] = (255, 255)
-    edge_width_range: tuple[int, int] = (1, 1)
-
-    position_mode: Literal["random", "center"] = "random"
-    allow_partial_overflow: bool = False  # If False, keep layer within background bounds
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> DatasetBakeConfig:
-        clean = dict(data)
-        if "background_size" in clean and isinstance(clean["background_size"], list):
-            clean["background_size"] = tuple(clean["background_size"])
-        if "layers_per_image" in clean and isinstance(clean["layers_per_image"], list):
-            clean["layers_per_image"] = tuple(clean["layers_per_image"])
-        if "scale_range" in clean and isinstance(clean["scale_range"], list):
-            clean["scale_range"] = tuple(clean["scale_range"])
-        if "rotation_range" in clean and isinstance(clean["rotation_range"], list):
-            clean["rotation_range"] = tuple(clean["rotation_range"])
-        if "opacity_range" in clean and isinstance(clean["opacity_range"], list):
-            clean["opacity_range"] = tuple(clean["opacity_range"])
-        return cls(**clean)
-
-    def to_json(self, path: str | Path | None = None) -> str:
-        s = json.dumps(self.to_dict(), indent=2)
-        if path:
-            Path(path).write_text(s, encoding="utf-8")
-        return s
-
-    @classmethod
-    def from_json(cls, path_or_json: str | Path) -> DatasetBakeConfig:
-        p = Path(path_or_json)
-        if p.exists() and p.is_file():
-            content = p.read_text(encoding="utf-8")
-        else:
-            content = str(path_or_json)
-        return cls.from_dict(json.loads(content))
-
-
-@dataclass
-class CachedLayerAsset:
-    """A layer asset loaded from cache."""
-
-    name: str
-    label: str
-    image: np.ndarray  # RGBA uint8
-    polygon: list[list[float]] | None = None
-    rectangle: list[float] | None = None  # [x, y, w, h]
-    mask: np.ndarray | None = None
-    is_background: bool = False
-    source_file: str = ""
 
 
 class CacheDatasetGenerator:
@@ -182,7 +49,6 @@ class CacheDatasetGenerator:
             logger.warning(f"Cache directory does not exist: {self.cache_dir}")
             return
 
-        # 1. Check for labels.json
         labels_json = self.cache_dir / "labels.json"
         if labels_json.exists():
             try:
@@ -194,12 +60,10 @@ class CacheDatasetGenerator:
             except Exception as e:
                 logger.debug(f"Failed to load labels.json: {e}")
 
-        # 2. Check baker_cache.json
         baker_cache = self.cache_dir / "baker_cache.json"
         if baker_cache.exists():
             self._load_from_baker_cache(baker_cache)
 
-        # 3. Check for standalone images in cache/baker_layers or project assets
         loaded_sources = {a.source_file for a in self.foreground_assets} | {
             a.source_file for a in self.background_assets
         }
@@ -209,11 +73,9 @@ class CacheDatasetGenerator:
                 if str(img_file) not in loaded_sources and img_file.name not in loaded_sources:
                     self._load_standalone_layer_image(img_file)
 
-        # 4. If no background assets loaded from cache, check parent project assets/exports
         if not self.background_assets:
             self._discover_fallback_backgrounds()
 
-        # Update class names
         for asset in self.foreground_assets:
             if (
                 asset.label
@@ -255,6 +117,13 @@ class CacheDatasetGenerator:
                     ann_dict = ldata.get("annotation") or {}
                     poly = ann_dict.get("polygon")
                     rect = ann_dict.get("rectangle")
+                    mask_arr = None
+                    rle_data = ann_dict.get("rle")
+                    mask_size = ann_dict.get("mask_size")
+                    if rle_data and mask_size and len(mask_size) == 2:
+                        mask_arr = rle_to_mask(
+                            rle_data, int(mask_size[0]), int(mask_size[1])
+                        )
 
                     asset = CachedLayerAsset(
                         name=name,
@@ -262,6 +131,7 @@ class CacheDatasetGenerator:
                         image=img_rgba,
                         polygon=poly,
                         rectangle=rect,
+                        mask=mask_arr,
                         is_background=is_bg,
                         source_file=str(img_path),
                     )
@@ -340,13 +210,13 @@ class CacheDatasetGenerator:
             if self.background_assets:
                 break
 
-        # If still no backgrounds, synthesize clean blank canvas backgrounds
         if not self.background_assets:
             target_w, target_h = self.config.background_size
             for bg_id in range(3):
-                # Light solid background with slight texture
                 val = 220 + bg_id * 10
-                synth = np.full((target_h, target_w, 4), [val, val, val, 255], dtype=np.uint8)
+                synth = np.full(
+                    (target_h, target_w, 4), [val, val, val, 255], dtype=np.uint8
+                )
                 self.background_assets.append(
                     CachedLayerAsset(
                         name=f"synth_background_{bg_id + 1}",
@@ -366,16 +236,13 @@ class CacheDatasetGenerator:
         if not bgs:
             return {"train": [], "val": [], "test": []}
 
-        # Deterministically shuffle backgrounds using seed
         shuffled = list(bgs)
         perm = self.rng.permutation(len(shuffled))
         shuffled = [shuffled[i] for i in perm]
 
         if not self.config.prevent_background_leakage or len(shuffled) < 3:
-            # Allow all backgrounds in all splits
             return {s: list(shuffled) for s in self.config.split_ratios}
 
-        # Partition backgrounds proportionally
         ratios = self.config.split_ratios
         total_ratio = sum(ratios.values())
         norm_ratios = {k: v / total_ratio for k, v in ratios.items()}
@@ -394,7 +261,6 @@ class CacheDatasetGenerator:
                 splits[k] = shuffled[start_idx:end_idx]
                 start_idx = end_idx
 
-        # Ensure no split is empty if backgrounds are available
         for k in keys:
             if not splits[k] and shuffled:
                 splits[k] = [shuffled[0]]
@@ -413,7 +279,6 @@ class CacheDatasetGenerator:
         src_h, src_w = img.shape[:2]
 
         if self.config.crop_large_background and (src_w > target_w or src_h > target_h):
-            # Optional crop if larger than target size
             crop_w = min(src_w, target_w)
             crop_h = min(src_h, target_h)
             if self.config.crop_mode == "center":
@@ -430,15 +295,15 @@ class CacheDatasetGenerator:
         if not self.config.preserve_aspect_ratio:
             return cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
 
-        # Aspect-ratio preserving resize with padding
         scale = min(target_w / float(src_w), target_h / float(src_h))
         new_w = max(1, int(round(src_w * scale)))
         new_h = max(1, int(round(src_h * scale)))
         resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
-        # Pad onto target canvas
         pad_r, pad_g, pad_b = self.config.pad_color
-        canvas = np.full((target_h, target_w, 4), [pad_r, pad_g, pad_b, 255], dtype=np.uint8)
+        canvas = np.full(
+            (target_h, target_w, 4), [pad_r, pad_g, pad_b, 255], dtype=np.uint8
+        )
         x_off = (target_w - new_w) // 2
         y_off = (target_h - new_h) // 2
         canvas[y_off : y_off + new_h, x_off : x_off + new_w] = resized
@@ -478,13 +343,11 @@ class CacheDatasetGenerator:
         """
         Synthesize a single baked sample (image + ground-truth annotations) on the fly.
         """
-        # Create a deterministic child RNG for this sample index
         sample_seed = (
             (self.config.seed or 1337) + (sample_index * 1009) + hash(split)
         ) & 0xFFFFFFFF
         s_rng = np.random.RandomState(sample_seed)
 
-        # 1. Select background from this split's allocated backgrounds
         bg_pool = (backgrounds_map or {}).get(split) or self.background_assets
         if not bg_pool:
             self._discover_fallback_backgrounds()
@@ -494,7 +357,6 @@ class CacheDatasetGenerator:
         canvas = self.prepare_background(bg_asset, s_rng)
         canvas_h, canvas_w = canvas.shape[:2]
 
-        # 2. Pick foreground layers and optional noise layers
         num_layers = s_rng.randint(
             self.config.layers_per_image[0], self.config.layers_per_image[1] + 1
         )
@@ -502,7 +364,6 @@ class CacheDatasetGenerator:
 
         pool = list(self.foreground_assets)
         if not pool:
-            # Synthetic fallback rectangle foreground
             box_img = np.zeros((80, 80, 4), dtype=np.uint8)
             cv2.circle(box_img, (40, 40), 38, (0, 180, 255, 255), -1)
             synth_asset = CachedLayerAsset(
@@ -518,24 +379,22 @@ class CacheDatasetGenerator:
             asset = pool[s_rng.randint(0, len(pool))]
             selected_assets.append((asset, True))
 
-        # Add optional noise layers (baked visually, but omitted from annotations)
         if self.noise_assets and s_rng.rand() < 0.5:
             noise_asset = self.noise_assets[s_rng.randint(0, len(self.noise_assets))]
             selected_assets.append((noise_asset, False))
 
-        # Randomize layer stacking order
         perm = s_rng.permutation(len(selected_assets))
         selected_assets = [selected_assets[i] for i in perm]
 
         annotations = []
         ann_id = 1
+        owner_map = np.zeros((canvas_h, canvas_w), dtype=np.int32)
+        layer_records: list[dict[str, Any]] = []
 
-        # 3. Paste each layer onto the background canvas
-        for asset, should_label in selected_assets:
+        for slot_idx, (asset, should_label) in enumerate(selected_assets, start=1):
             src_img = asset.image
             src_h, src_w = src_img.shape[:2]
 
-            # Scale
             if self.config.scale_x_range and self.config.scale_y_range:
                 base_sx = s_rng.uniform(*self.config.scale_x_range)
                 base_sy = s_rng.uniform(*self.config.scale_y_range)
@@ -551,10 +410,8 @@ class CacheDatasetGenerator:
                 src_img, (target_layer_w, target_layer_h), interpolation=cv2.INTER_LINEAR
             )
 
-            # Rotation
             rot_deg = float(s_rng.uniform(*self.config.rotation_range))
             if abs(rot_deg) > 0.5:
-                # Rotate image
                 center = (target_layer_w / 2.0, target_layer_h / 2.0)
                 M = cv2.getRotationMatrix2D(center, rot_deg, 1.0)
                 cos = abs(M[0, 0])
@@ -575,7 +432,6 @@ class CacheDatasetGenerator:
                 rotated_img = scaled_img
                 new_rw, new_rh = target_layer_w, target_layer_h
 
-            # Position
             if self.config.position_mode == "center":
                 x = (canvas_w - new_rw) // 2
                 y = (canvas_h - new_rh) // 2
@@ -594,11 +450,9 @@ class CacheDatasetGenerator:
                 x = s_rng.randint(min_x, max_x + 1) if max_x > min_x else 0
                 y = s_rng.randint(min_y, max_y + 1) if max_y > min_y else 0
 
-            # Opacity
             opacity_val = s_rng.uniform(*self.config.opacity_range)
             alpha_factor = opacity_val / 255.0
 
-            # Alpha blend onto canvas
             x1_src = max(0, -x)
             y1_src = max(0, -y)
             x2_src = min(new_rw, canvas_w - x)
@@ -616,10 +470,16 @@ class CacheDatasetGenerator:
                 fg_alpha = (sub_layer[:, :, 3] / 255.0) * alpha_factor
                 fg_alpha = fg_alpha[:, :, None]
 
-                blended = (sub_layer[:, :, :3] * fg_alpha) + (sub_bg[:, :, :3] * (1.0 - fg_alpha))
-                canvas[y1_dst:y2_dst, x1_dst:x2_dst, :3] = np.clip(blended, 0, 255).astype(np.uint8)
+                blended = (sub_layer[:, :, :3] * fg_alpha) + (
+                    sub_bg[:, :, :3] * (1.0 - fg_alpha)
+                )
+                canvas[y1_dst:y2_dst, x1_dst:x2_dst, :3] = np.clip(blended, 0, 255).astype(
+                    np.uint8
+                )
 
-                # Check if this layer should produce a labeled annotation
+                occ_patch = (sub_layer[:, :, 3] * alpha_factor) >= 20.0
+                owner_map[y1_dst:y2_dst, x1_dst:x2_dst][occ_patch] = slot_idx
+
                 label = asset.label
                 is_unlabeled = (
                     not should_label
@@ -629,37 +489,70 @@ class CacheDatasetGenerator:
                         and label not in self.config.labeled_labels
                     )
                 )
-
                 if not is_unlabeled:
-                    # Compute tight bounding box & polygon for visible foreground
-                    mask_bin = (sub_layer[:, :, 3] > 20).astype(np.uint8) * 255
-                    contours, _ = cv2.findContours(
-                        mask_bin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+                    layer_records.append(
+                        {
+                            "slot": slot_idx,
+                            "label": label,
+                            "is_brush": asset.mask is not None,
+                        }
                     )
-                    if contours:
-                        largest = max(contours, key=cv2.contourArea)
-                        bx, by, bw, bh = cv2.boundingRect(largest)
-                        if bw >= 4 and bh >= 4:
-                            bbox = [int(x1_dst + bx), int(y1_dst + by), int(bw), int(bh)]
-                            poly_pts = []
-                            if len(largest) >= 3:
-                                poly_pts = [
-                                    [float(pt[0][0] + x1_dst), float(pt[0][1] + y1_dst)]
-                                    for pt in largest
-                                ]
-                            annotations.append(
-                                {
-                                    "annotation_id": ann_id,
-                                    "label": label,
-                                    "rectangle": bbox,
-                                    "polygon": poly_pts,
-                                    "visible": True,
-                                    "allow_export": True,
-                                }
-                            )
-                            ann_id += 1
 
-        # Convert canvas to RGB
+        for rec in layer_records:
+            vis_bin = (owner_map == rec["slot"]).astype(np.uint8) * 255
+            if not np.any(vis_bin):
+                continue
+            bx, by, bw, bh = cv2.boundingRect(vis_bin)
+            if bw < 4 or bh < 4:
+                continue
+
+            contours, _ = cv2.findContours(
+                vis_bin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+            valid_contours = [
+                c for c in contours if cv2.contourArea(c) >= 4.0 and len(c) >= 3
+            ]
+            bbox = [int(bx), int(by), int(bw), int(bh)]
+
+            if rec["is_brush"] or len(valid_contours) > 1:
+                annotations.append(
+                    {
+                        "annotation_id": ann_id,
+                        "label": rec["label"],
+                        "type": "brushlabels",
+                        "format": "rle",
+                        "brushlabels": [rec["label"]],
+                        "rle": mask_to_rle(vis_bin),
+                        "mask_size": [int(canvas_h), int(canvas_w)],
+                        "rectangle": bbox,
+                        "polygon": [],
+                        "visible": True,
+                        "allow_export": True,
+                    }
+                )
+            else:
+                target_contour = (
+                    valid_contours[0]
+                    if valid_contours
+                    else (max(contours, key=cv2.contourArea) if contours else None)
+                )
+                poly_pts = (
+                    [[float(pt[0][0]), float(pt[0][1])] for pt in target_contour]
+                    if target_contour is not None and len(target_contour) >= 3
+                    else []
+                )
+                annotations.append(
+                    {
+                        "annotation_id": ann_id,
+                        "label": rec["label"],
+                        "rectangle": bbox,
+                        "polygon": poly_pts,
+                        "visible": True,
+                        "allow_export": True,
+                    }
+                )
+            ann_id += 1
+
         rgb_image = cv2.cvtColor(canvas, cv2.COLOR_RGBA2RGB)
         return {
             "image": rgb_image,
@@ -688,7 +581,6 @@ class CacheDatasetGenerator:
         ratios = self.config.split_ratios
         tot = sum(ratios.values())
 
-        # Determine sample count per split
         split_counts: dict[str, int] = {}
         assigned = 0
         keys = list(ratios.keys())
@@ -701,7 +593,6 @@ class CacheDatasetGenerator:
                 assigned += c
 
         generated_counts: dict[str, int] = {}
-        coco_split_data: dict[str, dict] = {}
 
         for split_name, count in split_counts.items():
             if fmt == "yolo":
@@ -710,7 +601,7 @@ class CacheDatasetGenerator:
             elif fmt == "coco":
                 img_dir = out_path / split_name / "images"
                 lbl_dir = out_path / "annotations"
-            else:  # default
+            else:
                 img_dir = out_path / split_name / "images"
                 lbl_dir = out_path / split_name / "annotations"
 
@@ -733,10 +624,8 @@ class CacheDatasetGenerator:
                 img_filename = f"{stem}.png"
                 img_dest = img_dir / img_filename
 
-                # Save Image
                 Image.fromarray(img_rgb).save(img_dest)
 
-                # Save Annotations
                 if fmt == "yolo":
                     txt_dest = lbl_dir / f"{stem}.txt"
                     save_annotations_to_path(
@@ -764,7 +653,7 @@ class CacheDatasetGenerator:
                         ca["id"] = coco_ann_id
                         coco_ann_id += 1
                         coco_anns.append(ca)
-                else:  # default
+                else:
                     json_dest = lbl_dir / f"{stem}.json"
                     save_annotations_to_path(
                         annotations=anns,
@@ -789,17 +678,14 @@ class CacheDatasetGenerator:
                 }
                 ann_file = lbl_dir / f"instances_{split_name}.json"
                 ann_file.write_text(json.dumps(coco_payload, indent=2), encoding="utf-8")
-                coco_split_data[split_name] = coco_payload
 
             generated_counts[split_name] = count
 
-        # Write dataset metadata configs
         self.config.to_json(out_path / "dataset_config.json")
         classes_txt = out_path / "classes.txt"
         classes_txt.write_text("\n".join(self.class_names), encoding="utf-8")
 
         if fmt == "yolo":
-            # Write standard YOLO data.yaml
             data_yaml = [
                 f"path: {out_path}",
                 "train: images/train",
@@ -817,118 +703,3 @@ class CacheDatasetGenerator:
             "splits": generated_counts,
             "total_samples": sum(generated_counts.values()),
         }
-
-
-class ImageBakerTorchDataset(_TorchBaseDataset):
-    """
-    On-the-fly PyTorch Dataset synthesizing training samples dynamically from ImageBaker cache.
-    """
-
-    def __init__(
-        self,
-        cache_dir: str | Path,
-        config: DatasetBakeConfig | None = None,
-        split: str = "train",
-        length: int = 1000,
-        transform: Callable | None = None,
-        target_transform: Callable | None = None,
-    ):
-        self.generator = CacheDatasetGenerator(cache_dir=cache_dir, config=config)
-        self.split = split
-        self.length = int(length)
-        self.transform = transform
-        self.target_transform = target_transform
-        self.backgrounds_map = self.generator._partition_backgrounds()
-
-    def __len__(self) -> int:
-        return self.length
-
-    def __getitem__(self, idx: int) -> tuple[Any, Any]:
-        """
-        Generate sample on the fly.
-        Returns:
-          - image: torch.Tensor [C, H, W] (float32 [0, 1]) if torch available, or np.ndarray [H, W, 3]
-          - target: dict with 'boxes' (xyxy), 'labels' (class_id int), 'polygons', 'area', etc.
-        """
-        sample = self.generator.generate_sample(
-            split=self.split,
-            sample_index=idx,
-            backgrounds_map=self.backgrounds_map,
-        )
-        img_rgb = sample["image"]
-        h, w = sample["height"], sample["width"]
-        anns = sample["annotations"]
-
-        boxes = []
-        labels = []
-        areas = []
-        polygons = []
-
-        for ann in anns:
-            rect = ann.get("rectangle")
-            if rect:
-                rx, ry, rw, rh = rect
-                x1 = float(rx)
-                y1 = float(ry)
-                x2 = float(rx + rw)
-                y2 = float(ry + rh)
-                boxes.append([x1, y1, x2, y2])
-                areas.append(float(rw * rh))
-            else:
-                boxes.append([0.0, 0.0, 0.0, 0.0])
-                areas.append(0.0)
-
-            lbl = ann.get("label", UNDEFINED_LABEL)
-            cls_id = (
-                self.generator.class_names.index(lbl)
-                if lbl in self.generator.class_names
-                else 0
-            )
-            labels.append(cls_id)
-            polygons.append(ann.get("polygon") or [])
-
-        target: dict[str, Any] = {
-            "image_id": idx,
-            "width": w,
-            "height": h,
-            "class_names": self.generator.class_names,
-        }
-
-        if TORCH_AVAILABLE:
-            boxes_tensor = (
-                torch.as_tensor(boxes, dtype=torch.float32)
-                if boxes
-                else torch.zeros((0, 4), dtype=torch.float32)
-            )
-            labels_tensor = (
-                torch.as_tensor(labels, dtype=torch.int64)
-                if labels
-                else torch.zeros((0,), dtype=torch.int64)
-            )
-            areas_tensor = (
-                torch.as_tensor(areas, dtype=torch.float32)
-                if areas
-                else torch.zeros((0,), dtype=torch.float32)
-            )
-
-            target["boxes"] = boxes_tensor
-            target["labels"] = labels_tensor
-            target["area"] = areas_tensor
-            target["polygons"] = polygons
-
-            # Image as [C, H, W] float32 in [0, 1]
-            img_tensor = torch.from_numpy(img_rgb).permute(2, 0, 1).contiguous().float() / 255.0
-            image_out: Any = img_tensor
-        else:
-            target["boxes"] = np.array(boxes, dtype=np.float32) if boxes else np.zeros((0, 4))
-            target["labels"] = np.array(labels, dtype=np.int64) if labels else np.zeros((0,))
-            target["area"] = np.array(areas, dtype=np.float32) if areas else np.zeros((0,))
-            target["polygons"] = polygons
-            image_out = img_rgb
-
-        if self.transform is not None:
-            image_out = self.transform(image_out)
-        if self.target_transform is not None:
-            target = self.target_transform(target)
-
-        return image_out, target

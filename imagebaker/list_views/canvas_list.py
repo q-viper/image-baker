@@ -22,6 +22,7 @@ class CanvasList(QDockWidget):
     canvasSelected = Signal(CanvasLayer)
     canvasDeleted = Signal(CanvasLayer)
     canvasAdded = Signal(CanvasLayer)
+    blankLayerRequested = Signal()
 
     def __init__(self, canvases: list[CanvasLayer], parent=None):
         """
@@ -46,6 +47,14 @@ class CanvasList(QDockWidget):
         self.create_canvas_button = QPushButton("Create New Canvas")
         self.create_canvas_button.clicked.connect(self.create_new_canvas)
         layout.addWidget(self.create_canvas_button)
+
+        # Add "Add Blank Layer" button (matching Web UI)
+        self.add_blank_layer_button = QPushButton("Add Blank Layer")
+        self.add_blank_layer_button.setToolTip(
+            "Add a blank drawable layer to the current canvas."
+        )
+        self.add_blank_layer_button.clicked.connect(self.blankLayerRequested.emit)
+        layout.addWidget(self.add_blank_layer_button)
 
         # Canvas list widget
         self.list_widget = QListWidget()

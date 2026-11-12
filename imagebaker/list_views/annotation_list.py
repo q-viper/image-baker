@@ -6,6 +6,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QDockWidget,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -22,6 +23,7 @@ from imagebaker.layers.annotable_layer import AnnotableLayer
 
 class AnnotationList(QDockWidget):
     messageSignal = Signal(str)
+    layerifySelectedRequested = Signal()
     layerifyAllRequested = Signal()
     saveRequested = Signal()
     loadRequested = Signal()
@@ -35,11 +37,36 @@ class AnnotationList(QDockWidget):
 
     def init_ui(self):
         logger.info("Initializing AnnotationList")
-        self.setMinimumWidth(150)
+        self.setMinimumWidth(140)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
 
         widget = QWidget()
+        widget.setMinimumWidth(140)
         layout = QVBoxLayout(widget)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(6)
+
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(4)
+        self.count_label = QLabel("Regions: 0")
+        self.count_label.setStyleSheet("font-weight: bold;")
+        header_row.addWidget(self.count_label)
+        header_row.addStretch()
+
+        self.select_all_btn = QPushButton("☑")
+        self.select_all_btn.setFixedWidth(28)
+        self.select_all_btn.setToolTip("Select / Deselect All Annotations (Ctrl+A)")
+        self.select_all_btn.clicked.connect(self.toggle_select_all)
+        header_row.addWidget(self.select_all_btn)
+
+        self.toggle_all_vis_btn = QPushButton("👀")
+        self.toggle_all_vis_btn.setFixedWidth(28)
+        self.toggle_all_vis_btn.setToolTip("Show / Hide All Annotations")
+        self.toggle_all_vis_btn.clicked.connect(self.toggle_all_visibility)
+        header_row.addWidget(self.toggle_all_vis_btn)
+        layout.addLayout(header_row)
+
         self.list_widget = QListWidget()
 
         # Set the size policy for the list widget to expand dynamically
@@ -48,35 +75,77 @@ class AnnotationList(QDockWidget):
         layout.addWidget(self.list_widget)
 
         btn_row = QWidget()
-        btn_layout = QHBoxLayout(btn_row)
-        btn_layout.setContentsMargins(0, 4, 0, 0)
+        btn_row.setMinimumWidth(0)
+        btn_layout = QGridLayout(btn_row)
+        btn_layout.setContentsMargins(0, 2, 0, 0)
         btn_layout.setSpacing(4)
+
+        self.layerify_selected_btn = QPushButton("✂️ Extract")
+        self.layerify_selected_btn.setToolTip(
+            "Extract selected visible annotations into Baker layers (L)"
+        )
+        self.layerify_selected_btn.clicked.connect(self.layerifySelectedRequested.emit)
 
         self.layerify_all_btn = QPushButton("🧅 Layerify All")
         self.layerify_all_btn.setToolTip("Extract all visible annotations into Baker layers")
         self.layerify_all_btn.clicked.connect(self.layerifyAllRequested.emit)
-        btn_layout.addWidget(self.layerify_all_btn)
 
         self.save_btn = QPushButton("💾 Save")
         self.save_btn.setToolTip("Save annotations to file")
         self.save_btn.clicked.connect(self.saveRequested.emit)
-        btn_layout.addWidget(self.save_btn)
 
         self.load_btn = QPushButton("📂 Load")
         self.load_btn.setToolTip("Load annotations from file")
         self.load_btn.clicked.connect(self.loadRequested.emit)
-        btn_layout.addWidget(self.load_btn)
 
         self.clear_btn = QPushButton("🗑️ Clear")
         self.clear_btn.setToolTip("Clear all annotations")
         self.clear_btn.clicked.connect(self.clearRequested.emit)
-        btn_layout.addWidget(self.clear_btn)
+
+        for btn in (
+            self.layerify_selected_btn,
+            self.layerify_all_btn,
+            self.save_btn,
+            self.load_btn,
+            self.clear_btn,
+        ):
+            btn.setMinimumWidth(0)
+            btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+
+        btn_layout.addWidget(self.layerify_selected_btn, 0, 0, 1, 3)
+        btn_layout.addWidget(self.layerify_all_btn, 0, 3, 1, 3)
+        btn_layout.addWidget(self.save_btn, 1, 0, 1, 2)
+        btn_layout.addWidget(self.load_btn, 1, 2, 1, 2)
+        btn_layout.addWidget(self.clear_btn, 1, 4, 1, 2)
 
         layout.addWidget(btn_row)
         self.setWidget(widget)
         self.setFeatures(
             QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable
         )
+
+    def toggle_select_all(self):
+        if self.layer is None or not self.layer.annotations:
+            return
+        all_selected = all(ann.selected for ann in self.layer.annotations)
+        next_selected = not all_selected
+        for ann in self.layer.annotations:
+            ann.selected = next_selected
+        self.layer.selected_annotation = (
+            self.layer.annotations[-1] if next_selected else None
+        )
+        self.layer.update()
+        self.update_list()
+
+    def toggle_all_visibility(self):
+        if self.layer is None or not self.layer.annotations:
+            return
+        all_visible = all(ann.visible for ann in self.layer.annotations)
+        next_visible = not all_visible
+        for ann in self.layer.annotations:
+            ann.visible = next_visible
+        self.layer.update()
+        self.update_list()
 
     def update_list(self):
         scroll_bar = self.list_widget.verticalScrollBar()
@@ -86,6 +155,9 @@ class AnnotationList(QDockWidget):
         } if self.layer is not None else set()
 
         self.list_widget.clear()
+        if hasattr(self, "count_label"):
+            total = len(self.layer.annotations) if self.layer is not None else 0
+            self.count_label.setText(f"Regions: {total}")
         if self.layer is None:
             return
         for idx, ann in enumerate(self.layer.annotations):

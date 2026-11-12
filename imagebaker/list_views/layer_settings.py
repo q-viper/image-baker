@@ -113,7 +113,7 @@ class LayerSettings(QDockWidget):
         self.main_layout.addStretch()
 
         # Ensure the dock widget resizes properly
-        self.setMinimumWidth(250)  # Minimum width for usability
+        self.setMinimumWidth(160)  # Allow dock shrinking while keeping controls usable
         self.widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
     def create_slider(self, label, min_val, max_val, default, scale_factor=1):
