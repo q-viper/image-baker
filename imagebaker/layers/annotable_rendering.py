@@ -219,19 +219,31 @@ class AnnotableRenderMixin:
 
         if show_points and annotation.polygon and len(annotation.polygon) > 0:
             painter.save()
-            painter.setPen(
-                QPen(
-                    Qt.white,
-                    self.config.normal_draw_config.control_point_size / self.scale,
+            sel_vtx = getattr(self, "selected_poly_vertex", None)
+            base_r = self.config.normal_draw_config.point_size / self.scale
+            for pidx, point in enumerate(annotation.polygon):
+                is_vtx_sel = bool(
+                    annotation.selected
+                    and sel_vtx is not None
+                    and sel_vtx[0] == annotation.annotation_id
+                    and sel_vtx[1] == pidx
                 )
-            )
-            painter.setBrush(QBrush(Qt.darkGray))
-            for point in annotation.polygon:
-                painter.drawEllipse(
-                    point,
-                    self.config.normal_draw_config.point_size / self.scale,
-                    self.config.normal_draw_config.point_size / self.scale,
-                )
+                if is_vtx_sel:
+                    painter.setPen(QPen(QColor("#f59e0b"), 2.5 / self.scale))
+                    painter.setBrush(Qt.NoBrush)
+                    painter.drawEllipse(point, base_r * 1.9, base_r * 1.9)
+                    painter.setPen(QPen(Qt.white, 1.5 / self.scale))
+                    painter.setBrush(QBrush(QColor("#f59e0b")))
+                    painter.drawEllipse(point, base_r * 1.3, base_r * 1.3)
+                else:
+                    painter.setPen(
+                        QPen(
+                            Qt.white,
+                            self.config.normal_draw_config.control_point_size / self.scale,
+                        )
+                    )
+                    painter.setBrush(QBrush(Qt.darkGray))
+                    painter.drawEllipse(point, base_r, base_r)
             painter.restore()
 
         is_active_annotation = annotation is self.current_annotation or (

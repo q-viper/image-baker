@@ -1,7 +1,7 @@
 ruff>=0.1.0
 numpy
 opencv-python==4.10.0.84
-pillow==10.4.0
+pillow>=12.3.0
 pydantic==2.8.0
 python-dateutil==2.9.0.post0
 loguru

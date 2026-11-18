@@ -10,17 +10,36 @@ from imagebaker.tabs import BakerTab, HelpTab, LayerifyTab
 
 
 def get_app_icon() -> QIcon:
-    """Find and return the ImageBaker application logo icon."""
-    candidates = [
-        Path(__file__).resolve().parent.parent / "assets" / "favicon.ico",
-        Path(__file__).resolve().parent.parent / "assets" / "logo.png",
-        Path(__file__).resolve().parent.parent.parent / "assets" / "favicon_io" / "favicon.ico",
-        Path(__file__).resolve().parent.parent.parent / "assets" / "favicon_io" / "android-chrome-192x192.png",
+    """Build a multi-resolution QIcon from packaged icon assets."""
+    pkg_root = Path(__file__).resolve().parent.parent
+    repo_assets = pkg_root.parent / "assets" / "favicon_io"
+    icon_dirs = [
+        pkg_root / "assets",
+        pkg_root / "web" / "static",
+        repo_assets,
     ]
-    for c in candidates:
-        if c.exists():
-            return QIcon(str(c))
-    return QIcon()
+    icon_names = [
+        "favicon-16x16.png",
+        "favicon-32x32.png",
+        "apple-touch-icon.png",
+        "android-chrome-192x192.png",
+        "logo.png",
+        "android-chrome-512x512.png",
+        "favicon.ico",
+    ]
+    icon = QIcon()
+    added_any = False
+    for directory in icon_dirs:
+        if not directory.is_dir():
+            continue
+        for fname in icon_names:
+            candidate = directory / fname
+            if candidate.is_file():
+                icon.addFile(str(candidate))
+                added_any = True
+        if added_any and not icon.isNull():
+            return icon
+    return icon
 
 
 class MainWindow(QMainWindow):

@@ -301,12 +301,13 @@
     // Zoom Controls
     function zoomActiveViewport(factor) {
       const activeTab = state?.active_tab || "Layerify";
+      const dpr = window.devicePixelRatio || 1;
       if (activeTab === "Layerify") {
         const c = lyrView.canvas;
         if (!c) return;
-        const cx = c.width / 2;
-        const cy = c.height / 2;
-        const newZoom = Math.max(0.05, Math.min(25.0, lyrView.zoom * factor));
+        const cx = (c.width / dpr) / 2;
+        const cy = (c.height / dpr) / 2;
+        const newZoom = Math.max(0.05, Math.min(40.0, lyrView.zoom * factor));
         lyrView.offsetX = cx - ((cx - lyrView.offsetX) / lyrView.zoom) * newZoom;
         lyrView.offsetY = cy - ((cy - lyrView.offsetY) / lyrView.zoom) * newZoom;
         lyrView.zoom = newZoom;
@@ -314,9 +315,9 @@
       } else if (activeTab === "Baker") {
         const c = bkrView.canvas;
         if (!c) return;
-        const cx = c.width / 2;
-        const cy = c.height / 2;
-        const newZoom = Math.max(0.05, Math.min(25.0, bkrView.zoom * factor));
+        const cx = (c.width / dpr) / 2;
+        const cy = (c.height / dpr) / 2;
+        const newZoom = Math.max(0.05, Math.min(40.0, bkrView.zoom * factor));
         bkrView.offsetX = cx - ((cx - bkrView.offsetX) / bkrView.zoom) * newZoom;
         bkrView.offsetY = cy - ((cy - bkrView.offsetY) / bkrView.zoom) * newZoom;
         bkrView.zoom = newZoom;

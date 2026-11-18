@@ -31,7 +31,7 @@ class HelpTab(QWidget):
               <li><b>Q / W / E / B</b>: Point / Polygon / Rectangle / Brush mode.</li>
               <li><b>V / Esc</b>: Select / Idle mode.</li>
               <li><b>Alt + Drag</b> (in Brush mode): Erase from selected/clicked brush mask.</li>
-              <li><b>Mouse Wheel</b> (in Brush mode): Adjust brush / eraser tip size.</li>
+              <li><b>Mouse Wheel</b> (in annotation modes): Adjust cursor / brush tip size.</li>
               <li><b>Ctrl + C / Ctrl + V</b>: Copy and paste selected annotation.</li>
               <li><b>Delete</b>: Delete selected annotation.</li>
               <li><b>Left Click / Ctrl + Click</b>: Select or multi-select annotations.</li>

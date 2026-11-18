@@ -399,9 +399,9 @@ class WebEngineLayerifyMixin:
             class_names = [lbl.name for lbl in self.layer_config.predefined_labels]
 
             ext = ".txt" if fmt_norm == "yolo" else ".json"
-            default_stem = "all_annotations" if all_layers else (Path(img_name).stem or "layer_annotations")
+            default_stem = "annotations"
             if fmt_norm == "coco":
-                default_stem = f"{default_stem}_coco"
+                default_stem = "annotations_coco"
 
             target_path = (
                 Path(file_path).expanduser().resolve()

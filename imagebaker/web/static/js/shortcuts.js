@@ -482,24 +482,42 @@
                 const step = e.shiftKey ? 10 : 1;
                 const dx = (key === "arrowleft" ? -step : key === "arrowright" ? step : 0);
                 const dy = (key === "arrowup" ? -step : key === "arrowdown" ? step : 0);
-                selected.forEach(a => {
-                  if (a.rectangle && a.rectangle.length === 4) {
-                    a.rectangle = [
-                      a.rectangle[0] + dx,
-                      a.rectangle[1] + dy,
-                      a.rectangle[2] + dx,
-                      a.rectangle[3] + dy
-                    ];
+                const selVtx = window.ImageBaker.lyrView?.selectedPolyVertex;
+                const vtxTarget = selVtx && selected.length === 1 && selected[0].annotation_id === selVtx.annId
+                  && selected[0].polygon && selected[0].polygon[selVtx.pointIdx]
+                  ? selected[0]
+                  : null;
+                if (vtxTarget) {
+                  const pt = vtxTarget.polygon[selVtx.pointIdx];
+                  vtxTarget.polygon[selVtx.pointIdx] = [pt[0] + dx, pt[1] + dy];
+                  if (vtxTarget.rectangle && vtxTarget.polygon.length >= 3) {
+                    const xs = vtxTarget.polygon.map(p => p[0]);
+                    const ys = vtxTarget.polygon.map(p => p[1]);
+                    vtxTarget.rectangle = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
                   }
-                  if (a.polygon) {
-                    a.polygon = a.polygon.map(pt => [pt[0] + dx, pt[1] + dy]);
-                  }
-                  if (a.points) {
-                    a.points = a.points.map(pt => [pt[0] + dx, pt[1] + dy]);
-                  }
-                });
-                window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
-                window.ImageBaker.canvasLayerify.syncAnnotationsToServer(true, "Nudged annotation");
+                  window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
+                  window.ImageBaker.uiLayerify.renderAnnotationList();
+                  window.ImageBaker.canvasLayerify.syncAnnotationsToServer(true, "Nudged polygon vertex");
+                } else {
+                  selected.forEach(a => {
+                    if (a.rectangle && a.rectangle.length === 4) {
+                      a.rectangle = [
+                        a.rectangle[0] + dx,
+                        a.rectangle[1] + dy,
+                        a.rectangle[2] + dx,
+                        a.rectangle[3] + dy
+                      ];
+                    }
+                    if (a.polygon) {
+                      a.polygon = a.polygon.map(pt => [pt[0] + dx, pt[1] + dy]);
+                    }
+                    if (a.points) {
+                      a.points = a.points.map(pt => [pt[0] + dx, pt[1] + dy]);
+                    }
+                  });
+                  window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
+                  window.ImageBaker.canvasLayerify.syncAnnotationsToServer(true, "Nudged annotation");
+                }
               }
             } else if (state.active_tab === "Baker") {
               const layers = state.baker?.layers || [];
@@ -529,7 +547,34 @@
             if (state.active_tab === "Layerify") {
               const annotations = state.layerify.annotations || [];
               const sel = annotations.filter(a => a.selected);
+              const selVtx = window.ImageBaker.lyrView?.selectedPolyVertex;
+              if (
+                sel.length === 1 &&
+                selVtx &&
+                sel[0].annotation_id === selVtx.annId &&
+                sel[0].polygon &&
+                sel[0].polygon[selVtx.pointIdx]
+              ) {
+                if (sel[0].polygon.length > 3) {
+                  sel[0].polygon.splice(selVtx.pointIdx, 1);
+                  const xs = sel[0].polygon.map(p => p[0]);
+                  const ys = sel[0].polygon.map(p => p[1]);
+                  sel[0].rectangle = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+                  window.ImageBaker.lyrView.selectedPolyVertex = {
+                    annId: sel[0].annotation_id,
+                    pointIdx: Math.min(selVtx.pointIdx, sel[0].polygon.length - 1),
+                  };
+                  window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
+                  window.ImageBaker.uiLayerify.renderAnnotationList();
+                  window.ImageBaker.canvasLayerify.syncAnnotationsToServer(true, "Removed selected polygon vertex");
+                  showToast("layerify", "Removed polygon vertex");
+                } else {
+                  showToast("layerify", "Polygon must have at least 3 points");
+                }
+                break;
+              }
               if (sel.length > 0) {
+                window.ImageBaker.lyrView.selectedPolyVertex = null;
                 state.layerify.annotations = annotations.filter(a => !a.selected);
                 window.ImageBaker.canvasLayerify.drawLayerifyCanvas();
                 window.ImageBaker.uiLayerify.renderAnnotationList();

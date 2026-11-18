@@ -90,14 +90,6 @@ class AnnotationList(QDockWidget):
         self.layerify_all_btn.setToolTip("Extract all visible annotations into Baker layers")
         self.layerify_all_btn.clicked.connect(self.layerifyAllRequested.emit)
 
-        self.save_btn = QPushButton("💾 Save")
-        self.save_btn.setToolTip("Save annotations to file")
-        self.save_btn.clicked.connect(self.saveRequested.emit)
-
-        self.load_btn = QPushButton("📂 Load")
-        self.load_btn.setToolTip("Load annotations from file")
-        self.load_btn.clicked.connect(self.loadRequested.emit)
-
         self.clear_btn = QPushButton("🗑️ Clear")
         self.clear_btn.setToolTip("Clear all annotations")
         self.clear_btn.clicked.connect(self.clearRequested.emit)
@@ -105,18 +97,14 @@ class AnnotationList(QDockWidget):
         for btn in (
             self.layerify_selected_btn,
             self.layerify_all_btn,
-            self.save_btn,
-            self.load_btn,
             self.clear_btn,
         ):
             btn.setMinimumWidth(0)
             btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
 
-        btn_layout.addWidget(self.layerify_selected_btn, 0, 0, 1, 3)
-        btn_layout.addWidget(self.layerify_all_btn, 0, 3, 1, 3)
-        btn_layout.addWidget(self.save_btn, 1, 0, 1, 2)
-        btn_layout.addWidget(self.load_btn, 1, 2, 1, 2)
-        btn_layout.addWidget(self.clear_btn, 1, 4, 1, 2)
+        btn_layout.addWidget(self.layerify_selected_btn, 0, 0, 1, 2)
+        btn_layout.addWidget(self.layerify_all_btn, 0, 2, 1, 2)
+        btn_layout.addWidget(self.clear_btn, 0, 4, 1, 2)
 
         layout.addWidget(btn_row)
         self.setWidget(widget)

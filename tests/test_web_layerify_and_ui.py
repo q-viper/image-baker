@@ -10,11 +10,13 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from imagebaker.web.engine import WebAppEngine
 from imagebaker.web.server import create_http_server
-from tests.web_test_helpers import create_sample_image
+from tests.web_test_helpers import create_dummy_models_file, create_sample_image
 
 
 def test_desktop_parity_and_undo_redo(tmp_path: Path):
@@ -539,8 +541,8 @@ def test_baker_shortcuts_isolation_and_state_playback():
     assert "lyrView.syncSeq" in canvas_layerify_js
     assert "state.layerify.annotations = prevAnnotations" in app_js
 
-    # 5. Ctrl+Click multi-select, multi-move, and right-click empty-space deselection in both Layerify and Baker
-    assert 'const isImmediatePan = e.button === 1 || lyrView.activeMode === "Pan" || (e.button === 0 && e.spaceKey);' in canvas_layerify_js
+    # 5. Ctrl+Click multi-select, multi-move, Ctrl+drag pan during poly draft, and right-click empty-space deselection
+    assert "e.button === 1" in canvas_layerify_js and "isCtrlDuringPolyDraft" in canvas_layerify_js
     assert 'const isImmediatePan = e.button === 1 || (e.button === 0 && e.spaceKey);' in canvas_baker_js
     assert 'bkrCanvas.addEventListener("contextmenu"' in canvas_baker_js
     assert 'lyrCanvas.addEventListener("contextmenu"' in canvas_layerify_js
@@ -555,17 +557,18 @@ def test_annotation_mode_cursors_and_baker_multi_layer_export_download(tmp_path:
     root = Path(__file__).resolve().parent.parent
     state_js = (root / "imagebaker" / "web" / "static" / "js" / "state.js").read_text(encoding="utf-8")
     canvas_layerify_js = (root / "imagebaker" / "web" / "static" / "js" / "canvas_layerify.js").read_text(encoding="utf-8")
+    canvas_layerify_render_js = (root / "imagebaker" / "web" / "static" / "js" / "canvas_layerify_render.js").read_text(encoding="utf-8")
 
     # 1. Each annotation mode has its own distinct cursor in state.js and getCursorForMode
     assert 'RECTANGLE: utils.svgCursor(' in state_js
     assert 'POINT: utils.svgCursor(' in state_js
     assert 'POLYGON: utils.svgCursor(' in state_js
     assert 'BRUSH: utils.svgCursor(' in state_js
-    assert 'case "Rectangle": return CURSORS.RECTANGLE;' in canvas_layerify_js
-    assert 'case "Point": return CURSORS.POINT;' in canvas_layerify_js
-    assert 'case "Polygon": return CURSORS.POLYGON;' in canvas_layerify_js
-    assert 'case "Brush": return CURSORS.BRUSH;' in canvas_layerify_js
-    assert 'case "Pan": return CURSORS.PAN;' in canvas_layerify_js
+    assert 'case "Rectangle": return CURSORS.RECTANGLE;' in canvas_layerify_render_js
+    assert 'case "Point": return CURSORS.POINT;' in canvas_layerify_render_js
+    assert 'case "Polygon": return CURSORS.POLYGON;' in canvas_layerify_render_js
+    assert 'case "Brush": return CURSORS.BRUSH;' in canvas_layerify_render_js
+    assert 'case "Pan": return CURSORS.PAN;' in canvas_layerify_render_js
     assert 'setLayerifyMode(lyrView.activeMode || "Rectangle");' in canvas_layerify_js
 
     # 2. Multi-layer Baker state save, group/ungroup ID preservation, export & zip download
@@ -650,3 +653,211 @@ def test_annotation_mode_cursors_and_baker_multi_layer_export_download(tmp_path:
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_icons_cursor_size_zoom_polygon_undo_point_select_and_save_load_placement(tmp_path):
+    """Verify multi-res app icon, cursor size across modes, zoom fixes, Ctrl+drag poly pan,
+    Ctrl+Z polygon reopen + vertex point selection, and Save/Load placement near Labels."""
+    from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+    from PySide6.QtGui import QKeyEvent, QMouseEvent, QPixmap, QPolygonF, QWheelEvent
+    from PySide6.QtWidgets import QApplication, QMainWindow
+
+    from imagebaker.core.configs import CanvasConfig, LayerConfig
+    from imagebaker.core.defs import Annotation, MouseMode
+    from imagebaker.layers.annotable_layer import AnnotableLayer
+    from imagebaker.tabs.layerify_tab import LayerifyTab
+    from imagebaker.web.server import STATIC_DIR
+    from imagebaker.window.main_window import get_app_icon
+
+    _app = QApplication.instance() or QApplication([])
+
+    # 1. Multi-resolution icon (packaged PNG + ICO) and web manifest/icon routes
+    icon = get_app_icon()
+    assert not icon.isNull()
+    assert any(sz.width() >= 192 for sz in icon.availableSizes())
+
+    manifest = json.loads((STATIC_DIR / "site.webmanifest").read_text(encoding="utf-8"))
+    assert all(entry["src"].startswith("/static/") for entry in manifest["icons"])
+
+    assets = tmp_path / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    create_sample_image(assets / "poly_test.png", 160, 120)
+    models_file = create_dummy_models_file(tmp_path / "dummy_models.py")
+    engine = WebAppEngine(models_file=str(models_file), project_dir=str(tmp_path))
+    server, port = create_http_server(engine, host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        for route in (
+            "/favicon.ico",
+            "/favicon-16x16.png",
+            "/favicon-32x32.png",
+            "/logo.png",
+            "/site.webmanifest",
+            "/static/site.webmanifest",
+        ):
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}{route}", timeout=5) as resp:
+                assert resp.status == 200
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    # 2. Native cursor_size, zoom mode preservation, Ctrl+drag pan during incomplete poly,
+    #    Ctrl+Z reopen completed polygon, and vertex selection + nudge + delete
+    lcfg = LayerConfig(cache_dir=tmp_path / "cache", bake_dir=tmp_path / "bake")
+    ccfg = CanvasConfig(export_folder=tmp_path / "exports")
+    layer = AnnotableLayer(parent=None, config=lcfg, canvas_config=ccfg)
+    pm = QPixmap(160, 120)
+    pm.fill(Qt.gray)
+    layer.set_image(pm)
+    layer.file_path = assets / "poly_test.png"
+    layer.set_mode(MouseMode.POLYGON)
+
+    layer.cursor_size = 44
+    cursor_pm = layer._create_mode_cursor(MouseMode.POLYGON).pixmap()
+    assert cursor_pm.width() == 44
+
+    # Plain Mouse Wheel adjusts cursor_size in POLYGON mode; Ctrl + Wheel zooms
+    plain_wheel = QWheelEvent(
+        QPointF(50, 50), QPointF(50, 50), QPoint(0, 0), QPoint(0, 120),
+        Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False,
+    )
+    layer.handle_wheel(plain_wheel)
+    assert layer.cursor_size == 46
+    assert layer.mouse_mode == MouseMode.POLYGON
+
+    # Ctrl + Wheel zooms cleanly without clobbering mouse_mode into ZOOM_IN/ZOOM_OUT
+    ctrl_wheel = QWheelEvent(
+        QPointF(50, 50), QPointF(50, 50), QPoint(0, 0), QPoint(0, 120),
+        Qt.NoButton, Qt.ControlModifier, Qt.NoScrollPhase, False,
+    )
+    prev_scale = layer.scale
+    layer.handle_wheel(ctrl_wheel)
+    assert layer.scale > prev_scale
+    assert layer.mouse_mode == MouseMode.POLYGON
+
+    # Ctrl+Wheel zooms and plain wheel resizes cursor in web canvas_layerify.js too
+    canvas_lyr_src = (STATIC_DIR / "js" / "canvas_layerify.js").read_text(encoding="utf-8")
+    assert "if (e.ctrlKey || e.metaKey" in canvas_lyr_src
+
+    # Ctrl + Drag while drawing incomplete polygon pans instead of placing a vertex
+    layer.scale = 1.0
+    layer.offset = QPointF(0, 0)
+    layer.current_annotation = Annotation(
+        file_path=layer.file_path,
+        annotation_id=0,
+        label="Incomplete",
+        polygon=QPolygonF([QPointF(20, 20), QPointF(80, 20)]),
+        is_complete=False,
+    )
+    ctrl_press = QMouseEvent(
+        QEvent.Type.MouseButtonPress, QPointF(50, 50), QPointF(50, 50),
+        Qt.LeftButton, Qt.LeftButton, Qt.ControlModifier,
+    )
+    ctrl_move = QMouseEvent(
+        QEvent.Type.MouseMove, QPointF(75, 65), QPointF(75, 65),
+        Qt.NoButton, Qt.LeftButton, Qt.ControlModifier,
+    )
+    ctrl_release = QMouseEvent(
+        QEvent.Type.MouseButtonRelease, QPointF(75, 65), QPointF(75, 65),
+        Qt.LeftButton, Qt.NoButton, Qt.ControlModifier,
+    )
+    layer.handle_mouse_press(ctrl_press)
+    layer.handle_mouse_move(ctrl_move)
+    layer.handle_mouse_release(ctrl_release)
+    assert layer.offset == QPointF(25, 15)
+    assert len(layer.current_annotation.polygon) == 2
+    assert layer.mouse_mode == MouseMode.POLYGON
+
+    # Finalize a 4-point polygon -> Undo reopens incomplete draft -> Undo steps back vertex
+    layer.current_annotation.polygon = QPolygonF(
+        [QPointF(20, 20), QPointF(80, 20), QPointF(80, 80), QPointF(20, 80)]
+    )
+    layer.finalize_annotation()
+    assert len(layer.annotations) == 1
+    assert layer.current_annotation is None
+
+    layer.undo()
+    assert len(layer.annotations) == 0
+    assert layer.current_annotation is not None
+    assert not layer.current_annotation.is_complete
+    assert len(layer.current_annotation.polygon) == 4
+    assert layer.mouse_mode == MouseMode.POLYGON
+
+    layer.undo()
+    assert len(layer.current_annotation.polygon) == 3
+
+    # Complete polygon again and test vertex selection + arrow nudge + delete vertex
+    layer.current_annotation.polygon = QPolygonF(
+        [QPointF(20, 20), QPointF(90, 20), QPointF(90, 90), QPointF(20, 90)]
+    )
+    layer.finalize_annotation()
+    layer.set_mode(MouseMode.IDLE)
+    layer.offset = QPointF(0, 0)
+    layer.scale = 1.0
+    # Click near vertex 1 (90, 20)
+    vtx_press = QMouseEvent(
+        QEvent.Type.MouseButtonPress, QPointF(90, 20), QPointF(90, 20),
+        Qt.LeftButton, Qt.LeftButton, Qt.NoModifier,
+    )
+    vtx_release = QMouseEvent(
+        QEvent.Type.MouseButtonRelease, QPointF(90, 20), QPointF(90, 20),
+        Qt.LeftButton, Qt.NoButton, Qt.NoModifier,
+    )
+    layer.handle_mouse_press(vtx_press)
+    layer.handle_mouse_release(vtx_release)
+    assert layer.selected_poly_vertex == (0, 1)
+
+    right_key = QKeyEvent(QEvent.Type.KeyPress, Qt.Key_Right, Qt.ShiftModifier)
+    layer.handle_key_press(right_key)
+    assert layer.annotations[0].polygon[1].x() == pytest.approx(100.0)
+
+    del_key = QKeyEvent(QEvent.Type.KeyPress, Qt.Key_Delete, Qt.NoModifier)
+    layer.handle_key_press(del_key)
+    assert len(layer.annotations[0].polygon) == 3
+
+    # 3. Verify Save / Load annotation buttons moved near Labels on top in both Native and Web
+    win = QMainWindow()
+    tab = LayerifyTab(win, lcfg, ccfg, [])
+    assert hasattr(tab, "save_annotations_btn")
+    assert hasattr(tab, "load_annotations_btn")
+    assert not hasattr(tab.annotation_list, "save_btn")
+    assert not hasattr(tab.annotation_list, "load_btn")
+    assert hasattr(tab, "cursor_size_slider")
+
+    index_html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    label_bar_chunk = index_html.split('id="ls-label-bar"')[1].split('class="ls-label-bar-right"')[0]
+    ann_footer_chunk = index_html.split('id="dock-annotation-list"')[1].split('id="dock-layerify-layers"')[0]
+    assert 'id="btn-save-annotations"' in label_bar_chunk
+    assert 'id="btn-load-annotations"' in label_bar_chunk
+    assert 'id="btn-save-annotations"' not in ann_footer_chunk
+    assert 'id="btn-load-annotations"' not in ann_footer_chunk
+    assert 'id="btn-layerify-selected"' in ann_footer_chunk
+    assert 'id="btn-clear-annotations"' in ann_footer_chunk
+    assert 'id="hud-cursor-size-wrap"' in index_html
+
+    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    assert "(c.width / dpr) / 2" in app_js
+
+    canvas_lyr_js = (STATIC_DIR / "js" / "canvas_layerify.js").read_text(encoding="utf-8")
+    assert "isCtrlDuringPolyDraft" in canvas_lyr_js
+    assert "lastCompletedPoly" in canvas_lyr_js
+    assert "selectedPolyVertex" in canvas_lyr_js
+
+    # 4. Verify left-side image hover tooltips & default save filename "annotations.json"
+    if tab.image_list_panel.list_widget.count() > 0:
+        first_item = tab.image_list_panel.list_widget.item(0)
+        assert first_item.toolTip() != ""
+    ui_lyr_js = (STATIC_DIR / "js" / "ui_layerify.js").read_text(encoding="utf-8")
+    assert "row.title = tooltipName" in ui_lyr_js
+    assert 'if (pathInp) pathInp.value = "annotations.json";' in ui_lyr_js
+    saved_default = engine.export_annotations_json(all_layers=False, fmt="default")
+    if saved_default.get("ok"):
+        assert saved_default["filename"] == "annotations.json"
+    else:
+        # With empty annotations, verify default_stem in engine source
+        engine_lyr_src = (
+            Path(__file__).resolve().parent.parent / "imagebaker" / "web" / "engine_layerify.py"
+        ).read_text(encoding="utf-8")
+        assert 'default_stem = "annotations"' in engine_lyr_src
+

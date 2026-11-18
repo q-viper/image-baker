@@ -676,16 +676,23 @@
         return;
       }
 
+      if (Math.abs(e.deltaY) < 1e-6) return;
       const rect = bkrCanvas.getBoundingClientRect();
       const sx = e.clientX - rect.left;
       const sy = e.clientY - rect.top;
-      const factor = e.deltaY < 0 ? 1.15 : 0.87;
+      const clampedDelta = Math.max(-180, Math.min(180, e.deltaY));
+      const factor = e.deltaMode === 1
+        ? (e.deltaY < 0 ? 1.15 : 1 / 1.15)
+        : Math.pow(1.0018, -clampedDelta);
 
       const newZoom = Math.max(0.05, Math.min(40.0, bkrView.zoom * factor));
       bkrView.offsetX = sx - (sx - bkrView.offsetX) * (newZoom / bkrView.zoom);
       bkrView.offsetY = sy - (sy - bkrView.offsetY) * (newZoom / bkrView.zoom);
       bkrView.zoom = newZoom;
       drawBakerCanvas();
+      if (window.ImageBaker.updateZoomReadout) {
+        window.ImageBaker.updateZoomReadout();
+      }
     });
 
     window.addEventListener("keydown", e => {

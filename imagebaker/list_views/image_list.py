@@ -137,17 +137,26 @@ class ImageListPanel(QDockWidget):
                         50, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation
                     )
                 name_label_text = f"Baked Result {idx}"
+                tooltip_text = (
+                    Path(image_entry.data).name
+                    if isinstance(image_entry.data, (str, Path))
+                    else name_label_text
+                )
             else:
                 thumbnail_pixmap = QPixmap(str(image_entry.data)).scaled(
                     50, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation
                 )
-                name_label_text = Path(image_entry.data).name[: self.max_name_length]
+                tooltip_text = Path(image_entry.data).name
+                name_label_text = tooltip_text[: self.max_name_length]
 
+            item_widget.setToolTip(tooltip_text)
             thumbnail_label.setPixmap(thumbnail_pixmap)
+            thumbnail_label.setToolTip(tooltip_text)
             item_layout.addWidget(thumbnail_label)
 
             # Text for image
             name_label = QLabel(name_label_text)
+            name_label.setToolTip(tooltip_text)
             name_label.setStyleSheet("font-weight: bold;")
             item_layout.addWidget(name_label)
 
@@ -168,6 +177,7 @@ class ImageListPanel(QDockWidget):
             self.list_widget.setItemWidget(list_item, item_widget)
 
             # Store metadata for the image
+            list_item.setToolTip(tooltip_text)
             list_item.setData(Qt.UserRole, image_entry)
             active_image_entries.append(image_entry)
 

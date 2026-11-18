@@ -17,6 +17,8 @@
     hitTestPolygonEdge,
     drawLayerifyCanvas,
     requestDrawLayerify,
+    getCursorForMode,
+    updateLayerifyCursor,
   } = render;
 
   const {
@@ -107,6 +109,9 @@
     lyrView.imgKey = key;
     lyrView.img = null;
     lyrView.isLoadingImage = true;
+    lyrView.selectedPolyVertex = null;
+    lyrView.polyDraftRedoStack = [];
+    lyrView.lastCompletedPoly = null;
     if (window.ImageBaker.uiLayerify?.showLoading) {
       window.ImageBaker.uiLayerify.showLoading(`Loading ${lyr.current_image_name || "image"}…`);
     }
@@ -137,121 +142,6 @@
     img.src = `/api/layerify/image?index=${idx}&rev=${rev}`;
   }
 
-  function getCursorForMode(mode) {
-    switch (mode) {
-      case "Pan": return CURSORS.PAN;
-      case "Rectangle": return CURSORS.RECTANGLE;
-      case "Point": return CURSORS.POINT;
-      case "Polygon": return CURSORS.POLYGON;
-      case "Brush": return CURSORS.BRUSH;
-      default: return CURSORS.IDLE;
-    }
-  }
-
-  function getRectResizeCursor(handleId) {
-    switch (handleId) {
-      case "nw":
-      case "se":
-        return "nwse-resize";
-      case "ne":
-      case "sw":
-        return "nesw-resize";
-      case "n":
-      case "s":
-        return "ns-resize";
-      case "e":
-      case "w":
-        return "ew-resize";
-      default:
-        return "nwse-resize";
-    }
-  }
-
-  function updateLayerifyCursor(e, imgPt) {
-    if (!lyrCanvas) return;
-    if (lyrView.isPanning) {
-      lyrCanvas.style.cursor = CURSORS.PAN_ACTIVE;
-      return;
-    }
-    if (lyrView.resizingAnnIdx >= 0) {
-      lyrCanvas.style.cursor = lyrView.resizeHandleType === "rect"
-        ? getRectResizeCursor(lyrView.resizeHandleId)
-        : "grabbing";
-      return;
-    }
-    if (lyrView.draggingAnnIdx >= 0) {
-      lyrCanvas.style.cursor = CURSORS.MOVE || "move";
-      return;
-    }
-    if (lyrView.activeMode === "Pan") {
-      lyrCanvas.style.cursor = CURSORS.PAN;
-      return;
-    }
-    if (lyrView.activeMode === "Polygon" && lyrView.activePolyDraft && lyrView.activePolyDraft.length > 0) {
-      if (lyrView.activePolyDraft.length >= 3 && imgPt) {
-        const firstPt = lyrView.activePolyDraft[0];
-        if (Math.hypot(imgPt.x - firstPt.x, imgPt.y - firstPt.y) <= 10.0 / lyrView.zoom) {
-          lyrCanvas.style.cursor = "pointer";
-          return;
-        }
-      }
-      lyrCanvas.style.cursor = CURSORS.POLYGON;
-      return;
-    }
-    if (lyrView.activeRectDraft) {
-      lyrCanvas.style.cursor = CURSORS.RECTANGLE;
-      return;
-    }
-    if (lyrView.activeBrushStroke && lyrView.activeBrushStroke.length > 0) {
-      lyrCanvas.style.cursor = lyrView.activeBrushErase ? (CURSORS.ERASE || CURSORS.BRUSH) : CURSORS.BRUSH;
-      return;
-    }
-
-    const multi = Boolean(e && (e.ctrlKey || e.metaKey || e.shiftKey));
-    if (imgPt && !multi && lyrView.activeMode !== "Brush") {
-      const handleHit = hitTestAnnotationHandle(imgPt.x, imgPt.y);
-      if (handleHit) {
-        lyrCanvas.style.cursor = handleHit.type === "rect"
-          ? getRectResizeCursor(handleHit.handleId)
-          : "pointer";
-        return;
-      }
-    }
-
-    if (lyrView.hoverAnnIdx !== null && lyrView.hoverAnnIdx !== undefined) {
-      if (multi) {
-        lyrCanvas.style.cursor = "pointer";
-        return;
-      }
-      if (lyrView.activeMode === "Idle" || (lyrView.activeMode === "Brush" && lyrView.brushSubMode === "move")) {
-        lyrCanvas.style.cursor = CURSORS.MOVE || "move";
-        return;
-      }
-      if (imgPt && hitTestLabelPill(imgPt.x, imgPt.y) !== null) {
-        lyrCanvas.style.cursor = CURSORS.MOVE || "move";
-        return;
-      }
-    }
-
-    if (lyrView.activeMode === "Brush") {
-      if (lyrView.brushSubMode === "erase" || (e && e.altKey)) {
-        lyrCanvas.style.cursor = CURSORS.ERASE || CURSORS.BRUSH;
-        return;
-      }
-      if (lyrView.brushSubMode === "move") {
-        lyrCanvas.style.cursor = CURSORS.MOVE || "move";
-        return;
-      }
-    }
-
-    if (e && (e.ctrlKey || e.metaKey || e.spaceKey)) {
-      lyrCanvas.style.cursor = CURSORS.PAN;
-      return;
-    }
-
-    lyrCanvas.style.cursor = getCursorForMode(lyrView.activeMode);
-  }
-
   function setBrushSubMode(subMode) {
     lyrView.brushSubMode = subMode || "paint";
     const paintBtn = document.getElementById("btn-lyr-brush-paint");
@@ -270,6 +160,7 @@
     lyrView.activeMode = mode;
     lyrView.activeRectDraft = null;
     lyrView.activePolyDraft = [];
+    lyrView.polyDraftRedoStack = [];
     lyrView.activeBrushStroke = [];
 
     document.querySelectorAll(".ls-tool-btn.mode-btn").forEach(btn => {
@@ -279,10 +170,12 @@
     const pill = document.getElementById("hud-mode-pill");
     const hint = document.getElementById("hud-mode-hint");
     const brushWrap = document.getElementById("hud-brush-wrap");
+    const cursorWrap = document.getElementById("hud-cursor-size-wrap");
     const finishPoly = document.getElementById("btn-finish-polygon");
 
     if (pill) pill.textContent = `Mode: ${mode}`;
     if (brushWrap) brushWrap.classList.toggle("hidden", mode !== "Brush");
+    if (cursorWrap) cursorWrap.classList.toggle("hidden", mode === "Brush" || mode === "Pan");
     if (finishPoly) finishPoly.classList.toggle("hidden", mode !== "Polygon");
 
     if (hint) {
@@ -312,7 +205,15 @@
       const sy = e.clientY - rect.top;
       const imgPt = screenToImage(sx, sy);
 
-      const isImmediatePan = e.button === 1 || lyrView.activeMode === "Pan" || (e.button === 0 && e.spaceKey);
+      const isCtrlDuringPolyDraft =
+        (e.ctrlKey || e.metaKey) &&
+        lyrView.activeMode === "Polygon" &&
+        lyrView.activePolyDraft &&
+        lyrView.activePolyDraft.length > 0;
+      const isImmediatePan =
+        e.button === 1 ||
+        lyrView.activeMode === "Pan" ||
+        (e.button === 0 && (e.spaceKey || isCtrlDuringPolyDraft));
       if (isImmediatePan) {
         lyrView.isPanning = true;
         lyrView.panStartX = sx;
@@ -337,6 +238,7 @@
         const lastPt = lyrView.activePolyDraft[lyrView.activePolyDraft.length - 1];
         if (!lastPt || Math.hypot(imgPt.x - lastPt.x, imgPt.y - lastPt.y) > 2.0 / lyrView.zoom) {
           lyrView.activePolyDraft.push({ x: imgPt.x, y: imgPt.y });
+          lyrView.polyDraftRedoStack = [];
         }
         drawLayerifyCanvas();
         return;
@@ -347,6 +249,7 @@
 
       // In Brush Paint/Erase mode (without Ctrl/Shift and not clicking a label pill), prioritize brushing/erasing!
       if (lyrView.activeMode === "Brush" && lyrView.brushSubMode !== "move" && !multi && pillHitIdx === null) {
+        lyrView.selectedPolyVertex = null;
         lyrView.activeBrushErase = Boolean(lyrView.brushSubMode === "erase" || e.altKey);
         lyrView.activeBrushStroke = [{ x: imgPt.x, y: imgPt.y }];
         drawLayerifyCanvas();
@@ -363,6 +266,14 @@
         lyrView.resizingAnnIdx = handleHit.annIdx;
         lyrView.resizeHandleType = handleHit.type;
         lyrView.resizeHandleId = handleHit.handleId !== undefined ? handleHit.handleId : handleHit.handleIdx;
+        if (handleHit.type === "poly" && annotations[handleHit.annIdx]) {
+          lyrView.selectedPolyVertex = {
+            annId: annotations[handleHit.annIdx].annotation_id,
+            pointIdx: handleHit.handleIdx,
+          };
+        } else {
+          lyrView.selectedPolyVertex = null;
+        }
         lyrView.dragStartImg = { ...imgPt };
         lyrView.hasMovedDuringDrag = false;
         drawLayerifyCanvas();
@@ -373,6 +284,7 @@
       // 2. Check if clicking on an annotation or label pill
       const annHitIdx = pillHitIdx !== null ? pillHitIdx : hitTestAnnotation(imgPt.x, imgPt.y);
       if (annHitIdx !== null) {
+        lyrView.selectedPolyVertex = null;
         const annotations = state.layerify.annotations || [];
         if (multi) {
           annotations[annHitIdx].selected = !annotations[annHitIdx].selected;
@@ -414,10 +326,12 @@
       }
 
       // 3. Mode-specific creation
+      lyrView.selectedPolyVertex = null;
       if (lyrView.activeMode === "Rectangle") {
         lyrView.activeRectDraft = [imgPt.x, imgPt.y, imgPt.x, imgPt.y];
       } else if (lyrView.activeMode === "Polygon") {
         lyrView.activePolyDraft.push({ x: imgPt.x, y: imgPt.y });
+        lyrView.polyDraftRedoStack = [];
         drawLayerifyCanvas();
       } else if (lyrView.activeMode === "Point") {
         addNewAnnotation({ points: [[imgPt.x, imgPt.y]] });
@@ -654,8 +568,30 @@
 
     lyrCanvas.addEventListener("wheel", e => {
       e.preventDefault();
-      if (e.altKey || lyrView.activeMode === "Brush") {
-        const delta = e.deltaY < 0 ? 2 : -2;
+      if (Math.abs(e.deltaY) < 1e-6) return;
+
+      if (e.ctrlKey || e.metaKey || (lyrView.activeMode === "Pan" && !e.altKey)) {
+        const rect = lyrCanvas.getBoundingClientRect();
+        const sx = e.clientX - rect.left;
+        const sy = e.clientY - rect.top;
+        const clampedDelta = Math.max(-180, Math.min(180, e.deltaY));
+        const factor = e.deltaMode === 1
+          ? (e.deltaY < 0 ? 1.15 : 1 / 1.15)
+          : Math.pow(1.0018, -clampedDelta);
+
+        const newZoom = Math.max(0.05, Math.min(40.0, lyrView.zoom * factor));
+        lyrView.offsetX = sx - (sx - lyrView.offsetX) * (newZoom / lyrView.zoom);
+        lyrView.offsetY = sy - (sy - lyrView.offsetY) * (newZoom / lyrView.zoom);
+        lyrView.zoom = newZoom;
+        drawLayerifyCanvas();
+        if (window.ImageBaker.updateZoomReadout) {
+          window.ImageBaker.updateZoomReadout();
+        }
+        return;
+      }
+
+      const delta = e.deltaY < 0 ? 2 : -2;
+      if (lyrView.activeMode === "Brush") {
         lyrView.brushSize = Math.max(2, Math.min(200, (lyrView.brushSize || 18) + delta));
         const brushInput = document.getElementById("input-lyr-brush-size") || document.getElementById("input-brush-size");
         const brushVal = document.getElementById("val-lyr-brush-size") || document.getElementById("val-brush-size");
@@ -665,15 +601,12 @@
         return;
       }
 
-      const rect = lyrCanvas.getBoundingClientRect();
-      const sx = e.clientX - rect.left;
-      const sy = e.clientY - rect.top;
-      const factor = e.deltaY < 0 ? 1.15 : 0.87;
-
-      const newZoom = Math.max(0.05, Math.min(40.0, lyrView.zoom * factor));
-      lyrView.offsetX = sx - (sx - lyrView.offsetX) * (newZoom / lyrView.zoom);
-      lyrView.offsetY = sy - (sy - lyrView.offsetY) * (newZoom / lyrView.zoom);
-      lyrView.zoom = newZoom;
+      lyrView.cursorSize = Math.max(14, Math.min(72, (lyrView.cursorSize || 28) + delta));
+      const cursorInput = document.getElementById("input-lyr-cursor-size");
+      const cursorVal = document.getElementById("val-lyr-cursor-size");
+      if (cursorInput) cursorInput.value = lyrView.cursorSize;
+      if (cursorVal) cursorVal.textContent = `${lyrView.cursorSize}px`;
+      lyrCanvas.style.cursor = getCursorForMode(lyrView.activeMode);
       drawLayerifyCanvas();
     });
 
@@ -791,6 +724,18 @@
       });
     }
 
+    const cursorInput = document.getElementById("input-lyr-cursor-size");
+    const cursorVal = document.getElementById("val-lyr-cursor-size");
+    if (cursorInput) {
+      cursorInput.addEventListener("input", () => {
+        lyrView.cursorSize = Math.max(14, Math.min(72, parseInt(cursorInput.value, 10) || 28));
+        if (cursorVal) cursorVal.textContent = `${lyrView.cursorSize}px`;
+        if (lyrCanvas) {
+          lyrCanvas.style.cursor = getCursorForMode(lyrView.activeMode);
+        }
+      });
+    }
+
     const paintBtn = document.getElementById("btn-lyr-brush-paint");
     if (paintBtn) {
       paintBtn.addEventListener("click", () => setBrushSubMode("paint"));
@@ -836,9 +781,19 @@
     if (cleaned.length >= 3) {
       const poly = cleaned.map(p => [p.x, p.y]);
       lyrView.activePolyDraft = [];
-      await addNewAnnotation({ polygon: poly });
+      lyrView.polyDraftRedoStack = [];
+      const createdAnn = await addNewAnnotation({ polygon: poly });
+      const syncedList = state.layerify.annotations || [];
+      const resolvedAnn = syncedList.length > 0 ? syncedList[syncedList.length - 1] : createdAnn;
+      if (resolvedAnn) {
+        lyrView.lastCompletedPoly = {
+          annId: resolvedAnn.annotation_id,
+          points: cleaned.map(p => ({ x: p.x, y: p.y })),
+        };
+      }
     } else {
       lyrView.activePolyDraft = [];
+      lyrView.polyDraftRedoStack = [];
       drawLayerifyCanvas();
     }
   }
@@ -871,9 +826,13 @@
     drawLayerifyCanvas();
 
     await syncAnnotationsToServer(true, "Created annotation");
+    return newAnn;
   }
 
   async function syncAnnotationsToServer(pushUndo = true, message = "") {
+    if (pushUndo) {
+      lyrView.lastCompletedPoly = null;
+    }
     const seq = (lyrView.syncSeq || 0) + 1;
     lyrView.syncSeq = seq;
     lyrView.isSyncing = true;
@@ -899,11 +858,41 @@
   }
 
   async function performLayerifyUndo() {
+    if (lyrView.activeMode === "Polygon" && lyrView.activePolyDraft && lyrView.activePolyDraft.length > 0) {
+      const removedPt = lyrView.activePolyDraft.pop();
+      if (removedPt) {
+        lyrView.polyDraftRedoStack = lyrView.polyDraftRedoStack || [];
+        lyrView.polyDraftRedoStack.push(removedPt);
+      }
+      drawLayerifyCanvas();
+      showToast("layerify", "Removed last polygon point");
+      return;
+    }
+
+    const lastComp = lyrView.lastCompletedPoly;
+    const curAnns = state.layerify?.annotations || [];
+    const matchesCompleted = Boolean(
+      lastComp &&
+      lastComp.points &&
+      lastComp.points.length >= 3 &&
+      curAnns.some(a => a.annotation_id === lastComp.annId && a.polygon && a.polygon.length >= 3)
+    );
+
     try {
+      lyrView.lastCompletedPoly = null;
+      lyrView.selectedPolyVertex = null;
       const res = await api.performAnnotationAction("undo");
       if (res.ok && res.state) {
         window.ImageBaker.applyServerState(res.state);
-        showToast("layerify", "Undo");
+        if (matchesCompleted) {
+          setLayerifyMode("Polygon");
+          lyrView.activePolyDraft = lastComp.points.map(p => ({ x: p.x, y: p.y }));
+          lyrView.polyDraftRedoStack = [];
+          drawLayerifyCanvas();
+          showToast("layerify", "Reopened polygon as incomplete draft");
+        } else {
+          showToast("layerify", "Undo");
+        }
       }
     } catch (err) {
       showToast("layerify", "Undo error: " + err.message);
@@ -911,7 +900,14 @@
   }
 
   async function performLayerifyRedo() {
+    if (lyrView.activeMode === "Polygon" && lyrView.polyDraftRedoStack && lyrView.polyDraftRedoStack.length > 0) {
+      lyrView.activePolyDraft.push(lyrView.polyDraftRedoStack.pop());
+      drawLayerifyCanvas();
+      showToast("layerify", "Restored polygon point");
+      return;
+    }
     try {
+      lyrView.selectedPolyVertex = null;
       const res = await api.performAnnotationAction("redo");
       if (res.ok && res.state) {
         window.ImageBaker.applyServerState(res.state);

@@ -121,9 +121,28 @@ def run(
 
 
 def main(layer_config, canvas_config, LOADED_MODELS):
+    import sys
+
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "imagebaker.app"
+            )
+        except Exception:
+            pass
 
     # Initialize the application
     app = QApplication([])
+    app.setApplicationName("ImageBaker")
+    app.setApplicationDisplayName("ImageBaker")
+    try:
+        from PySide6.QtGui import QGuiApplication
+
+        QGuiApplication.setDesktopFileName("imagebaker")
+    except Exception:
+        pass
     from imagebaker.window.main_window import get_app_icon
 
     icon = get_app_icon()

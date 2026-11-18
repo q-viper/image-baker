@@ -25,6 +25,18 @@ from imagebaker import logger
 from imagebaker.web.engine import WebAppEngine
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+PACKAGE_ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+
+_ROOT_STATIC_ASSETS = {
+    "/favicon.ico": "favicon.ico",
+    "/favicon-16x16.png": "favicon-16x16.png",
+    "/favicon-32x32.png": "favicon-32x32.png",
+    "/apple-touch-icon.png": "apple-touch-icon.png",
+    "/android-chrome-192x192.png": "android-chrome-192x192.png",
+    "/android-chrome-512x512.png": "android-chrome-512x512.png",
+    "/logo.png": "logo.png",
+    "/site.webmanifest": "site.webmanifest",
+}
 
 
 class ImageBakerRequestHandler(BaseHTTPRequestHandler):
@@ -87,22 +99,33 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
-            if route == "/favicon.ico":
-                target = (STATIC_DIR / "favicon.ico").resolve()
-                if target.is_file():
-                    self._send_bytes(target.read_bytes(), "image/x-icon")
-                    return
-
-            if route == "/logo.png":
-                target = (STATIC_DIR / "logo.png").resolve()
-                if target.is_file():
-                    self._send_bytes(target.read_bytes(), "image/png")
-                    return
+            if route in _ROOT_STATIC_ASSETS:
+                fname = _ROOT_STATIC_ASSETS[route]
+                for base_dir in (STATIC_DIR, PACKAGE_ASSETS_DIR):
+                    target = (base_dir / fname).resolve()
+                    if target.is_file():
+                        mime, _ = mimetypes.guess_type(str(target))
+                        if fname.endswith(".ico"):
+                            mime = "image/x-icon"
+                        elif fname.endswith(".webmanifest"):
+                            mime = "application/manifest+json"
+                        self._send_bytes(target.read_bytes(), mime or "application/octet-stream")
+                        return
 
             if route.startswith("/static/"):
                 rel = route[len("/static/") :]
                 target = (STATIC_DIR / rel).resolve()
-                if not str(target).startswith(str(STATIC_DIR)) or not target.is_file():
+                if (not str(target).startswith(str(STATIC_DIR)) or not target.is_file()) and "/" not in rel:
+                    fallback = (PACKAGE_ASSETS_DIR / rel).resolve()
+                    if str(fallback).startswith(str(PACKAGE_ASSETS_DIR)) and fallback.is_file():
+                        target = fallback
+                if (
+                    not (
+                        str(target).startswith(str(STATIC_DIR))
+                        or str(target).startswith(str(PACKAGE_ASSETS_DIR))
+                    )
+                    or not target.is_file()
+                ):
                     self._send_json({"ok": False, "message": "Not found"}, HTTPStatus.NOT_FOUND)
                     return
                 mime, _ = mimetypes.guess_type(str(target))

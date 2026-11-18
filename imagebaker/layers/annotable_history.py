@@ -96,6 +96,7 @@ class AnnotableHistoryMixin:
         self.update()
 
     def _push_undo_state(self):
+        self._last_completed_polygon_id = None
         snapshot = self._snapshot_annotations()
         if self._undo_stack and self._annotations_equal(self._undo_stack[-1], snapshot):
             self._redo_stack.clear()
@@ -106,18 +107,97 @@ class AnnotableHistoryMixin:
         self._redo_stack.clear()
 
     def undo(self):
+        if (
+            self.current_annotation is not None
+            and not getattr(self.current_annotation, "is_complete", True)
+            and self.current_annotation.polygon is not None
+            and len(self.current_annotation.polygon) > 0
+        ):
+            pts = list(self.current_annotation.polygon)
+            removed_pt = pts.pop()
+            if not hasattr(self, "_poly_draft_redo"):
+                self._poly_draft_redo = []
+            self._poly_draft_redo.append(removed_pt)
+            if pts:
+                from PySide6.QtGui import QPolygonF
+
+                self.current_annotation.polygon = QPolygonF(pts)
+            else:
+                self.current_annotation = None
+            self.messageSignal.emit("Removed last polygon point.")
+            self.update()
+            return
+
         if not self._undo_stack:
             self.messageSignal.emit("Nothing to undo.")
             return
+
+        last_comp_id = getattr(self, "_last_completed_polygon_id", None)
+        reopen_poly = None
+        if last_comp_id is not None and self.annotations:
+            last_ann = self.annotations[-1]
+            if (
+                last_ann.annotation_id == last_comp_id
+                and last_ann.polygon is not None
+                and len(last_ann.polygon) >= 3
+            ):
+                reopen_poly = last_ann.copy()
+
+        self._last_completed_polygon_id = None
+        self.selected_poly_vertex = None
         self._redo_stack.append(self._snapshot_annotations())
         self._restore_annotations(self._undo_stack.pop())
         self.annotationRemoved.emit()
+
+        if reopen_poly is not None:
+            from PySide6.QtGui import QPolygonF
+            from imagebaker.core.defs import Annotation, MouseMode
+
+            self.current_annotation = Annotation(
+                file_path=self.file_path,
+                annotation_id=len(self.annotations),
+                label="Incomplete",
+                color=self.current_color,
+                polygon=QPolygonF(list(reopen_poly.polygon)),
+                is_complete=False,
+            )
+            self._poly_draft_redo = []
+            self.mouse_mode = MouseMode.POLYGON
+            self.modeChanged.emit(self.mouse_mode)
+            self.update_cursor()
+            self.update()
+            self.messageSignal.emit("Reopened polygon as incomplete draft.")
+            return
+
         self.messageSignal.emit("Undo applied.")
 
     def redo(self):
+        if getattr(self, "_poly_draft_redo", None):
+            from PySide6.QtGui import QPolygonF
+            from imagebaker.core.defs import Annotation, MouseMode
+
+            pt = self._poly_draft_redo.pop()
+            if self.current_annotation is None:
+                self.current_annotation = Annotation(
+                    file_path=self.file_path,
+                    annotation_id=len(self.annotations),
+                    label="Incomplete",
+                    color=self.current_color,
+                    polygon=QPolygonF([pt]),
+                    is_complete=False,
+                )
+            elif self.current_annotation.polygon is not None:
+                pts = list(self.current_annotation.polygon)
+                pts.append(pt)
+                self.current_annotation.polygon = QPolygonF(pts)
+            self.mouse_mode = MouseMode.POLYGON
+            self.update()
+            return
         if not self._redo_stack:
             self.messageSignal.emit("Nothing to redo.")
             return
+        self._last_completed_polygon_id = None
+        self.selected_poly_vertex = None
         self._undo_stack.append(self._snapshot_annotations())
         self._restore_annotations(self._redo_stack.pop())
         self.annotationRemoved.emit()

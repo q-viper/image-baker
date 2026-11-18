@@ -375,11 +375,27 @@
 
         // Polygon vertex handles only when selected or hovered
         if (isSel || isHov) {
-          const vertexRadius = isSel ? 4.5 : 4.0;
-          ann.polygon.forEach(pt => {
+          const selVtx = lyrView.selectedPolyVertex;
+          ann.polygon.forEach((pt, pidx) => {
             const sp = imageToScreen(pt[0], pt[1]);
-            ctx.fillStyle = "#ffffff";
-            ctx.strokeStyle = strokeCol;
+            const isVertexSelected = Boolean(
+              isSel &&
+              selVtx &&
+              selVtx.annId === ann.annotation_id &&
+              selVtx.pointIdx === pidx
+            );
+            const vertexRadius = isVertexSelected ? 6.5 : (isSel ? 4.5 : 4.0);
+            if (isVertexSelected) {
+              ctx.save();
+              ctx.strokeStyle = "#f59e0b";
+              ctx.lineWidth = 2.5;
+              ctx.beginPath();
+              ctx.arc(sp.x, sp.y, vertexRadius + 3.5, 0, Math.PI * 2);
+              ctx.stroke();
+              ctx.restore();
+            }
+            ctx.fillStyle = isVertexSelected ? "#f59e0b" : "#ffffff";
+            ctx.strokeStyle = isVertexSelected ? "#ffffff" : strokeCol;
             ctx.lineWidth = isSel ? 1.8 : 1.5;
             ctx.beginPath();
             ctx.arc(sp.x, sp.y, vertexRadius, 0, Math.PI * 2);
@@ -550,6 +566,131 @@
     });
   }
 
+  function getCursorForMode(mode) {
+    const CURSORS = window.ImageBaker.CURSORS;
+    if (window.ImageBaker.buildModeCursor) {
+      return window.ImageBaker.buildModeCursor(mode, lyrView.cursorSize || 28);
+    }
+    switch (mode) {
+      case "Pan": return CURSORS.PAN;
+      case "Rectangle": return CURSORS.RECTANGLE;
+      case "Point": return CURSORS.POINT;
+      case "Polygon": return CURSORS.POLYGON;
+      case "Brush": return CURSORS.BRUSH;
+      default: return CURSORS.IDLE;
+    }
+  }
+
+  function getRectResizeCursor(handleId) {
+    switch (handleId) {
+      case "nw":
+      case "se":
+        return "nwse-resize";
+      case "ne":
+      case "sw":
+        return "nesw-resize";
+      case "n":
+      case "s":
+        return "ns-resize";
+      case "e":
+      case "w":
+        return "ew-resize";
+      default:
+        return "nwse-resize";
+    }
+  }
+
+  function updateLayerifyCursor(e, imgPt) {
+    const lyrCanvas = lyrView.canvas;
+    const CURSORS = window.ImageBaker.CURSORS;
+    if (!lyrCanvas || !CURSORS) return;
+    if (lyrView.isPanning) {
+      lyrCanvas.style.cursor = CURSORS.PAN_ACTIVE;
+      return;
+    }
+    if (lyrView.resizingAnnIdx >= 0) {
+      lyrCanvas.style.cursor = lyrView.resizeHandleType === "rect"
+        ? getRectResizeCursor(lyrView.resizeHandleId)
+        : "grabbing";
+      return;
+    }
+    if (lyrView.draggingAnnIdx >= 0) {
+      lyrCanvas.style.cursor = CURSORS.MOVE || "move";
+      return;
+    }
+    if (lyrView.activeMode === "Pan") {
+      lyrCanvas.style.cursor = CURSORS.PAN;
+      return;
+    }
+    if (lyrView.activeMode === "Polygon" && lyrView.activePolyDraft && lyrView.activePolyDraft.length > 0) {
+      if (e && (e.ctrlKey || e.metaKey || e.spaceKey)) {
+        lyrCanvas.style.cursor = CURSORS.PAN;
+        return;
+      }
+      if (lyrView.activePolyDraft.length >= 3 && imgPt) {
+        const firstPt = lyrView.activePolyDraft[0];
+        if (Math.hypot(imgPt.x - firstPt.x, imgPt.y - firstPt.y) <= 10.0 / lyrView.zoom) {
+          lyrCanvas.style.cursor = "pointer";
+          return;
+        }
+      }
+      lyrCanvas.style.cursor = getCursorForMode("Polygon");
+      return;
+    }
+    if (lyrView.activeRectDraft) {
+      lyrCanvas.style.cursor = getCursorForMode("Rectangle");
+      return;
+    }
+    if (lyrView.activeBrushStroke && lyrView.activeBrushStroke.length > 0) {
+      lyrCanvas.style.cursor = lyrView.activeBrushErase ? (CURSORS.ERASE || getCursorForMode("Brush")) : getCursorForMode("Brush");
+      return;
+    }
+
+    const multi = Boolean(e && (e.ctrlKey || e.metaKey || e.shiftKey));
+    if (imgPt && !multi && lyrView.activeMode !== "Brush") {
+      const handleHit = hitTestAnnotationHandle(imgPt.x, imgPt.y);
+      if (handleHit) {
+        lyrCanvas.style.cursor = handleHit.type === "rect"
+          ? getRectResizeCursor(handleHit.handleId)
+          : "pointer";
+        return;
+      }
+    }
+
+    if (lyrView.hoverAnnIdx !== null && lyrView.hoverAnnIdx !== undefined) {
+      if (multi) {
+        lyrCanvas.style.cursor = "pointer";
+        return;
+      }
+      if (lyrView.activeMode === "Idle" || (lyrView.activeMode === "Brush" && lyrView.brushSubMode === "move")) {
+        lyrCanvas.style.cursor = CURSORS.MOVE || "move";
+        return;
+      }
+      if (imgPt && hitTestLabelPill(imgPt.x, imgPt.y) !== null) {
+        lyrCanvas.style.cursor = CURSORS.MOVE || "move";
+        return;
+      }
+    }
+
+    if (lyrView.activeMode === "Brush") {
+      if (lyrView.brushSubMode === "erase" || (e && e.altKey)) {
+        lyrCanvas.style.cursor = CURSORS.ERASE || getCursorForMode("Brush");
+        return;
+      }
+      if (lyrView.brushSubMode === "move") {
+        lyrCanvas.style.cursor = CURSORS.MOVE || "move";
+        return;
+      }
+    }
+
+    if (e && (e.ctrlKey || e.metaKey || e.spaceKey)) {
+      lyrCanvas.style.cursor = CURSORS.PAN;
+      return;
+    }
+
+    lyrCanvas.style.cursor = getCursorForMode(lyrView.activeMode);
+  }
+
   window.ImageBaker = window.ImageBaker || {};
   window.ImageBaker.canvasLayerifyRender = {
     hitTestLabelPill,
@@ -558,5 +699,8 @@
     hitTestPolygonEdge,
     drawLayerifyCanvas,
     requestDrawLayerify,
+    getCursorForMode,
+    getRectResizeCursor,
+    updateLayerifyCursor,
   };
 })(window);

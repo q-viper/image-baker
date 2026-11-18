@@ -92,9 +92,13 @@
     mouseImgY: 0,
     isMouseOver: false,
     brushSize: 18,
+    cursorSize: 28,
     brushSubMode: "paint",
     activeBrushStroke: [],
     activeBrushErase: false,
+    selectedPolyVertex: null,
+    polyDraftRedoStack: [],
+    lastCompletedPoly: null,
     maskImageCache: new Map(),
     maskCanvasCache: new Map(),
     maskBinaryCache: new Map(),
@@ -229,6 +233,96 @@
       12, 12, "cell"
     ),
   };
+
+  const _modeCursorCache = new Map();
+
+  function buildModeCursor(mode, sizePx = 28) {
+    const sz = Math.max(14, Math.min(72, Math.round(Number(sizePx) || 28)));
+    const key = `${mode}:${sz}`;
+    if (_modeCursorCache.has(key)) {
+      return _modeCursorCache.get(key);
+    }
+    const hs10 = Math.round((10 * sz) / 28);
+    const hs12 = Math.round((12 * sz) / 28);
+    let cursor = CURSORS.IDLE;
+    if (mode === "Pan") {
+      cursor = CURSORS.PAN;
+    } else if (mode === "Rectangle") {
+      cursor = utils.svgCursor(
+        `<svg xmlns='http://www.w3.org/2000/svg' width='${sz}' height='${sz}' viewBox='0 0 28 28'>
+          <g stroke='#ffffff' stroke-width='3' stroke-linecap='round'>
+            <line x1='3' y1='10' x2='8' y2='10'/><line x1='12' y1='10' x2='17' y2='10'/>
+            <line x1='10' y1='3' x2='10' y2='8'/><line x1='10' y1='12' x2='10' y2='17'/>
+          </g>
+          <g stroke='#141820' stroke-width='1.5' stroke-linecap='round'>
+            <line x1='3' y1='10' x2='8' y2='10'/><line x1='12' y1='10' x2='17' y2='10'/>
+            <line x1='10' y1='3' x2='10' y2='8'/><line x1='10' y1='12' x2='10' y2='17'/>
+          </g>
+          <rect x='14' y='15' width='11' height='9' fill='none' stroke='#ffffff' stroke-width='2.5'/>
+          <rect x='14' y='15' width='11' height='9' fill='rgba(59,130,246,0.28)' stroke='#3b82f6' stroke-width='1.5'/>
+        </svg>`,
+        hs10, hs10, "crosshair"
+      );
+    } else if (mode === "Point") {
+      cursor = utils.svgCursor(
+        `<svg xmlns='http://www.w3.org/2000/svg' width='${sz}' height='${sz}' viewBox='0 0 28 28'>
+          <g stroke='#ffffff' stroke-width='3' stroke-linecap='round'>
+            <line x1='3' y1='10' x2='8' y2='10'/><line x1='12' y1='10' x2='17' y2='10'/>
+            <line x1='10' y1='3' x2='10' y2='8'/><line x1='10' y1='12' x2='10' y2='17'/>
+          </g>
+          <g stroke='#141820' stroke-width='1.5' stroke-linecap='round'>
+            <line x1='3' y1='10' x2='8' y2='10'/><line x1='12' y1='10' x2='17' y2='10'/>
+            <line x1='10' y1='3' x2='10' y2='8'/><line x1='10' y1='12' x2='10' y2='17'/>
+          </g>
+          <circle cx='10' cy='10' r='3' fill='#00d2ff' stroke='#ffffff' stroke-width='1.8'/>
+          <circle cx='20' cy='20' r='4.5' fill='none' stroke='#ffffff' stroke-width='2.5'/>
+          <circle cx='20' cy='20' r='4.5' fill='none' stroke='#00b4e6' stroke-width='1.5'/>
+          <circle cx='20' cy='20' r='1.8' fill='#00d2ff'/>
+        </svg>`,
+        hs10, hs10, "crosshair"
+      );
+    } else if (mode === "Polygon") {
+      cursor = utils.svgCursor(
+        `<svg xmlns='http://www.w3.org/2000/svg' width='${sz}' height='${sz}' viewBox='0 0 28 28'>
+          <g stroke='#ffffff' stroke-width='3' stroke-linecap='round'>
+            <line x1='3' y1='10' x2='8' y2='10'/><line x1='12' y1='10' x2='17' y2='10'/>
+            <line x1='10' y1='3' x2='10' y2='8'/><line x1='10' y1='12' x2='10' y2='17'/>
+          </g>
+          <g stroke='#141820' stroke-width='1.5' stroke-linecap='round'>
+            <line x1='3' y1='10' x2='8' y2='10'/><line x1='12' y1='10' x2='17' y2='10'/>
+            <line x1='10' y1='3' x2='10' y2='8'/><line x1='10' y1='12' x2='10' y2='17'/>
+          </g>
+          <polygon points='15,24 14,17 20,14 25,19 23,25' fill='none' stroke='#ffffff' stroke-width='2.5' stroke-linejoin='round'/>
+          <polygon points='15,24 14,17 20,14 25,19 23,25' fill='rgba(16,185,129,0.3)' stroke='#10b981' stroke-width='1.5' stroke-linejoin='round'/>
+          <circle cx='15' cy='24' r='1.6' fill='#10b981'/><circle cx='14' cy='17' r='1.6' fill='#10b981'/>
+          <circle cx='20' cy='14' r='1.6' fill='#10b981'/><circle cx='25' cy='19' r='1.6' fill='#10b981'/>
+          <circle cx='23' cy='25' r='1.6' fill='#10b981'/>
+        </svg>`,
+        hs10, hs10, "crosshair"
+      );
+    } else if (mode === "Brush") {
+      cursor = utils.svgCursor(
+        `<svg xmlns='http://www.w3.org/2000/svg' width='${sz}' height='${sz}' viewBox='0 0 28 28'>
+          <circle cx='12' cy='12' r='8' fill='none' stroke='#ffffff' stroke-width='3'/>
+          <circle cx='12' cy='12' r='8' fill='rgba(168,85,247,0.18)' stroke='#a855f7' stroke-width='1.8'/>
+          <circle cx='12' cy='12' r='2' fill='#a855f7' stroke='#ffffff' stroke-width='1'/>
+          <path d='M19 19 L25 25' stroke='#ffffff' stroke-width='3' stroke-linecap='round'/>
+          <path d='M19 19 L25 25' stroke='#a855f7' stroke-width='1.8' stroke-linecap='round'/>
+        </svg>`,
+        hs12, hs12, "crosshair"
+      );
+    } else if (sz !== 28) {
+      const hs = Math.round(sz / 2);
+      cursor = utils.svgCursor(
+        `<svg xmlns='http://www.w3.org/2000/svg' width='${sz}' height='${sz}' viewBox='0 0 28 28'>
+          <path d='M6 4 L6 22 L11 17 L15 24 L18 22.5 L14 15.5 L20 15.5 Z' fill='#ffffff' stroke='#141820' stroke-width='1.8' stroke-linejoin='round'/>
+        </svg>`,
+        Math.round((6 * hs) / 14), Math.round((4 * hs) / 14), "default"
+      );
+    }
+    _modeCursorCache.set(key, cursor);
+    return cursor;
+  }
 
   function screenToImage(sx, sy) {
     return {
@@ -428,6 +522,7 @@
   window.ImageBaker.lyrView = lyrView;
   window.ImageBaker.bkrView = bkrView;
   window.ImageBaker.CURSORS = CURSORS;
+  window.ImageBaker.buildModeCursor = buildModeCursor;
   window.ImageBaker.screenToImage = screenToImage;
   window.ImageBaker.imageToScreen = imageToScreen;
   window.ImageBaker.sceneToLayerLocal = sceneToLayerLocal;

@@ -114,6 +114,10 @@ class LayerifyInferenceActionsMixin:
             self.brush_controls_widget.setVisible(
                 current_mode in (MouseMode.DRAW, MouseMode.ERASE)
             )
+        if hasattr(self, "cursor_size_widget"):
+            self.cursor_size_widget.setVisible(
+                current_mode not in (MouseMode.DRAW, MouseMode.ERASE, MouseMode.PAN)
+            )
 
     def start_new_brush_annotation(self):
         """Deselect current brush mask so next strokes create a separate instance."""
@@ -149,6 +153,23 @@ class LayerifyInferenceActionsMixin:
                 self.brush_size_slider.setValue(clamped)
         if hasattr(self, "brush_size_value_label"):
             self.brush_size_value_label.setText(f"{clamped}px")
+
+    def on_cursor_size_changed(self, size_val: int):
+        """Apply slider cursor size to all annotable layers."""
+        clamped = max(14, min(72, int(size_val)))
+        for lyr in self.annotable_layers:
+            lyr.cursor_size = clamped
+            lyr.update_cursor()
+        if hasattr(self, "cursor_size_value_label"):
+            self.cursor_size_value_label.setText(f"{clamped}px")
+
+    def _sync_cursor_size_ui(self, size_val: int):
+        clamped = max(14, min(72, int(size_val)))
+        if hasattr(self, "cursor_size_slider"):
+            with QSignalBlocker(self.cursor_size_slider):
+                self.cursor_size_slider.setValue(clamped)
+        if hasattr(self, "cursor_size_value_label"):
+            self.cursor_size_value_label.setText(f"{clamped}px")
 
     def handle_predict(self):
         """

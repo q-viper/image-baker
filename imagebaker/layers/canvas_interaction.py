@@ -448,19 +448,19 @@ class CanvasInteractionMixin:
             self.update()
             return
         if event.modifiers() & Qt.ControlModifier:
+            angle = event.angleDelta().y()
+            if angle == 0:
+                return
             mouse_pos = event.position()
-            zoom_factor = 1.25 if event.angleDelta().y() > 0 else 0.8
+            zoom_factor = 1.2 if angle > 0 else (1.0 / 1.2)
             old_scale = self.scale
-            new_scale = max(0.1, min(old_scale * zoom_factor, 10.0))
+            new_scale = max(0.1, min(old_scale * zoom_factor, 20.0))
 
             before_zoom_img_pos = (mouse_pos - self.pan_offset) / old_scale
             self.scale = new_scale
             after_zoom_widget_pos = before_zoom_img_pos * new_scale + self.pan_offset
             self.pan_offset += mouse_pos - after_zoom_widget_pos
 
-            self.mouse_mode = (
-                MouseMode.ZOOM_IN if event.angleDelta().y() > 0 else MouseMode.ZOOM_OUT
-            )
             self.zoomChanged.emit(self.scale)
             self.update()
 

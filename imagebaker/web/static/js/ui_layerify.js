@@ -58,12 +58,14 @@
     container.innerHTML = "";
     for (let i = start; i < end; i++) {
       const item = images[i];
+      const tooltipName = item.full_name || item.name || "";
       const row = document.createElement("div");
       row.className = `list-item ${item.selected ? "selected" : ""}`;
+      row.title = tooltipName;
       row.innerHTML = `
-        <img class="item-thumb" src="${item.thumbnail}" alt="${utils.escapeHtml(item.name)}" />
+        <img class="item-thumb" src="${item.thumbnail}" alt="${utils.escapeHtml(tooltipName)}" title="${utils.escapeHtml(tooltipName)}" />
         <div class="item-text-col">
-          <div class="item-title" title="${utils.escapeHtml(item.name)}">${utils.escapeHtml(item.name)}</div>
+          <div class="item-title" title="${utils.escapeHtml(tooltipName)}">${utils.escapeHtml(item.name)}</div>
           <div class="item-subtitle">${item.width} × ${item.height}</div>
         </div>
         <button class="btn-icon item-remove-btn" title="Remove image from list">×</button>
@@ -143,7 +145,19 @@
         const inspName = document.getElementById("inspector-region-name");
         const inspSub = document.getElementById("inspector-region-sub");
         if (inspName) inspName.textContent = `#${idx + 1} ${geom.icon} ${ann.label} (${geom.tag})`;
-        if (inspSub) inspSub.textContent = ann.caption ? `💬 "${ann.caption}"` : "Click to select • Del to delete • L to bake";
+        const selVtx = lyrView.selectedPolyVertex;
+        if (
+          inspSub &&
+          selVtx &&
+          selVtx.annId === ann.annotation_id &&
+          ann.polygon &&
+          ann.polygon[selVtx.pointIdx]
+        ) {
+          const vp = ann.polygon[selVtx.pointIdx];
+          inspSub.textContent = `Vertex #${selVtx.pointIdx + 1} (${Math.round(vp[0])}, ${Math.round(vp[1])}) • Arrows nudge • Del removes`;
+        } else if (inspSub) {
+          inspSub.textContent = ann.caption ? `💬 "${ann.caption}"` : "Click to select • Del to delete • L to bake";
+        }
       } else if (selIndices.length > 1) {
         inspector.classList.remove("hidden");
         const inspName = document.getElementById("inspector-region-name");
@@ -647,8 +661,7 @@
         if (desc) desc.textContent = "Do you want to save annotations for all layers or just the current layer?";
         if (uploadGrp) uploadGrp.classList.add("hidden");
         if (pathGrp) pathGrp.classList.remove("hidden");
-        const name = (state.layerify?.current_image_name || "annotations").replace(/\.[^/.]+$/, "");
-        if (pathInp) pathInp.value = `${name}.json`;
+        if (pathInp) pathInp.value = "annotations.json";
         openModal("modal-annotations-io");
       });
     }

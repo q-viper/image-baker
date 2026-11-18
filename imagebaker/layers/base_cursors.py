@@ -46,13 +46,16 @@ class BaseCursorMixin:
 
     def _create_mode_cursor(self, mode: MouseMode) -> QCursor:
         """Create a distinct custom cursor icon for Point, Rectangle, and Polygon modes."""
-        size = 28
+        size = max(14, min(72, int(getattr(self, "cursor_size", 28) or 28)))
+        scale_f = size / 28.0
         pixmap = QPixmap(size, size)
         pixmap.fill(Qt.transparent)
         painter = QPainter(pixmap)
         painter.setRenderHints(QPainter.Antialiasing)
+        painter.scale(scale_f, scale_f)
 
         cx, cy = 10, 10
+        hotspot = max(2, int(round(cx * scale_f)))
         halo_pen = QPen(QColor(255, 255, 255, 220), 3)
         fg_pen = QPen(QColor(20, 24, 32, 245), 1.5)
 
@@ -98,7 +101,7 @@ class BaseCursorMixin:
                 painter.drawEllipse(pt, 1.6, 1.6)
 
         painter.end()
-        return QCursor(pixmap, cx, cy)
+        return QCursor(pixmap, hotspot, hotspot)
 
     def _create_custom_cursor(self, color: QColor, shape: str) -> QCursor:
         """Create a custom cursor reflecting current brush size and zoom."""

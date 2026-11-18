@@ -102,6 +102,7 @@ class LayerifyTab(
             layer.annotationRemoved.connect(self.on_annotation_removed)
             layer.modeChanged.connect(lambda _mode, self=self: self.sync_mode_buttons())
             layer.brushSizeChanged.connect(self._sync_brush_size_ui)
+            layer.cursorSizeChanged.connect(self._sync_cursor_size_ui)
             layer.messageSignal.connect(self.messageSignal)
             layer.layerSignal.connect(self.add_layer)
             layer.labelUpdated.connect(self.on_label_update)
@@ -207,6 +208,16 @@ class LayerifyTab(
         self.manage_label_btn.setToolTip("Manage, recolor, or delete labels")
         self.manage_label_btn.clicked.connect(self.open_label_manager)
         row1_layout.addWidget(self.manage_label_btn)
+
+        self.save_annotations_btn = QPushButton("💾 Save")
+        self.save_annotations_btn.setToolTip("Save annotations to file")
+        self.save_annotations_btn.clicked.connect(self.save_annotations)
+        row1_layout.addWidget(self.save_annotations_btn)
+
+        self.load_annotations_btn = QPushButton("📂 Load")
+        self.load_annotations_btn.setToolTip("Load annotations from file")
+        self.load_annotations_btn.clicked.connect(self.load_annotations)
+        row1_layout.addWidget(self.load_annotations_btn)
 
         sep1 = QLabel("|")
         sep1.setStyleSheet("color: #718096;")
@@ -338,6 +349,26 @@ class LayerifyTab(
 
         row2_layout.addWidget(self.brush_controls_widget)
         self.brush_controls_widget.setVisible(False)
+
+        # Cursor size control for non-brush annotation modes (Point, Rect, Polygon)
+        self.cursor_size_widget = QWidget()
+        cursor_layout = QHBoxLayout(self.cursor_size_widget)
+        cursor_layout.setContentsMargins(6, 0, 0, 0)
+        cursor_layout.setSpacing(4)
+        cursor_lbl = QLabel("Cursor:")
+        cursor_layout.addWidget(cursor_lbl)
+        self.cursor_size_slider = QSlider(Qt.Horizontal)
+        self.cursor_size_slider.setRange(14, 72)
+        initial_cs = int(getattr(self.layer, "cursor_size", 28) or 28) if self.layer else 28
+        self.cursor_size_slider.setValue(initial_cs)
+        self.cursor_size_slider.setFixedWidth(90)
+        self.cursor_size_slider.setToolTip("Cursor size for annotation tools (or Mouse Wheel)")
+        self.cursor_size_slider.valueChanged.connect(self.on_cursor_size_changed)
+        cursor_layout.addWidget(self.cursor_size_slider)
+        self.cursor_size_value_label = QLabel(f"{initial_cs}px")
+        self.cursor_size_value_label.setMinimumWidth(34)
+        cursor_layout.addWidget(self.cursor_size_value_label)
+        row2_layout.addWidget(self.cursor_size_widget)
 
         row2_spacer = QWidget()
         row2_spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)

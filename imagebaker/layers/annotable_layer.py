@@ -35,6 +35,7 @@ class AnnotableLayer(
     layersChanged = Signal()
     labelUpdated = Signal(tuple)
     brushSizeChanged = Signal(int)
+    cursorSizeChanged = Signal(int)
 
     def __init__(self, parent, config: LayerConfig, canvas_config: CanvasConfig):
         super().__init__(parent, config)
@@ -50,12 +51,16 @@ class AnnotableLayer(
         self.handle_zoom: float = 1
 
         self.brush_size = 18
+        self.cursor_size = 28
         self._brush_mask = None
         self._brush_last_pos = None
         self._target_brush_annotation = None
         self._history_by_file: dict[str, tuple[list, list]] = {}
         self._max_history = 100
         self._drag_start_snapshot = None
+        self.selected_poly_vertex: tuple[int, int] | None = None
+        self._last_completed_polygon_id: int | None = None
+        self._poly_draft_redo: list = []
 
     def init_ui(self):
         logger.info(f"Initializing Layer UI of {self.layer_name}")
@@ -156,6 +161,14 @@ class AnnotableLayer(
         self.current_annotation.file_path = self.file_path
         self.current_annotation.is_complete = True
         self.annotations.append(self.current_annotation)
+
+        if (
+            self.current_annotation.polygon is not None
+            and len(self.current_annotation.polygon) >= 3
+        ):
+            self._last_completed_polygon_id = self.current_annotation.annotation_id
+        else:
+            self._last_completed_polygon_id = None
 
         self.thumbnails[self.current_annotation.annotation_id] = self.get_thumbnail(
             self.current_annotation

@@ -82,6 +82,7 @@ class BaseLayer(
         self.current_step = 0
         self.drawing_color = QColor(Qt.red)
         self.brush_size = 5
+        self.cursor_size = 28
 
         if isinstance(config, LayerConfig):
             self.current_label = self.config.predefined_labels[0].name

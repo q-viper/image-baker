@@ -15,7 +15,7 @@ class AnnotableInteractionMixin:
 
     def handle_key_press(self, event: QKeyEvent):
         if event.key() == Qt.Key_Control:
-            self.mouse_mode = MouseMode.PAN
+            self.setCursor(CursorDef.PAN_CURSOR)
             event.accept()
             return
 
@@ -45,10 +45,68 @@ class AnnotableInteractionMixin:
             event.accept()
             return
 
-        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_Delete:
+        if event.modifiers() == Qt.NoModifier and event.key() in (
+            Qt.Key_Delete,
+            Qt.Key_Backspace,
+        ):
+            sel_vtx = getattr(self, "selected_poly_vertex", None)
+            if sel_vtx is not None:
+                ann_id, pt_idx = sel_vtx
+                target_ann = next(
+                    (
+                        a
+                        for a in self.annotations
+                        if a.selected and a.annotation_id == ann_id and a.polygon
+                    ),
+                    None,
+                )
+                if target_ann is not None and 0 <= pt_idx < len(target_ann.polygon):
+                    if len(target_ann.polygon) > 3:
+                        self._push_undo_state()
+                        pts = [
+                            p for i, p in enumerate(target_ann.polygon) if i != pt_idx
+                        ]
+                        target_ann.polygon = QPolygonF(pts)
+                        self.selected_poly_vertex = (
+                            ann_id,
+                            min(pt_idx, len(pts) - 1),
+                        )
+                        self.annotationUpdated.emit(target_ann)
+                        self.messageSignal.emit("Removed selected polygon vertex.")
+                        self.update()
+                    else:
+                        self.messageSignal.emit("Polygon must have at least 3 points.")
+                    event.accept()
+                    return
+            self.selected_poly_vertex = None
             self.delete_selected_annotations()
             event.accept()
             return
+
+        if event.key() in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down):
+            step = 10.0 if (event.modifiers() & Qt.ShiftModifier) else 1.0
+            dx = -step if event.key() == Qt.Key_Left else (step if event.key() == Qt.Key_Right else 0.0)
+            dy = -step if event.key() == Qt.Key_Up else (step if event.key() == Qt.Key_Down else 0.0)
+            sel_vtx = getattr(self, "selected_poly_vertex", None)
+            if sel_vtx is not None:
+                ann_id, pt_idx = sel_vtx
+                target_ann = next(
+                    (
+                        a
+                        for a in self.annotations
+                        if a.selected and a.annotation_id == ann_id and a.polygon
+                    ),
+                    None,
+                )
+                if target_ann is not None and 0 <= pt_idx < len(target_ann.polygon):
+                    self._push_undo_state()
+                    pts = list(target_ann.polygon)
+                    pts[pt_idx] = QPointF(pts[pt_idx].x() + dx, pts[pt_idx].y() + dy)
+                    target_ann.polygon = QPolygonF(pts)
+                    self.annotationUpdated.emit(target_ann)
+                    self.update()
+                    event.accept()
+                    return
 
         if event.modifiers() == Qt.NoModifier and Qt.Key_0 <= event.key() <= Qt.Key_9:
             label_index = event.key() - Qt.Key_0
@@ -112,36 +170,49 @@ class AnnotableInteractionMixin:
 
     def handle_key_release(self, event):
         if event.key() == Qt.Key_Control:
-            if self.mouse_mode == MouseMode.PAN:
-                self.mouse_mode = MouseMode.IDLE
+            self.update_cursor()
 
     def handle_wheel(self, event: QWheelEvent):
+        angle = event.angleDelta().y()
+        if angle == 0:
+            return
         if event.modifiers() & Qt.ControlModifier:
             old_pos = self.widget_to_image_pos(event.position())
-            zoom_factor = (
-                self.config.zoom_in_factor
-                if event.angleDelta().y() > 0
-                else self.config.zoom_out_factor
-            )
-            new_scale = max(0.1, min(self.scale * zoom_factor, 10.0))
+            zoom_factor = 1.2 if angle > 0 else (1.0 / 1.2)
+            new_scale = max(0.05, min(self.scale * zoom_factor, 20.0))
             self.offset += old_pos * self.scale - old_pos * new_scale
             self.scale = new_scale
 
-            if event.angleDelta().y() > 0:
-                self.mouse_mode = MouseMode.ZOOM_IN
-            else:
-                self.mouse_mode = MouseMode.ZOOM_OUT
-
             self.zoomChanged.emit(self.scale)
+            self.update_cursor()
+            self.update()
         elif self.mouse_mode in (MouseMode.DRAW, MouseMode.ERASE):
-            step = 2 if event.angleDelta().y() > 0 else -2
+            step = 2 if angle > 0 else -2
             self.brush_size = max(2, min(120, int(getattr(self, "brush_size", 12)) + step))
             self.update_cursor()
             self.brushSizeChanged.emit(self.brush_size)
             self.messageSignal.emit(f"Brush size: {self.brush_size}px")
             self.update()
+        else:
+            step = 2 if angle > 0 else -2
+            self.cursor_size = max(14, min(72, int(getattr(self, "cursor_size", 28)) + step))
+            self.update_cursor()
+            if hasattr(self, "cursorSizeChanged"):
+                self.cursorSizeChanged.emit(self.cursor_size)
+            self.messageSignal.emit(f"Cursor size: {self.cursor_size}px")
+            self.update()
 
     def handle_mouse_release(self, event: QMouseEvent):
+        if getattr(self, "_is_panning", False) and event.button() in (
+            Qt.MiddleButton,
+            Qt.LeftButton,
+        ):
+            self._is_panning = False
+            self.pan_start = None
+            self.update_cursor()
+            self.update()
+            return
+
         if event.button() == Qt.LeftButton:
             if self.mouse_mode in (MouseMode.DRAW, MouseMode.ERASE) and self._brush_mask is not None:
                 mask = (self._brush_mask > 0).astype(np.uint8)
@@ -244,6 +315,16 @@ class AnnotableInteractionMixin:
         )
         self.mouseMoved.emit(img_pos)
         self.messageSignal.emit(f"X: {img_pos.x()}, Y: {img_pos.y()}")
+
+        if getattr(self, "_is_panning", False) and (
+            event.buttons() & (Qt.MiddleButton | Qt.LeftButton)
+        ):
+            if self.pan_start:
+                delta = event.position() - self.pan_start
+                self.offset += delta
+                self.pan_start = event.position()
+                self.update()
+            return
 
         if not event.buttons():
             annotation, handle = self.find_annotation_and_handle_at(img_pos)
@@ -399,6 +480,23 @@ class AnnotableInteractionMixin:
             max(0, min(self.image.height(), img_pos.y())),
         )
 
+        is_drawing_poly_now = (
+            self.mouse_mode == MouseMode.POLYGON
+            and self.current_annotation is not None
+            and self.current_annotation.polygon is not None
+            and len(self.current_annotation.polygon) > 0
+        )
+        is_ctrl_poly_pan = bool(event.modifiers() & Qt.ControlModifier) and (
+            event.button() == Qt.LeftButton and is_drawing_poly_now
+        )
+        if event.button() == Qt.MiddleButton or is_ctrl_poly_pan or (
+            event.button() == Qt.LeftButton and self.mouse_mode == MouseMode.PAN
+        ):
+            self._is_panning = True
+            self.pan_start = event.position()
+            self.setCursor(Qt.ClosedHandCursor)
+            return
+
         if event.button() == Qt.RightButton:
             if self.current_annotation and self.mouse_mode == MouseMode.POLYGON:
                 if len(self.current_annotation.polygon) > 0:
@@ -534,15 +632,33 @@ class AnnotableInteractionMixin:
                             self.annotationUpdated.emit(ann)
 
                 if self.selected_annotation.rectangle:
+                    self.selected_poly_vertex = None
                     self.initial_rect = QRectF(self.selected_annotation.rectangle)
                 elif self.selected_annotation.polygon:
                     self.initial_polygon = QPolygonF(self.selected_annotation.polygon)
                     if self.active_handle and "point_" in self.active_handle:
                         self.active_point_index = int(self.active_handle.split("_")[1])
+                        self.selected_poly_vertex = (
+                            self.selected_annotation.annotation_id,
+                            self.active_point_index,
+                        )
+                    else:
+                        self.selected_poly_vertex = None
                 elif self.selected_annotation.points:
+                    self.selected_poly_vertex = None
                     self.active_point_index = 0
 
                 self.update()
+                return
+
+            self.selected_poly_vertex = None
+            if (
+                event.modifiers() & Qt.ControlModifier
+                and event.button() == Qt.LeftButton
+            ):
+                self._is_panning = True
+                self.pan_start = event.position()
+                self.setCursor(Qt.ClosedHandCursor)
                 return
 
             if self.mouse_mode == MouseMode.PAN:

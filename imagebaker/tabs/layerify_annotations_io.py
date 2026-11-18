@@ -525,7 +525,7 @@ class LayerifyAnnotationsIoMixin:
 
         if save_all:
             options = QFileDialog.Options()
-            default_name = f"all_annotations_{selected_fmt}{default_ext}"
+            default_name = f"annotations{default_ext}"
             file_name, _ = QFileDialog.getSaveFileName(
                 self,
                 f"Save Merged Annotations ({selected_fmt.upper()})",
@@ -558,7 +558,7 @@ class LayerifyAnnotationsIoMixin:
         file_name, _ = QFileDialog.getSaveFileName(
             self,
             f"Save Annotations ({selected_fmt.upper()})",
-            str(Path(img_name).stem + default_ext),
+            f"annotations{default_ext}",
             file_filter,
             options=options,
         )
