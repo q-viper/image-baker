@@ -178,9 +178,12 @@
     const bkrRedoBtn = el("btn-baker-redo");
     if (bkrRedoBtn) bkrRedoBtn.disabled = !bkr.can_redo;
 
-    // 7. Header Context & Zoom
+    // 7. Header Context, Shortcuts UI & Zoom
     updateTopHeaderContext();
     updateZoomReadout();
+    if (shortcuts.applyShortcutLabelsToUI) {
+      shortcuts.applyShortcutLabelsToUI();
+    }
 
     // 8. Canvas redrawing
     requestAnimationFrame(() => {
@@ -375,6 +378,18 @@
     if (el("btn-baker-theme")) el("btn-baker-theme").addEventListener("click", toggleTheme);
     if (el("btn-top-grid")) el("btn-top-grid").addEventListener("click", toggleGridlines);
     if (el("btn-baker-grid")) el("btn-baker-grid").addEventListener("click", toggleGridlines);
+    if (el("btn-top-shortcuts")) {
+      el("btn-top-shortcuts").addEventListener("click", e => {
+        e.currentTarget.blur();
+        shortcuts.openShortcutsModal?.();
+      });
+    }
+    if (el("btn-help-configure-shortcuts")) {
+      el("btn-help-configure-shortcuts").addEventListener("click", e => {
+        e.currentTarget.blur();
+        shortcuts.openShortcutsModal?.();
+      });
+    }
   }
 
   // ==================== APPLICATION BOOTSTRAP ====================

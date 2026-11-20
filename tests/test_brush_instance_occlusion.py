@@ -427,8 +427,8 @@ def test_desktop_annotable_layer_brush_shortcuts_and_extract(tmp_path: Path):
         feathered = qpixmap_to_numpy(edge_layer.image)
         assert np.any(feathered[:, :, 3] > 0)
 
-        ev_v = QKeyEvent(QEvent.KeyPress, Qt.Key_V, Qt.NoModifier)
-        tab.keyPressEvent(ev_v)
+        ev_q = QKeyEvent(QEvent.KeyPress, Qt.Key_Q, Qt.NoModifier)
+        tab.keyPressEvent(ev_q)
         assert tab.layer.mouse_mode == MouseMode.IDLE
     finally:
         mw.close()

@@ -85,13 +85,17 @@
       });
     },
 
-    async runModelPrediction(modelName, textPrompt = "") {
-      return await apiPost("/api/layerify/model", {
+    async runModelPrediction(modelName, textPrompt = "", selectedAnnotationIds = null) {
+      const payload = {
         action: "predict",
         model_name: modelName,
         text_prompt: textPrompt,
         prompt: textPrompt
-      });
+      };
+      if (Array.isArray(selectedAnnotationIds)) {
+        payload.selected_annotation_ids = selectedAnnotationIds;
+      }
+      return await apiPost("/api/layerify/model", payload);
     },
 
     async selectModel(modelName) {

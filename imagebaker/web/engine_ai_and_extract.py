@@ -17,7 +17,11 @@ class WebEngineAiExtractMixin:
     # -------------------------------------------------------------------------
     # Model Prediction & Layerify
     # -------------------------------------------------------------------------
-    def run_prediction(self, text_prompt: str | None = None) -> tuple[bool, str]:
+    def run_prediction(
+        self,
+        text_prompt: str | None = None,
+        selected_annotation_ids: list[int] | None = None,
+    ) -> tuple[bool, str]:
         with self.lock:
             if text_prompt is not None:
                 self.current_predict_prompt = text_prompt.strip()
@@ -40,29 +44,33 @@ class WebEngineAiExtractMixin:
                 return False, "Failed to read image for prediction."
 
             image_np = qpixmap_to_numpy(pixmap)
-            selected_anns = [
-                ann
-                for ann in self.current_annotations
-                if getattr(ann, "selected", False) and ann.visible
-            ]
-            if selected_anns:
-                prompt_anns = selected_anns
+            if selected_annotation_ids is not None:
+                sel_id_set = {int(i) for i in selected_annotation_ids}
+                prompt_anns = [
+                    ann
+                    for ann in self.current_annotations
+                    if ann.annotation_id in sel_id_set and ann.visible
+                ]
             else:
                 prompt_anns = [
                     ann
                     for ann in self.current_annotations
-                    if not ann.is_model_generated and ann.visible
+                    if getattr(ann, "selected", False) and ann.visible
                 ]
 
             points = []
             polygons = []
             rectangles = []
             label_hints = []
+            used_prompt_anns = []
             for ann in prompt_anns:
+                has_prompt_geom = False
                 if ann.points:
                     points.append([[p.x(), p.y()] for p in ann.points])
+                    has_prompt_geom = True
                 if ann.polygon:
                     polygons.append([[p.x(), p.y()] for p in ann.polygon])
+                    has_prompt_geom = True
                 if ann.rectangle:
                     rectangles.append(
                         [
@@ -72,15 +80,16 @@ class WebEngineAiExtractMixin:
                             ann.rectangle.y() + ann.rectangle.height(),
                         ]
                     )
-                label_hints.append([0])
-                ann.visible = False
+                    has_prompt_geom = True
+                if has_prompt_geom:
+                    label_hints.append([0])
+                    used_prompt_anns.append(ann)
 
             points_arg = points if points else None
             polygons_arg = polygons if polygons else None
             rectangles_arg = [rectangles] if rectangles else None
             label_hints_arg = label_hints if label_hints else None
 
-            self._current_history().push(self.current_annotations)
             try:
                 predictions: list[PredictionResult] = model.predict(
                     image_np,
@@ -94,6 +103,12 @@ class WebEngineAiExtractMixin:
             except Exception as err:
                 logger.exception(err)
                 return False, f"Model error: {err}"
+
+            self._current_history().push(self.current_annotations)
+            if predictions:
+                for ann in used_prompt_anns:
+                    ann.visible = False
+                    ann.selected = False
 
             model_name = getattr(model, "name", self.current_model_name)
             img_w = max(1, pixmap.width())

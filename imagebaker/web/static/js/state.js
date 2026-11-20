@@ -6,6 +6,24 @@
 
   const utils = window.ImageBaker.utils;
 
+  const DEFAULT_SHORTCUTS = {
+    select: "q",
+    polygon: "w",
+    point: "e",
+    rectangle: "r",
+    pan: "t",
+    brush: "b",
+    predict: "p",
+    cycle_model: "m",
+    layerify: "l",
+    caption: "c",
+    toggle_visibility: "h",
+    fit_view: "f",
+    toggle_grid: "g",
+    prev_item: "[",
+    next_item: "]",
+  };
+
   const state = {
     version: "0.0.0",
     is_debug: false,
@@ -15,6 +33,8 @@
     active_tab: "Layerify",
     show_gridlines: true,
     grid_spacing: 50,
+    shortcuts: { ...DEFAULT_SHORTCUTS },
+    default_shortcuts: { ...DEFAULT_SHORTCUTS },
     message: "Ready",
     status_bar: {
       active_tab: "Layerify",
@@ -236,9 +256,18 @@
 
   const _modeCursorCache = new Map();
 
-  function buildModeCursor(mode, sizePx = 28) {
+  function buildModeCursor(mode, sizePx = 28, labelColorHex = null) {
     const sz = Math.max(14, Math.min(72, Math.round(Number(sizePx) || 28)));
-    const key = `${mode}:${sz}`;
+    const resolvedHex = (
+      labelColorHex ||
+      (typeof getCurrentSelectedLabelColor === "function" ? getCurrentSelectedLabelColor() : null) ||
+      "#3b82f6"
+    ).trim();
+    const [cr, cg, cb] = utils.hexToRgb(resolvedHex);
+    const accentStroke = resolvedHex;
+    const accentFillSoft = `rgba(${cr},${cg},${cb},0.32)`;
+    const accentFillBrush = `rgba(${cr},${cg},${cb},0.22)`;
+    const key = `${mode}:${sz}:${accentStroke.toLowerCase()}`;
     if (_modeCursorCache.has(key)) {
       return _modeCursorCache.get(key);
     }
@@ -258,8 +287,8 @@
             <line x1='3' y1='10' x2='8' y2='10'/><line x1='12' y1='10' x2='17' y2='10'/>
             <line x1='10' y1='3' x2='10' y2='8'/><line x1='10' y1='12' x2='10' y2='17'/>
           </g>
-          <rect x='14' y='15' width='11' height='9' fill='none' stroke='#ffffff' stroke-width='2.5'/>
-          <rect x='14' y='15' width='11' height='9' fill='rgba(59,130,246,0.28)' stroke='#3b82f6' stroke-width='1.5'/>
+          <rect x='14' y='15' width='11' height='9' fill='none' stroke='#141820' stroke-width='3.2'/>
+          <rect x='14' y='15' width='11' height='9' fill='${accentFillSoft}' stroke='${accentStroke}' stroke-width='1.8'/>
         </svg>`,
         hs10, hs10, "crosshair"
       );
@@ -274,10 +303,10 @@
             <line x1='3' y1='10' x2='8' y2='10'/><line x1='12' y1='10' x2='17' y2='10'/>
             <line x1='10' y1='3' x2='10' y2='8'/><line x1='10' y1='12' x2='10' y2='17'/>
           </g>
-          <circle cx='10' cy='10' r='3' fill='#00d2ff' stroke='#ffffff' stroke-width='1.8'/>
-          <circle cx='20' cy='20' r='4.5' fill='none' stroke='#ffffff' stroke-width='2.5'/>
-          <circle cx='20' cy='20' r='4.5' fill='none' stroke='#00b4e6' stroke-width='1.5'/>
-          <circle cx='20' cy='20' r='1.8' fill='#00d2ff'/>
+          <circle cx='10' cy='10' r='3.2' fill='${accentStroke}' stroke='#141820' stroke-width='1.4'/>
+          <circle cx='20' cy='20' r='4.5' fill='none' stroke='#141820' stroke-width='3.0'/>
+          <circle cx='20' cy='20' r='4.5' fill='${accentFillSoft}' stroke='${accentStroke}' stroke-width='1.6'/>
+          <circle cx='20' cy='20' r='1.8' fill='${accentStroke}'/>
         </svg>`,
         hs10, hs10, "crosshair"
       );
@@ -292,30 +321,33 @@
             <line x1='3' y1='10' x2='8' y2='10'/><line x1='12' y1='10' x2='17' y2='10'/>
             <line x1='10' y1='3' x2='10' y2='8'/><line x1='10' y1='12' x2='10' y2='17'/>
           </g>
-          <polygon points='15,24 14,17 20,14 25,19 23,25' fill='none' stroke='#ffffff' stroke-width='2.5' stroke-linejoin='round'/>
-          <polygon points='15,24 14,17 20,14 25,19 23,25' fill='rgba(16,185,129,0.3)' stroke='#10b981' stroke-width='1.5' stroke-linejoin='round'/>
-          <circle cx='15' cy='24' r='1.6' fill='#10b981'/><circle cx='14' cy='17' r='1.6' fill='#10b981'/>
-          <circle cx='20' cy='14' r='1.6' fill='#10b981'/><circle cx='25' cy='19' r='1.6' fill='#10b981'/>
-          <circle cx='23' cy='25' r='1.6' fill='#10b981'/>
+          <polygon points='15,24 14,17 20,14 25,19 23,25' fill='none' stroke='#141820' stroke-width='3.0' stroke-linejoin='round'/>
+          <polygon points='15,24 14,17 20,14 25,19 23,25' fill='${accentFillSoft}' stroke='${accentStroke}' stroke-width='1.7' stroke-linejoin='round'/>
+          <circle cx='15' cy='24' r='1.7' fill='${accentStroke}' stroke='#141820' stroke-width='0.7'/>
+          <circle cx='14' cy='17' r='1.7' fill='${accentStroke}' stroke='#141820' stroke-width='0.7'/>
+          <circle cx='20' cy='14' r='1.7' fill='${accentStroke}' stroke='#141820' stroke-width='0.7'/>
+          <circle cx='25' cy='19' r='1.7' fill='${accentStroke}' stroke='#141820' stroke-width='0.7'/>
+          <circle cx='23' cy='25' r='1.7' fill='${accentStroke}' stroke='#141820' stroke-width='0.7'/>
         </svg>`,
         hs10, hs10, "crosshair"
       );
     } else if (mode === "Brush") {
       cursor = utils.svgCursor(
         `<svg xmlns='http://www.w3.org/2000/svg' width='${sz}' height='${sz}' viewBox='0 0 28 28'>
-          <circle cx='12' cy='12' r='8' fill='none' stroke='#ffffff' stroke-width='3'/>
-          <circle cx='12' cy='12' r='8' fill='rgba(168,85,247,0.18)' stroke='#a855f7' stroke-width='1.8'/>
-          <circle cx='12' cy='12' r='2' fill='#a855f7' stroke='#ffffff' stroke-width='1'/>
-          <path d='M19 19 L25 25' stroke='#ffffff' stroke-width='3' stroke-linecap='round'/>
-          <path d='M19 19 L25 25' stroke='#a855f7' stroke-width='1.8' stroke-linecap='round'/>
+          <circle cx='12' cy='12' r='8' fill='none' stroke='#141820' stroke-width='3.4'/>
+          <circle cx='12' cy='12' r='8' fill='${accentFillBrush}' stroke='${accentStroke}' stroke-width='1.9'/>
+          <circle cx='12' cy='12' r='2.2' fill='${accentStroke}' stroke='#141820' stroke-width='0.9'/>
+          <path d='M19 19 L25 25' stroke='#141820' stroke-width='3.4' stroke-linecap='round'/>
+          <path d='M19 19 L25 25' stroke='${accentStroke}' stroke-width='1.9' stroke-linecap='round'/>
         </svg>`,
         hs12, hs12, "crosshair"
       );
-    } else if (sz !== 28) {
+    } else {
       const hs = Math.round(sz / 2);
       cursor = utils.svgCursor(
         `<svg xmlns='http://www.w3.org/2000/svg' width='${sz}' height='${sz}' viewBox='0 0 28 28'>
           <path d='M6 4 L6 22 L11 17 L15 24 L18 22.5 L14 15.5 L20 15.5 Z' fill='#ffffff' stroke='#141820' stroke-width='1.8' stroke-linejoin='round'/>
+          <circle cx='21' cy='21' r='4.2' fill='${accentStroke}' stroke='#141820' stroke-width='1.5'/>
         </svg>`,
         Math.round((6 * hs) / 14), Math.round((4 * hs) / 14), "default"
       );
@@ -518,6 +550,7 @@
   }
 
   window.ImageBaker = window.ImageBaker || {};
+  window.ImageBaker.DEFAULT_SHORTCUTS = DEFAULT_SHORTCUTS;
   window.ImageBaker.state = state;
   window.ImageBaker.lyrView = lyrView;
   window.ImageBaker.bkrView = bkrView;

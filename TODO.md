@@ -2,8 +2,8 @@ Highest Priority First
 ----------------------
 - [x] Implement `SmokeSim` plugin using the new plugin framework.
 - [ ] Occlusion handling.
-- [ ] Instead of separate prompt model class, use a flag in the config. If a prompt is allowed, the prompt will be sent to the model else the propmt will be applied on the image i.e. if passed rectangle for non prompt segmentation model, model will receive cropped image.
-- [ ] Add test scripts (to reproduce results if that is even possible).
+- [x] Instead of separate prompt model class, use a flag in the config. If a prompt is allowed, the prompt will be sent to the model else the propmt will be applied on the image i.e. if passed rectangle for non prompt segmentation model, model will receive cropped image.
+- [x] Add test scripts (to reproduce results if that is even possible).
 - [ ] Add Circle mode. Now, we only have point, rectangle and polygon.
 - [ ] Loading of video?
 - [ ] Add pose annotation.

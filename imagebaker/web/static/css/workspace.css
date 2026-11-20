@@ -296,7 +296,8 @@ body.resizing-sidebar * {
 
 .ls-tool-btn.active {
   background-color: var(--accent-soft);
-  border-color: var(--accent);
+  border-color: var(--active-label-color, var(--accent));
+  box-shadow: inset 3px 0 0 var(--active-label-color, var(--accent));
 }
 
 .ls-tool-btn.ls-tool-danger:hover {
@@ -343,12 +344,48 @@ body.resizing-sidebar * {
   outline: none;
 }
 
-.canvas-hud-bar {
+.canvas-hud-anchor {
   position: absolute;
   top: 8px;
   left: 10px;
   display: flex;
   align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 20px);
+  z-index: 15;
+}
+
+.canvas-hud-toggle-btn {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(18, 25, 37, 0.84);
+  backdrop-filter: blur(5px);
+  color: #e5edf8;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0;
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.canvas-hud-toggle-btn:hover,
+.canvas-hud-toggle-btn.active {
+  background-color: rgba(37, 99, 235, 0.9);
+  border-color: rgba(147, 197, 253, 0.7);
+  color: #ffffff;
+}
+
+.canvas-hud-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   background-color: rgba(18, 25, 37, 0.84);
   backdrop-filter: blur(5px);
@@ -357,7 +394,15 @@ body.resizing-sidebar * {
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   font-size: 11.5px;
-  z-index: 15;
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.canvas-hud-bar.hud-fading {
+  opacity: 0;
+  transform: translateX(-6px);
+  transition: opacity 1.4s ease-out, transform 1.4s ease-out;
 }
 
 .hud-mode-pill {
@@ -412,4 +457,58 @@ body.resizing-sidebar * {
   pointer-events: none;
   z-index: 25;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  transition: opacity 0.35s ease;
+}
+
+/* ==================== SHORTCUTS CONFIGURATION MODAL ==================== */
+.shortcuts-config-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.shortcut-config-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background-color: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.shortcut-config-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.shortcut-key-btn {
+  min-width: 44px;
+  height: 28px;
+  padding: 2px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background-color: var(--btn);
+  color: var(--text);
+  font-family: monospace;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 0.14s ease, background-color 0.14s ease, color 0.14s ease;
+}
+
+.shortcut-key-btn:hover {
+  border-color: var(--accent);
+}
+
+.shortcut-key-btn.listening {
+  background-color: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
 }

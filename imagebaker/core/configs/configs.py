@@ -12,6 +12,24 @@ try:
 except ImportError:
     __version__ = "unknown"
 
+DEFAULT_SHORTCUTS: dict[str, str] = {
+    "select": "q",
+    "polygon": "w",
+    "point": "e",
+    "rectangle": "r",
+    "pan": "t",
+    "brush": "b",
+    "predict": "p",
+    "cycle_model": "m",
+    "layerify": "l",
+    "caption": "c",
+    "toggle_visibility": "h",
+    "fit_view": "f",
+    "toggle_grid": "g",
+    "prev_item": "[",
+    "next_item": "]",
+}
+
 
 class DrawConfig(BaseModel):
     color: QColor = Field(default_factory=lambda: QColor(255, 255, 255))
@@ -113,10 +131,67 @@ class LayerConfig(BaseConfig):
     # whether to search image in subfolders as well
     full_search: bool = False
     cleanup_on_exit: bool = False
+    shortcuts: dict[str, str] = Field(default_factory=lambda: dict(DEFAULT_SHORTCUTS))
 
     @property
     def labels_cache_file(self) -> Path:
         return self.cache_dir / "labels.json"
+
+    @property
+    def shortcuts_cache_file(self) -> Path:
+        return self.cache_dir / "shortcuts.json"
+
+    @staticmethod
+    def _normalize_shortcut_key(raw_key: str) -> str:
+        key = str(raw_key or "").strip().lower()
+        return key if len(key) == 1 else ""
+
+    def load_shortcuts_from_cache(self) -> dict[str, str]:
+        import json
+
+        merged = dict(DEFAULT_SHORTCUTS)
+        cache_file = self.shortcuts_cache_file
+        if cache_file.exists():
+            try:
+                raw = json.loads(cache_file.read_text(encoding="utf-8"))
+                if isinstance(raw, dict):
+                    for action, val in raw.items():
+                        if action in DEFAULT_SHORTCUTS:
+                            norm = self._normalize_shortcut_key(val)
+                            if norm:
+                                merged[action] = norm
+            except Exception as exc:
+                logger.warning(f"Failed to read shortcuts cache {cache_file}: {exc}")
+        self.shortcuts = merged
+        return dict(self.shortcuts)
+
+    def save_shortcuts_to_cache(self) -> Path:
+        import json
+
+        cache_file = self.shortcuts_cache_file
+        try:
+            cache_file.write_text(json.dumps(self.shortcuts, indent=2), encoding="utf-8")
+        except Exception as exc:
+            logger.warning(f"Failed to save shortcuts cache {cache_file}: {exc}")
+        return cache_file
+
+    def update_shortcuts(self, updates: dict[str, str]) -> dict[str, str]:
+        merged = dict(DEFAULT_SHORTCUTS)
+        merged.update(self.shortcuts or {})
+        if isinstance(updates, dict):
+            for action, val in updates.items():
+                if action in DEFAULT_SHORTCUTS:
+                    norm = self._normalize_shortcut_key(val)
+                    if norm:
+                        merged[action] = norm
+        self.shortcuts = merged
+        self.save_shortcuts_to_cache()
+        return dict(self.shortcuts)
+
+    def reset_shortcuts(self) -> dict[str, str]:
+        self.shortcuts = dict(DEFAULT_SHORTCUTS)
+        self.save_shortcuts_to_cache()
+        return dict(self.shortcuts)
 
     def ensure_undefined_label(self):
         if not any(lbl.name == "Undefined" for lbl in self.predefined_labels):

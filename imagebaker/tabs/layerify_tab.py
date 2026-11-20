@@ -76,6 +76,7 @@ class LayerifyTab(
             list(self.all_models.values())[0] if self.all_models else None
         )
         self.config.load_labels_from_cache()
+        self.config.load_shortcuts_from_cache()
         self.current_label = self.config.default_label.name
         self.image_entries = []
         self.curr_image_idx = 0

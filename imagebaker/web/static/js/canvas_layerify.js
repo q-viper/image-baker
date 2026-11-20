@@ -29,6 +29,78 @@
   } = masks;
 
   let lyrCanvas, lyrCanvasWrap;
+  let hudAutoHideTimer = null;
+  let hudFadeCompleteTimer = null;
+  let hudHovered = false;
+  const HUD_VISIBLE_DELAY_MS = 2500;
+  const HUD_FADE_DURATION_MS = 1400;
+
+  function clearHudAutoHide() {
+    if (hudAutoHideTimer) {
+      clearTimeout(hudAutoHideTimer);
+      hudAutoHideTimer = null;
+    }
+    if (hudFadeCompleteTimer) {
+      clearTimeout(hudFadeCompleteTimer);
+      hudFadeCompleteTimer = null;
+    }
+  }
+
+  function startHudFadeOut() {
+    const hudBar = document.getElementById("layerify-hud-bar");
+    const toggleBtn = document.getElementById("btn-layerify-hud-toggle");
+    if (!hudBar || hudHovered || hudBar.classList.contains("hidden")) return;
+    hudBar.classList.add("hud-fading");
+    hudFadeCompleteTimer = setTimeout(() => {
+      hudFadeCompleteTimer = null;
+      if (hudHovered) return;
+      hudBar.classList.add("hidden");
+      hudBar.classList.remove("hud-fading");
+      if (toggleBtn) {
+        toggleBtn.classList.remove("active");
+        toggleBtn.setAttribute("aria-expanded", "false");
+      }
+    }, HUD_FADE_DURATION_MS);
+  }
+
+  function scheduleHudAutoHide(delayMs = HUD_VISIBLE_DELAY_MS) {
+    clearHudAutoHide();
+    if (hudHovered) return;
+    hudAutoHideTimer = setTimeout(() => {
+      hudAutoHideTimer = null;
+      startHudFadeOut();
+    }, delayMs);
+  }
+
+  function setHudVisible(visible, { autoHide = true, immediate = false } = {}) {
+    const hudBar = document.getElementById("layerify-hud-bar");
+    const toggleBtn = document.getElementById("btn-layerify-hud-toggle");
+    if (!hudBar) return;
+    const show = Boolean(visible);
+    clearHudAutoHide();
+    if (show) {
+      hudBar.classList.remove("hidden");
+      // Force reflow before clearing hud-fading so fade-in transitions smoothly if revealed from hidden
+      void hudBar.offsetWidth;
+      hudBar.classList.remove("hud-fading");
+      if (toggleBtn) {
+        toggleBtn.classList.add("active");
+        toggleBtn.setAttribute("aria-expanded", "true");
+      }
+      if (autoHide) {
+        scheduleHudAutoHide();
+      }
+    } else if (immediate) {
+      hudBar.classList.add("hidden");
+      hudBar.classList.remove("hud-fading");
+      if (toggleBtn) {
+        toggleBtn.classList.remove("active");
+        toggleBtn.setAttribute("aria-expanded", "false");
+      }
+    } else {
+      startHudFadeOut();
+    }
+  }
 
   function initLayerifyCanvas() {
     lyrCanvas = document.getElementById("layerify-canvas");
@@ -156,7 +228,7 @@
     }
   }
 
-  function setLayerifyMode(mode) {
+  function setLayerifyMode(mode, { showHud = true } = {}) {
     lyrView.activeMode = mode;
     lyrView.activeRectDraft = null;
     lyrView.activePolyDraft = [];
@@ -174,6 +246,10 @@
     const finishPoly = document.getElementById("btn-finish-polygon");
 
     if (pill) pill.textContent = `Mode: ${mode}`;
+    const hudToggleBtn = document.getElementById("btn-layerify-hud-toggle");
+    if (hudToggleBtn) {
+      hudToggleBtn.title = `Mode: ${mode} — Click to toggle mode info & controls`;
+    }
     if (brushWrap) brushWrap.classList.toggle("hidden", mode !== "Brush");
     if (cursorWrap) cursorWrap.classList.toggle("hidden", mode === "Brush" || mode === "Pan");
     if (finishPoly) finishPoly.classList.toggle("hidden", mode !== "Polygon");
@@ -192,6 +268,9 @@
     if (lyrCanvas) {
       lyrCanvas.style.cursor = getCursorForMode(mode);
     }
+    if (showHud) {
+      setHudVisible(true, { autoHide: true });
+    }
     drawLayerifyCanvas();
   }
 
@@ -199,6 +278,7 @@
     if (!lyrCanvas) return;
 
     lyrCanvas.addEventListener("pointerdown", e => {
+      setHudVisible(false, { immediate: true });
       lyrCanvas.setPointerCapture(e.pointerId);
       const rect = lyrCanvas.getBoundingClientRect();
       const sx = e.clientX - rect.left;
@@ -715,6 +795,37 @@
   }
 
   function bindHudEvents() {
+    const hudAnchor = document.getElementById("layerify-hud-anchor");
+    const hudBar = document.getElementById("layerify-hud-bar");
+    const hudToggleBtn = document.getElementById("btn-layerify-hud-toggle");
+    if (hudToggleBtn && hudBar) {
+      hudToggleBtn.addEventListener("click", e => {
+        e.stopPropagation();
+        const isHiddenOrFading =
+          hudBar.classList.contains("hidden") || hudBar.classList.contains("hud-fading");
+        setHudVisible(isHiddenOrFading, { autoHide: true, immediate: !isHiddenOrFading });
+      });
+    }
+    if (hudAnchor && hudBar) {
+      hudAnchor.addEventListener("mouseenter", () => {
+        hudHovered = true;
+        clearHudAutoHide();
+        if (!hudBar.classList.contains("hidden")) {
+          hudBar.classList.remove("hud-fading");
+          if (hudToggleBtn) {
+            hudToggleBtn.classList.add("active");
+            hudToggleBtn.setAttribute("aria-expanded", "true");
+          }
+        }
+      });
+      hudAnchor.addEventListener("mouseleave", () => {
+        hudHovered = false;
+        if (!hudBar.classList.contains("hidden")) {
+          scheduleHudAutoHide();
+        }
+      });
+    }
+
     const brushInput = document.getElementById("input-lyr-brush-size");
     const brushVal = document.getElementById("val-lyr-brush-size");
     if (brushInput) {
@@ -811,7 +922,7 @@
       color: [r, g, b],
       color_hex: utils.rgbToHex(r, g, b),
       visible: true,
-      selected: false,
+      selected: true,
       points: data.points || [],
       rectangle: data.rectangle || null,
       polygon: data.polygon || [],

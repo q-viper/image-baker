@@ -564,3 +564,168 @@ def test_native_shrinkable_panels_image_removal_and_plugins(tmp_path):
     baker.clear_plugin_selection()
     assert target_layer.plugins == []
 
+
+def test_model_assist_hides_only_selected_prompt_rectangle(tmp_path):
+    """Issue #41: Predicting with a selected rectangle hides ONLY that prompt rectangle, not other annotations."""
+    assets = tmp_path / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    create_sample_image(assets / "scene.png", 200, 160)
+    models_file = create_dummy_models_file(tmp_path / "dummy_models.py")
+
+    engine = WebAppEngine(models_file=str(models_file), project_dir=str(tmp_path))
+    engine.current_model_name = "DummyDetectionModel"
+    engine.current_label = "car"
+
+    # Add 3 visible manual annotations: 2 existing annotations + 1 selected prompt rectangle
+    engine.update_annotations(
+        [
+            {
+                "annotation_id": 0,
+                "label": "tree",
+                "rectangle": [10, 10, 40, 40],
+                "visible": True,
+                "selected": False,
+                "is_model_generated": False,
+            },
+            {
+                "annotation_id": 1,
+                "label": "road",
+                "polygon": [[5, 100], [50, 100], [50, 140], [5, 140]],
+                "visible": True,
+                "selected": False,
+                "is_model_generated": False,
+            },
+            {
+                "annotation_id": 2,
+                "label": "car",
+                "rectangle": [80, 60, 150, 120],
+                "visible": True,
+                "selected": True,
+                "is_model_generated": False,
+            },
+        ],
+        push_undo=False,
+    )
+
+    # 1. Direct engine prediction with selected prompt rectangle
+    ok, msg = engine.run_prediction()
+    assert ok is True, msg
+    anns = engine.get_state()["layerify"]["annotations"]
+    assert len(anns) >= 4
+    # Existing unselected annotations MUST stay visible
+    assert anns[0]["visible"] is True
+    assert anns[1]["visible"] is True
+    # Only the selected prompt rectangle is hidden & deselected
+    assert anns[2]["visible"] is False
+    assert anns[2]["selected"] is False
+    # Newly predicted annotation is visible
+    assert anns[-1]["visible"] is True
+    assert anns[-1]["is_model_generated"] is True
+
+    # 2. Undo restores the prompt rectangle's visibility cleanly
+    ok, _ = engine.undo_annotation()
+    assert ok is True
+    restored = engine.get_state()["layerify"]["annotations"]
+    assert len(restored) == 3
+    assert all(a["visible"] is True for a in restored)
+
+    # 3. Predicting via explicit selected_annotation_ids=[] (nothing selected) hides NOTHING
+    ok, msg = engine.run_prediction(selected_annotation_ids=[])
+    assert ok is True, msg
+    anns_after_full = engine.get_state()["layerify"]["annotations"]
+    assert anns_after_full[0]["visible"] is True
+    assert anns_after_full[1]["visible"] is True
+    assert anns_after_full[2]["visible"] is True
+
+    # 4. Predicting via explicit selected_annotation_ids=[0] hides ONLY annotation 0 (even if server selected flag differs)
+    ok, msg = engine.run_prediction(selected_annotation_ids=[0])
+    assert ok is True, msg
+    anns_after_explicit = engine.get_state()["layerify"]["annotations"]
+    assert anns_after_explicit[0]["visible"] is False
+    assert anns_after_explicit[1]["visible"] is True
+    assert anns_after_explicit[2]["visible"] is True
+
+
+def test_web_hud_mode_bar_auto_hide_and_reveal_icon():
+    """Issue #40: Web Layerify mode info bar is hidden by default and revealed via top-left toggle icon."""
+    from imagebaker.web.server import STATIC_DIR
+
+    index_html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    workspace_css = (STATIC_DIR / "css" / "workspace.css").read_text(encoding="utf-8")
+    canvas_js = (STATIC_DIR / "js" / "canvas_layerify.js").read_text(encoding="utf-8")
+
+    # HTML: anchor wrapper, reveal toggle icon button, and HUD bar hidden by default
+    assert 'id="layerify-hud-anchor"' in index_html
+    assert 'id="btn-layerify-hud-toggle"' in index_html
+    assert 'class="canvas-hud-bar hidden" id="layerify-hud-bar"' in index_html
+
+    # CSS: anchor sits at top-left, styles toggle icon, and supports smooth fade-out
+    assert ".canvas-hud-anchor" in workspace_css
+    assert ".canvas-hud-toggle-btn" in workspace_css
+    assert ".canvas-hud-bar.hud-fading" in workspace_css
+
+    # JS: wires reveal button, smooth fade-out, hover-to-restore, and shows on launch & mode switch
+    assert "btn-layerify-hud-toggle" in canvas_js
+    assert "setHudVisible" in canvas_js
+    assert "scheduleHudAutoHide" in canvas_js
+    assert "startHudFadeOut" in canvas_js
+    assert "hud-fading" in canvas_js
+    assert "setHudVisible(true, { autoHide: true })" in canvas_js
+
+    # Shortcut M cycles AI model and shows fading toast + log entry
+    shortcuts_js = (STATIC_DIR / "js" / "shortcuts.js").read_text(encoding="utf-8")
+    ui_layerify_js = (STATIC_DIR / "js" / "ui_layerify.js").read_text(encoding="utf-8")
+    assert "sc.cycle_model" in shortcuts_js
+    assert "cycleModel" in shortcuts_js
+    assert "async function cycleModel()" in ui_layerify_js
+    assert "showToast(\"layerify\", `Model: ${nextModel}`)" in ui_layerify_js
+
+
+def test_configurable_shortcuts_defaults_persistence_and_reset(tmp_path):
+    """Verify default shortcuts (Q=select, W=poly, E=point, R=rect, T=pan) and persistence."""
+    from imagebaker.core.configs import DEFAULT_SHORTCUTS
+    from imagebaker.web.server import STATIC_DIR
+
+    assert DEFAULT_SHORTCUTS["select"] == "q"
+    assert DEFAULT_SHORTCUTS["polygon"] == "w"
+    assert DEFAULT_SHORTCUTS["point"] == "e"
+    assert DEFAULT_SHORTCUTS["rectangle"] == "r"
+    assert DEFAULT_SHORTCUTS["pan"] == "t"
+    assert DEFAULT_SHORTCUTS["brush"] == "b"
+    assert DEFAULT_SHORTCUTS["cycle_model"] == "m"
+
+    engine = WebAppEngine(models_file=None, project_dir=str(tmp_path))
+    state = engine.get_state()
+    assert state["shortcuts"]["select"] == "q"
+    assert state["shortcuts"]["polygon"] == "w"
+    assert state["shortcuts"]["rectangle"] == "r"
+    assert state["shortcuts"]["pan"] == "t"
+
+    # Update shortcuts and verify persistence across engine restart
+    engine.layer_config.update_shortcuts({"select": "v", "pan": "x"})
+    assert engine.layer_config.shortcuts_cache_file.exists()
+
+    engine2 = WebAppEngine(models_file=None, project_dir=str(tmp_path))
+    assert engine2.get_state()["shortcuts"]["select"] == "v"
+    assert engine2.get_state()["shortcuts"]["pan"] == "x"
+    assert engine2.get_state()["shortcuts"]["rectangle"] == "r"
+
+    # Reset restores defaults
+    engine2.layer_config.reset_shortcuts()
+    assert engine2.get_state()["shortcuts"] == DEFAULT_SHORTCUTS
+
+    # Verify modal & UI hooks exist in static assets
+    index_html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    assert 'id="btn-top-shortcuts"' in index_html
+    assert 'id="modal-configure-shortcuts"' in index_html
+    assert 'data-shortcut-kbd="pan"' in index_html
+
+    # Verify mouse mode cursor reflects active label color
+    state_js = (STATIC_DIR / "js" / "state.js").read_text(encoding="utf-8")
+    render_js = (STATIC_DIR / "js" / "canvas_layerify_render.js").read_text(encoding="utf-8")
+    ui_js = (STATIC_DIR / "js" / "ui_layerify.js").read_text(encoding="utf-8")
+    assert "function buildModeCursor(mode, sizePx = 28, labelColorHex = null)" in state_js
+    assert "getCurrentSelectedLabelColor" in render_js
+    assert "--active-label-color" in ui_js
+
+

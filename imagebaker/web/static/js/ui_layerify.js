@@ -300,6 +300,15 @@
       const hex = utils.rgbToHex(r, g, b);
       if (colorPicker) colorPicker.value = hex;
       if (activeSwatch) activeSwatch.style.backgroundColor = hex;
+      const layerifyView = document.getElementById("view-layerify");
+      if (layerifyView) {
+        layerifyView.style.setProperty("--active-label-color", hex);
+      }
+      if (lyrView.canvas && window.ImageBaker.canvasLayerifyRender?.getCursorForMode) {
+        lyrView.canvas.style.cursor = window.ImageBaker.canvasLayerifyRender.getCursorForMode(
+          lyrView.activeMode || "Rectangle"
+        );
+      }
     }
 
     const modelSelect = document.getElementById("select-model");
@@ -345,12 +354,39 @@
     }
   }
 
+  async function cycleModel() {
+    const models = state.layerify.models || [];
+    if (!models.length) {
+      showToast("layerify", "No models available");
+      return;
+    }
+    const curIdx = models.indexOf(state.layerify.current_model);
+    const nextIdx = curIdx >= 0 ? (curIdx + 1) % models.length : 0;
+    const nextModel = models[nextIdx];
+    try {
+      const res = await api.selectModel(nextModel);
+      if (res && res.ok && res.state) {
+        window.ImageBaker.applyServerState(res.state);
+        showToast("layerify", `Model: ${nextModel}`);
+      }
+    } catch (err) {
+      showToast("layerify", "Model switch error: " + err.message);
+    }
+  }
+
   async function runModelPrediction() {
     const promptInput = document.getElementById("input-predict-prompt");
     const textPrompt = promptInput ? promptInput.value.trim() : "";
+    const selectedAnnotationIds = (state.layerify.annotations || [])
+      .filter(a => a.selected && a.visible !== false)
+      .map(a => a.annotation_id);
     try {
       showToast("layerify", textPrompt ? `Predicting with prompt "${textPrompt}"...` : "Running model prediction...");
-      const res = await api.runModelPrediction(state.layerify.current_model, textPrompt);
+      const res = await api.runModelPrediction(
+        state.layerify.current_model,
+        textPrompt,
+        selectedAnnotationIds
+      );
       if (res.ok && res.state) {
         window.ImageBaker.applyServerState(res.state);
         showToast("layerify", res.message || "Prediction complete");
@@ -695,6 +731,7 @@
     showLoading: (text) => window.ImageBaker.showLayerifyLoading && window.ImageBaker.showLayerifyLoading(text),
     hideLoading: () => window.ImageBaker.hideLayerifyLoading && window.ImageBaker.hideLayerifyLoading(),
     selectLabelAndMaybeAssign,
+    cycleModel,
     runModelPrediction,
     runLayerifyAll,
     runLayerifySelected,

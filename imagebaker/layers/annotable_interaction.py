@@ -131,42 +131,57 @@ class AnnotableInteractionMixin:
                 event.accept()
                 return
 
-        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_Q:
-            self.set_mode(MouseMode.POINT)
-            self.messageSignal.emit("Mouse mode set to POINT.")
-            event.accept()
-            return
-
-        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_W:
-            self.set_mode(MouseMode.POLYGON)
-            self.messageSignal.emit("Mouse mode set to POLYGON.")
-            event.accept()
-            return
-
-        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_E:
-            self.set_mode(MouseMode.RECTANGLE)
-            self.messageSignal.emit("Mouse mode set to RECTANGLE.")
-            event.accept()
-            return
-
-        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_H:
-            self.toggle_annotation_visibility()
-            event.accept()
-            return
-
-        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_L:
-            selected_annotations = [ann for ann in self.annotations if ann.selected]
-            if selected_annotations:
-                self.layerify_annotation(selected_annotations)
-            else:
-                self.layerify_annotation(self.annotations)
-            event.accept()
-            return
-
-        if event.modifiers() == Qt.NoModifier and event.key() == Qt.Key_C:
-            self.edit_selected_annotation_caption()
-            event.accept()
-            return
+        if event.modifiers() == Qt.NoModifier:
+            key_char = (event.text() or "").strip().lower()
+            if not key_char and 32 <= event.key() <= 126:
+                key_char = chr(event.key()).lower()
+            sc = getattr(self.config, "shortcuts", {}) or {}
+            if event.key() == Qt.Key_Escape or (key_char and key_char == sc.get("select", "q")):
+                self.set_mode(MouseMode.IDLE)
+                self.messageSignal.emit("Mouse mode set to IDLE.")
+                event.accept()
+                return
+            if key_char and key_char == sc.get("point", "e"):
+                self.set_mode(MouseMode.POINT)
+                self.messageSignal.emit("Mouse mode set to POINT.")
+                event.accept()
+                return
+            if key_char and key_char == sc.get("polygon", "w"):
+                self.set_mode(MouseMode.POLYGON)
+                self.messageSignal.emit("Mouse mode set to POLYGON.")
+                event.accept()
+                return
+            if key_char and key_char == sc.get("rectangle", "r"):
+                self.set_mode(MouseMode.RECTANGLE)
+                self.messageSignal.emit("Mouse mode set to RECTANGLE.")
+                event.accept()
+                return
+            if key_char and key_char == sc.get("pan", "t"):
+                self.set_mode(MouseMode.PAN)
+                self.messageSignal.emit("Mouse mode set to PAN.")
+                event.accept()
+                return
+            if key_char and key_char == sc.get("brush", "b"):
+                self.set_mode(MouseMode.DRAW)
+                self.messageSignal.emit("Mouse mode set to BRUSH DRAW.")
+                event.accept()
+                return
+            if key_char and key_char == sc.get("toggle_visibility", "h"):
+                self.toggle_annotation_visibility()
+                event.accept()
+                return
+            if key_char and key_char == sc.get("layerify", "l"):
+                selected_annotations = [ann for ann in self.annotations if ann.selected]
+                if selected_annotations:
+                    self.layerify_annotation(selected_annotations)
+                else:
+                    self.layerify_annotation(self.annotations)
+                event.accept()
+                return
+            if key_char and key_char == sc.get("caption", "c"):
+                self.edit_selected_annotation_caption()
+                event.accept()
+                return
 
     def handle_key_release(self, event):
         if event.key() == Qt.Key_Control:

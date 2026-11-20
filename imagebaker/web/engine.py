@@ -23,7 +23,7 @@ import numpy as np
 from PySide6.QtGui import QPixmap
 
 from imagebaker import __version__, logger
-from imagebaker.core.configs import CanvasConfig, LayerConfig
+from imagebaker.core.configs import DEFAULT_SHORTCUTS, CanvasConfig, LayerConfig
 from imagebaker.core.defs import Annotation
 from imagebaker.plugins.base_plugin import BasePlugin
 from imagebaker.web.engine_ai_and_extract import WebEngineAiExtractMixin
@@ -116,6 +116,7 @@ class WebAppEngine(
 
         # Layerify state
         self.layer_config.load_labels_from_cache()
+        self.layer_config.load_shortcuts_from_cache()
         model_keys = [str(k) for k in self.loaded_models.keys()]
         self.current_model_name = model_keys[0] if model_keys else "None"
         self.current_predict_prompt: str = ""
@@ -316,6 +317,8 @@ class WebAppEngine(
                 "active_tab": self.active_tab,
                 "show_gridlines": bool(self.layer_config.show_gridlines),
                 "grid_spacing": int(self.layer_config.grid_spacing),
+                "shortcuts": dict(self.layer_config.shortcuts),
+                "default_shortcuts": dict(DEFAULT_SHORTCUTS),
                 "message": self.last_message,
                 "status_message": self.last_message,
                 "status_bar": status_bar,

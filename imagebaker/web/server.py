@@ -217,6 +217,12 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
                         if engine.active_tab == "Baker":
                             engine.reload_plugins()
                         engine.last_message = f"Switched to {engine.active_tab} tab"
+                    if payload.get("reset_shortcuts"):
+                        engine.layer_config.reset_shortcuts()
+                        engine.last_message = "Shortcuts reset to defaults"
+                    elif isinstance(payload.get("shortcuts"), dict):
+                        engine.layer_config.update_shortcuts(payload["shortcuts"])
+                        engine.last_message = "Shortcuts updated"
                     if "viewport" in payload and engine.current_canvas is not None:
                         vp = payload["viewport"]
                         engine.current_canvas.viewport_width = max(
@@ -329,7 +335,11 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
                     prompt_val = payload.get("text_prompt")
                     if prompt_val is None:
                         prompt_val = payload.get("prompt")
-                    ok, msg = engine.run_prediction(text_prompt=prompt_val)
+                    sel_ann_ids = payload.get("selected_annotation_ids")
+                    ok, msg = engine.run_prediction(
+                        text_prompt=prompt_val,
+                        selected_annotation_ids=sel_ann_ids,
+                    )
                     self._send_json({"ok": ok, "message": msg, "state": engine.get_state_dict()})
                 else:
                     self._send_json({"ok": False, "message": f"Unknown model action: {action}"})

@@ -47,6 +47,7 @@
           <button class="zoom-btn" id="btn-zoom-fit" title="Fit to View (F)">Fit</button>
         </div>
         <button class="btn btn-sm toggle-btn active" id="btn-top-grid" title="Toggle Gridlines (G)">Grid: On</button>
+        <button class="btn btn-sm" id="btn-top-shortcuts" title="Configure keyboard shortcuts">⌨️ Keys</button>
         <button class="btn btn-sm btn-top-theme" id="btn-top-theme" title="Switch between light and dark theme">
           <span id="top-theme-icon">☀️</span>
           <span id="top-theme-text">Theme: Dark</span>
@@ -101,7 +102,7 @@
               </div>
               <div class="ls-label-bar-right">
                 <span class="ls-bar-tag">Model</span>
-                <select id="select-model" class="combo-box" title="Select a model for prediction."></select>
+                <select id="select-model" class="combo-box" title="Select a model for prediction (M to cycle)."></select>
                 <input type="text" id="input-predict-prompt" class="text-input prompt-input" placeholder="Prompt (optional)..." title="Optional text prompt for model prediction" />
                 <button class="btn btn-sm btn-primary" id="btn-predict" title="Run model prediction on the current image (P).">🔮 Predict (P)</button>
               </div>
@@ -110,34 +111,35 @@
             <div class="center-stage-row">
               <!-- Label Studio-Style Left Vertical Tool Strip -->
               <aside class="ls-tool-strip" aria-label="Annotation Tools">
-                <button class="ls-tool-btn mode-btn" data-mode="Idle" id="strip-mode-idle" title="Select / Move / Resize Mode (V or Esc or Right-Click)">
+                <button class="ls-tool-btn mode-btn" data-mode="Idle" id="strip-mode-idle" title="Select / Move / Resize Mode (Q or Esc or Right-Click)">
                   <span class="ls-tool-icon">↖</span>
                   <span class="ls-tool-label">Select</span>
-                  <kbd class="ls-tool-kbd">V</kbd>
+                  <kbd class="ls-tool-kbd" data-shortcut-kbd="select">Q</kbd>
                 </button>
-                <button class="ls-tool-btn mode-btn active" data-mode="Rectangle" id="strip-mode-rectangle" title="Rectangle Mode (E)">
+                <button class="ls-tool-btn mode-btn active" data-mode="Rectangle" id="strip-mode-rectangle" title="Rectangle Mode (R)">
                   <span class="ls-tool-icon">🔳</span>
                   <span class="ls-tool-label">Rect</span>
-                  <kbd class="ls-tool-kbd">E</kbd>
+                  <kbd class="ls-tool-kbd" data-shortcut-kbd="rectangle">R</kbd>
                 </button>
                 <button class="ls-tool-btn mode-btn" data-mode="Polygon" id="strip-mode-polygon" title="Polygon Mode (W) — Enter, Double-Click, or click 1st point to close">
                   <span class="ls-tool-icon">🔷</span>
                   <span class="ls-tool-label">Poly</span>
-                  <kbd class="ls-tool-kbd">W</kbd>
+                  <kbd class="ls-tool-kbd" data-shortcut-kbd="polygon">W</kbd>
                 </button>
-                <button class="ls-tool-btn mode-btn" data-mode="Point" id="strip-mode-point" title="Point Mode (Q)">
+                <button class="ls-tool-btn mode-btn" data-mode="Point" id="strip-mode-point" title="Point Mode (E)">
                   <span class="ls-tool-icon">📍</span>
                   <span class="ls-tool-label">Point</span>
-                  <kbd class="ls-tool-kbd">Q</kbd>
+                  <kbd class="ls-tool-kbd" data-shortcut-kbd="point">E</kbd>
                 </button>
                 <button class="ls-tool-btn mode-btn" data-mode="Brush" id="strip-mode-brush" title="Brush Segmentation Mask Mode (B)">
                   <span class="ls-tool-icon">🖌️</span>
                   <span class="ls-tool-label">Brush</span>
-                  <kbd class="ls-tool-kbd">B</kbd>
+                  <kbd class="ls-tool-kbd" data-shortcut-kbd="brush">B</kbd>
                 </button>
-                <button class="ls-tool-btn mode-btn" data-mode="Pan" id="strip-mode-pan" title="Pan Canvas (Ctrl + Drag)">
+                <button class="ls-tool-btn mode-btn" data-mode="Pan" id="strip-mode-pan" title="Pan Canvas (T or Ctrl + Drag)">
                   <span class="ls-tool-icon">✋</span>
                   <span class="ls-tool-label">Pan</span>
+                  <kbd class="ls-tool-kbd" data-shortcut-kbd="pan">T</kbd>
                 </button>
 
                 <div class="ls-tool-sep"></div>
@@ -153,12 +155,12 @@
                 <button class="ls-tool-btn" id="strip-btn-caption" title="Edit Selected Region Caption / Label (C)">
                   <span class="ls-tool-icon">💬</span>
                   <span class="ls-tool-label">Caption</span>
-                  <kbd class="ls-tool-kbd">C</kbd>
+                  <kbd class="ls-tool-kbd" data-shortcut-kbd="caption">C</kbd>
                 </button>
                 <button class="ls-tool-btn" id="strip-btn-vis" title="Toggle Selected Region Visibility (H)">
                   <span class="ls-tool-icon">👀</span>
                   <span class="ls-tool-label">Hide</span>
-                  <kbd class="ls-tool-kbd">H</kbd>
+                  <kbd class="ls-tool-kbd" data-shortcut-kbd="toggle_visibility">H</kbd>
                 </button>
                 <button class="ls-tool-btn ls-tool-danger" id="strip-btn-delete" title="Delete Selected Region (Delete)">
                   <span class="ls-tool-icon">🗑️</span>
@@ -179,27 +181,40 @@
                   </div>
                 </div>
 
-                <!-- Floating Mode & Context HUD -->
-                <div class="canvas-hud-bar" id="layerify-hud-bar">
-                  <span class="hud-mode-pill" id="hud-mode-pill">Mode: Rectangle (E)</span>
-                  <span class="hud-mode-hint" id="hud-mode-hint">Drag to draw rectangle • Click any region to select/move/resize</span>
-                  <div class="hud-brush-wrap hidden" id="hud-brush-wrap">
-                    <button class="btn btn-sm active" id="btn-lyr-brush-paint" title="Paint brush mask (adds to selected brush mask or creates new)">🖌️ Paint</button>
-                    <button class="btn btn-sm" id="btn-lyr-brush-erase" title="Erase from brush mask (or hold Alt while dragging)">🧹 Erase</button>
-                    <button class="btn btn-sm" id="btn-lyr-brush-move" title="Move brush mask around as a whole">✥ Move</button>
-                    <button class="btn btn-sm" id="btn-lyr-brush-new" title="Deselect current brush mask to start a separate brush annotation">+ New</button>
-                    <label for="input-lyr-brush-size">Size:</label>
-                    <input type="range" id="input-lyr-brush-size" min="3" max="120" value="18" />
-                    <span id="val-lyr-brush-size">18px</span>
-                  </div>
-                  <div class="hud-brush-wrap" id="hud-cursor-size-wrap" title="Adjust cursor size for annotation tools (or Mouse Wheel)">
-                    <label for="input-lyr-cursor-size">Cursor:</label>
-                    <input type="range" id="input-lyr-cursor-size" min="14" max="72" value="28" />
-                    <span id="val-lyr-cursor-size">28px</span>
-                  </div>
-                  <button class="btn btn-sm btn-primary hidden" id="btn-finish-polygon" title="Finish Polygon (Enter)">
-                    ✓ Finish Polygon (Enter)
+                <!-- Floating Mode & Context HUD (auto-hidden, revealed via top-left icon) -->
+                <div class="canvas-hud-anchor" id="layerify-hud-anchor">
+                  <button
+                    class="canvas-hud-toggle-btn"
+                    id="btn-layerify-hud-toggle"
+                    type="button"
+                    title="Mode: Rectangle — Click to toggle mode info &amp; controls"
+                    aria-label="Toggle mode info bar"
+                    aria-expanded="false"
+                    aria-controls="layerify-hud-bar"
+                  >
+                    <span class="hud-toggle-icon" aria-hidden="true">ℹ</span>
                   </button>
+                  <div class="canvas-hud-bar hidden" id="layerify-hud-bar">
+                    <span class="hud-mode-pill" id="hud-mode-pill">Mode: Rectangle (E)</span>
+                    <span class="hud-mode-hint" id="hud-mode-hint">Drag to draw rectangle • Click any region to select/move/resize</span>
+                    <div class="hud-brush-wrap hidden" id="hud-brush-wrap">
+                      <button class="btn btn-sm active" id="btn-lyr-brush-paint" title="Paint brush mask (adds to selected brush mask or creates new)">🖌️ Paint</button>
+                      <button class="btn btn-sm" id="btn-lyr-brush-erase" title="Erase from brush mask (or hold Alt while dragging)">🧹 Erase</button>
+                      <button class="btn btn-sm" id="btn-lyr-brush-move" title="Move brush mask around as a whole">✥ Move</button>
+                      <button class="btn btn-sm" id="btn-lyr-brush-new" title="Deselect current brush mask to start a separate brush annotation">+ New</button>
+                      <label for="input-lyr-brush-size">Size:</label>
+                      <input type="range" id="input-lyr-brush-size" min="3" max="120" value="18" />
+                      <span id="val-lyr-brush-size">18px</span>
+                    </div>
+                    <div class="hud-brush-wrap" id="hud-cursor-size-wrap" title="Adjust cursor size for annotation tools (or Mouse Wheel)">
+                      <label for="input-lyr-cursor-size">Cursor:</label>
+                      <input type="range" id="input-lyr-cursor-size" min="14" max="72" value="28" />
+                      <span id="val-lyr-cursor-size">28px</span>
+                    </div>
+                    <button class="btn btn-sm btn-primary hidden" id="btn-finish-polygon" title="Finish Polygon (Enter)">
+                      ✓ Finish Polygon (Enter)
+                    </button>
+                  </div>
                 </div>
 
                 <div class="canvas-coords-pill" id="layerify-coords-pill">X: 0, Y: 0</div>
@@ -469,35 +484,38 @@
           <div class="help-header">
             <h1>ImageBaker Help & Shortcuts</h1>
             <p>Comprehensive guide to mouse controls, hotkeys, and dataset synthesis workflows.</p>
+            <button class="btn btn-sm btn-primary" id="btn-help-configure-shortcuts" style="margin-top: 8px;">⌨️ Configure Shortcut Keys</button>
           </div>
 
           <div class="help-card">
             <h2>🧭 General & Navigation</h2>
             <ul>
-              <li><strong>Theme & Grid</strong><span>Toggle Dark/Light theme and canvas gridlines from top-right header</span></li>
+              <li><strong>Theme & Grid</strong><span>Toggle Dark/Light theme and canvas gridlines (<strong data-shortcut-help="toggle_grid">G</strong>) from top-right header</span></li>
               <li><strong>Ctrl + Mouse Wheel</strong><span>Zoom in/out around cursor</span></li>
               <li><strong>Mouse Wheel (Layerify)</strong><span>Adjust cursor / brush icon size across annotation modes</span></li>
               <li><strong>Ctrl + Drag / Space + Drag</strong><span>Pan canvas viewport smoothly</span></li>
-              <li><strong>[ / ]</strong><span>Switch to Previous / Next image (Layerify) or canvas (Baker)</span></li>
-              <li><strong>F</strong><span>Fit image or composite to viewport</span></li>
+              <li><strong><span data-shortcut-help="prev_item">[</span> / <span data-shortcut-help="next_item">]</span></strong><span>Switch to Previous / Next image (Layerify) or canvas (Baker)</span></li>
+              <li><strong data-shortcut-help="fit_view">F</strong><span>Fit image or composite to viewport</span></li>
             </ul>
           </div>
 
           <div class="help-card">
             <h2>📐 Layerify (Annotation Studio Shortcuts)</h2>
             <ul>
-              <li><strong>E</strong><span>Rectangle drawing mode</span></li>
-              <li><strong>W</strong><span>Polygon drawing mode (click 1st vertex, Enter, or Double-Click to finish)</span></li>
-              <li><strong>Q</strong><span>Point / Keypoint annotation mode</span></li>
-              <li><strong>B</strong><span>Brush segmentation mask mode (Alt + Wheel adjusts brush size)</span></li>
-              <li><strong>V / Escape / Right-Click</strong><span>Select / Idle mode</span></li>
+              <li><strong><span data-shortcut-help="select">Q</span> / Escape / Right-Click</strong><span>Select / Idle mode</span></li>
+              <li><strong data-shortcut-help="polygon">W</strong><span>Polygon drawing mode (click 1st vertex, Enter, or Double-Click to finish)</span></li>
+              <li><strong data-shortcut-help="point">E</strong><span>Point / Keypoint annotation mode</span></li>
+              <li><strong data-shortcut-help="rectangle">R</strong><span>Rectangle drawing mode</span></li>
+              <li><strong data-shortcut-help="pan">T</strong><span>Pan viewport mode</span></li>
+              <li><strong data-shortcut-help="brush">B</strong><span>Brush segmentation mask mode (Alt + Wheel adjusts brush size)</span></li>
               <li><strong>0 – 9</strong><span>Quick-select label slot and relabel active selection</span></li>
               <li><strong>Click & Drag</strong><span>Select, move annotation, or adjust handles in any mode</span></li>
               <li><strong>Arrow Keys</strong><span>Nudge selected annotation by 1px (Shift + Arrows = 10px)</span></li>
-              <li><strong>L</strong><span>Layerify selected annotation(s) into Baker layers</span></li>
-              <li><strong>P</strong><span>Run AI model prediction on current image / prompt points</span></li>
-              <li><strong>C</strong><span>Edit caption and class label of selected annotation</span></li>
-              <li><strong>H</strong><span>Toggle visibility of selected annotation</span></li>
+              <li><strong data-shortcut-help="layerify">L</strong><span>Layerify selected annotation(s) into Baker layers</span></li>
+              <li><strong data-shortcut-help="cycle_model">M</strong><span>Cycle to next AI model</span></li>
+              <li><strong data-shortcut-help="predict">P</strong><span>Run AI model prediction on current image / prompt points</span></li>
+              <li><strong data-shortcut-help="caption">C</strong><span>Edit caption and class label of selected annotation</span></li>
+              <li><strong data-shortcut-help="toggle_visibility">H</strong><span>Toggle visibility of selected annotation</span></li>
               <li><strong>Delete / Backspace</strong><span>Delete selected annotation(s)</span></li>
               <li><strong>Ctrl + Z / Ctrl + Y</strong><span>Undo / Redo annotation edits</span></li>
               <li><strong>Ctrl + C / Ctrl + V</strong><span>Copy / Paste selected annotation</span></li>
@@ -756,6 +774,25 @@
       <div class="modal-footer">
         <button class="btn" data-close-modal>Cancel</button>
         <button class="btn btn-primary" id="btn-confirm-create-canvas">Create Canvas</button>
+      </div>
+    </div>
+
+    <!-- Configure Shortcuts Modal -->
+    <div id="modal-configure-shortcuts" class="modal-dialog modal-dialog-lg hidden">
+      <div class="modal-header">
+        <h3>Configure Keyboard Shortcuts</h3>
+        <button class="modal-close" data-close-modal>&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="item-subtitle" style="margin-bottom: 10px;">
+          Click any key button and press a new key to rebind it. Changes are saved to <code>shortcuts.json</code>.
+        </p>
+        <div id="shortcuts-config-list" class="shortcuts-config-list"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="btn-reset-shortcuts">↺ Reset Defaults</button>
+        <button class="btn" data-close-modal>Cancel</button>
+        <button class="btn btn-primary" id="btn-save-shortcuts">Save Shortcuts</button>
       </div>
     </div>
   </div>

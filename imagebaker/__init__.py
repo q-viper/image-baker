@@ -12,6 +12,14 @@ try:
 except PackageNotFoundError:
     __version__ = "0.0.0"
 
+try:
+    from PySide6.QtGui import QImageReader
+
+    # Allow loading large high-resolution photos
+    QImageReader.setAllocationLimit(2048)
+except Exception:
+    pass
+
 _LAZY_EXPORTS = {
     "AnnotationType": ("imagebaker.api", "AnnotationType"),
     "AnnotationFormat": ("imagebaker.core.defs", "AnnotationFormat"),

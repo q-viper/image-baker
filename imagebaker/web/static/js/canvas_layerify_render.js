@@ -569,7 +569,10 @@
   function getCursorForMode(mode) {
     const CURSORS = window.ImageBaker.CURSORS;
     if (window.ImageBaker.buildModeCursor) {
-      return window.ImageBaker.buildModeCursor(mode, lyrView.cursorSize || 28);
+      const labelColor = window.ImageBaker.getCurrentSelectedLabelColor
+        ? window.ImageBaker.getCurrentSelectedLabelColor()
+        : null;
+      return window.ImageBaker.buildModeCursor(mode, lyrView.cursorSize || 28, labelColor);
     }
     switch (mode) {
       case "Pan": return CURSORS.PAN;

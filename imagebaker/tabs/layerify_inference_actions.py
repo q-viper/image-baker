@@ -184,20 +184,12 @@ class LayerifyInferenceActionsMixin:
         image = qpixmap_to_numpy(self.layer.image)
         if image is None:
             return
-        # get annotations from canvas: prioritize user-selected annotations if any
-        selected_anns = [
+        # get annotations from canvas: only use user-selected visible annotations as prompts
+        annotations = [
             ann
             for ann in self.layer.annotations
             if ann.selected and ann.visible
         ]
-        if selected_anns:
-            annotations = selected_anns
-        else:
-            annotations = [
-                ann
-                for ann in self.layer.annotations
-                if not ann.is_model_generated and ann.visible
-            ]
 
         if len(annotations) == 0:
             logger.warning("No annotations to predict passing image to model")
@@ -208,11 +200,15 @@ class LayerifyInferenceActionsMixin:
         polygons = []
         rectangles = []
         label_hints = []
+        used_prompt_anns = []
         for ann in annotations:
+            has_prompt_geom = False
             if ann.points:
                 points.append([[p.x(), p.y()] for p in ann.points])
+                has_prompt_geom = True
             if ann.polygon:
                 polygons.append([[p.x(), p.y()] for p in ann.polygon])
+                has_prompt_geom = True
             if ann.rectangle:
                 rectangles.append(
                     [
@@ -222,8 +218,12 @@ class LayerifyInferenceActionsMixin:
                         ann.rectangle.y() + ann.rectangle.height(),
                     ]
                 )
-            label_hints.append([0])
-            ann.visible = False
+                has_prompt_geom = True
+            if has_prompt_geom:
+                label_hints.append([0])
+                used_prompt_anns.append(ann)
+
+        self._pending_prompt_annotations = used_prompt_anns
 
         points = points if len(points) > 0 else None
         polygons = polygons if len(polygons) > 0 else None
@@ -285,8 +285,13 @@ class LayerifyInferenceActionsMixin:
         Args:
             predictions (list[PredictionResult]): The list of prediction results.
         """
+        pending_prompts = getattr(self, "_pending_prompt_annotations", [])
+        self._pending_prompt_annotations = []
         if predictions and self.layer:
             self.layer._push_undo_state()
+            for prompt_ann in pending_prompts:
+                prompt_ann.visible = False
+                prompt_ann.selected = False
 
         selected_label = (self.current_label or "").strip() or "Undefined"
         if self.ensure_label_available(selected_label):
@@ -415,6 +420,7 @@ class LayerifyInferenceActionsMixin:
         self.messageSignal.emit(msg)
 
     def handle_model_error(self, error):
+        self._pending_prompt_annotations = []
         logger.error(f"Model error: {error}")
         QMessageBox.critical(self, "Error", f"Model error: {error}")
         self.loading_dialog.close()
@@ -562,66 +568,70 @@ class LayerifyInferenceActionsMixin:
                     self.annotation_list.update_list()
                     logger.info("Selected annotation deleted.")
 
-            # if clicked q, set the mode to point
-            elif key == Qt.Key_Q:
-                self.set_annotation_mode(MouseMode.POINT)
-                logger.info("Mouse mode set to POINT.")
-            # if clicked w, set the mode to polygon
-            elif key == Qt.Key_W:
-                self.set_annotation_mode(MouseMode.POLYGON)
-                logger.info("Mouse mode set to POLYGON.")
-            # if clicked e, set the mode to rectangle
-            elif key == Qt.Key_E:
-                self.set_annotation_mode(MouseMode.RECTANGLE)
-                logger.info("Mouse mode set to RECTANGLE.")
-            # if clicked b, set the mode to brush
-            elif key == Qt.Key_B:
-                self.set_annotation_mode(MouseMode.DRAW)
-                logger.info("Mouse mode set to BRUSH DRAW.")
-            # if clicked v or Esc, set the mode to idle/select
-            elif key in (Qt.Key_V, Qt.Key_Escape):
-                if self.layer and self.layer.current_annotation is not None:
-                    self.layer.current_annotation = None
-                    self.layer.update()
-                self.set_annotation_mode(MouseMode.IDLE)
-                logger.info("Mouse mode set to IDLE.")
-                # if pressed h key, then toggle visibility of annotations
-            elif event.key() == Qt.Key_H:
-                self.layer.toggle_annotation_visibility()
-
-            # if selected l, then run layerify the selected annotations
-            elif event.key() == Qt.Key_L:
-                if self.layer and self.layer.annotations:
-                    selected_annotations = [
-                        ann for ann in self.layer.annotations if ann.selected
-                    ]
-                    if selected_annotations:
-                        logger.info(
-                            f"Layerifying {len(selected_annotations)} selected annotations."
-                        )
-                        self.layer.layerify_annotation(selected_annotations)
-                    else:
-                        # layerify all annotations in the current layer
-                        self.layer.layerify_annotation(self.layer.annotations)
-                    logger.info("Layerified all annotations in the current layer.")
-                else:
-                    logger.warning("No annotations to layerify.")
-            elif event.key() == Qt.Key_C:
-                # if an annotation is selected, open a dialog box
-                # in that dialog box, ask for a caption
-                self.layer.selected_annotation = self.layer._get_selected_annotation()
-                if self.layer.selected_annotation:
-                    current_caption = getattr(
-                        self.layer.selected_annotation, "caption", ""
-                    )
-                    text, ok = QInputDialog.getMultiLineText(
-                        self, "Edit Caption", "Enter caption:", current_caption
-                    )
-                    if ok:
-                        self.layer._push_undo_state()
-                        self.layer.selected_annotation.caption = text
-                        self.on_annotation_updated(self.layer.selected_annotation)
+            # Configurable single-key shortcuts (defaults: Q=Select, W=Poly, E=Point, R=Rect, T=Pan, B=Brush)
+            else:
+                key_char = (event.text() or "").strip().lower()
+                if not key_char and 32 <= key <= 126:
+                    key_char = chr(key).lower()
+                sc = getattr(self.config, "shortcuts", {}) or {}
+                if key == Qt.Key_Escape or (key_char and key_char == sc.get("select", "q")):
+                    if self.layer and self.layer.current_annotation is not None:
+                        self.layer.current_annotation = None
                         self.layer.update()
+                    self.set_annotation_mode(MouseMode.IDLE)
+                    logger.info("Mouse mode set to IDLE.")
+                elif key_char and key_char == sc.get("point", "e"):
+                    self.set_annotation_mode(MouseMode.POINT)
+                    logger.info("Mouse mode set to POINT.")
+                elif key_char and key_char == sc.get("polygon", "w"):
+                    self.set_annotation_mode(MouseMode.POLYGON)
+                    logger.info("Mouse mode set to POLYGON.")
+                elif key_char and key_char == sc.get("rectangle", "r"):
+                    self.set_annotation_mode(MouseMode.RECTANGLE)
+                    logger.info("Mouse mode set to RECTANGLE.")
+                elif key_char and key_char == sc.get("pan", "t"):
+                    self.set_annotation_mode(MouseMode.PAN)
+                    logger.info("Mouse mode set to PAN.")
+                elif key_char and key_char == sc.get("brush", "b"):
+                    self.set_annotation_mode(MouseMode.DRAW)
+                    logger.info("Mouse mode set to BRUSH DRAW.")
+                elif key_char and key_char == sc.get("toggle_visibility", "h"):
+                    self.layer.toggle_annotation_visibility()
+                elif key_char and key_char == sc.get("layerify", "l"):
+                    if self.layer and self.layer.annotations:
+                        selected_annotations = [
+                            ann for ann in self.layer.annotations if ann.selected
+                        ]
+                        if selected_annotations:
+                            logger.info(
+                                f"Layerifying {len(selected_annotations)} selected annotations."
+                            )
+                            self.layer.layerify_annotation(selected_annotations)
+                        else:
+                            self.layer.layerify_annotation(self.layer.annotations)
+                        logger.info("Layerified all annotations in the current layer.")
+                    else:
+                        logger.warning("No annotations to layerify.")
+                elif key_char and key_char == sc.get("cycle_model", "m"):
+                    if hasattr(self, "model_combo") and self.model_combo.count() > 0:
+                        next_idx = (self.model_combo.currentIndex() + 1) % self.model_combo.count()
+                        self.model_combo.setCurrentIndex(next_idx)
+                elif key_char and key_char == sc.get("predict", "p"):
+                    self.handle_predict()
+                elif key_char and key_char == sc.get("caption", "c"):
+                    self.layer.selected_annotation = self.layer._get_selected_annotation()
+                    if self.layer.selected_annotation:
+                        current_caption = getattr(
+                            self.layer.selected_annotation, "caption", ""
+                        )
+                        text, ok = QInputDialog.getMultiLineText(
+                            self, "Edit Caption", "Enter caption:", current_caption
+                        )
+                        if ok:
+                            self.layer._push_undo_state()
+                            self.layer.selected_annotation.caption = text
+                            self.on_annotation_updated(self.layer.selected_annotation)
+                            self.layer.update()
 
             # Pass the event to the annotation list if it needs to handle it
             if self.annotation_list.hasFocus():
