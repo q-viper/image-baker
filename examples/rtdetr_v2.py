@@ -1,13 +1,16 @@
+"""RF-DETR Object Detection example using the native `rfdetr` package directly (no transformers)."""
+
+from __future__ import annotations
+
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
 import torch
 from loguru import logger
 from PIL import Image
-from transformers import RTDetrImageProcessor, RTDetrV2ForObjectDetection
 
-# Import your base classes
 from imagebaker.models.base_model import (
     BaseDetectionModel,
     DefaultModelConfig,
@@ -19,20 +22,19 @@ from imagebaker.utils.vis import annotate_detection
 
 
 class RTDetrModelConfig(DefaultModelConfig):
+    """Configuration for RF-DETR object detection loaded directly via `rfdetr`."""
+
     model_type: ModelType = ModelType.DETECTION
-    model_name: str = "RTDetr-V2"
-    model_description: str = (
-        "Real-time Detection Transformer V2 model for object detection"
-    )
-    model_version: str = "r18vd"
-    model_author: str = "PekingU"
+    model_name: str = "RF-DETR"
+    model_description: str = "Real-Time Detection Transformer loaded directly via `rfdetr`."
+    model_version: str = "small"
     model_license: str = "Apache-2.0"
-    pretrained_model_name: str = "PekingU/rtdetr_v2_r18vd"
-    confidence_threshold: float = 0.5
+    pretrained_model_name: str = "rfdetr-small"
+    confidence_threshold: float = 0.45
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     return_annotated_image: bool = True
 
-    # Annotation parameters
+    # Visualization parameters
     box_thickness: int = 2
     text_thickness: int = 1
     text_scale: float = 0.5
@@ -41,103 +43,87 @@ class RTDetrModelConfig(DefaultModelConfig):
 
 
 class RTDetrDetectionModel(BaseDetectionModel):
+    """Object detection wrapper backed directly by the open-source `rfdetr` package."""
+
     def __init__(self, config: RTDetrModelConfig = RTDetrModelConfig()):
         super().__init__(config)
 
     def setup(self):
-        """Initialize the model and processor"""
-        logger.info(f"Loading RTDetr model from {self.config.pretrained_model_name}")
+        """Initialize the native `rfdetr` detector model."""
+        import rfdetr
 
-        # Load the image processor and model
-        self.processor = RTDetrImageProcessor.from_pretrained(
-            self.config.pretrained_model_name
-        )
-        self.model = RTDetrV2ForObjectDetection.from_pretrained(
-            self.config.pretrained_model_name, device_map=self.config.device
-        )
+        cls_map = {
+            "rfdetr-nano": "RFDETRNano",
+            "rfdetr-small": "RFDETRSmall",
+            "rfdetr-medium": "RFDETRMedium",
+            "rfdetr-large": "RFDETRLarge",
+            "rfdetr-base": "RFDETRBase",
+        }
+        raw = str(self.config.pretrained_model_name or "rfdetr-small").strip()
+        cls_name = cls_map.get(raw.lower(), "RFDETRSmall")
+        model_cls = getattr(rfdetr, cls_name, None) or getattr(rfdetr, "RFDETRBase", None)
 
-        # Update class names from the model
-        if hasattr(self.model.config, "id2label"):
-            self.config.class_names = list(self.model.config.id2label.values())
+        logger.info(f"Loading RF-DETR detector ({cls_name}) via `rfdetr`...")
+        if raw and Path(raw).is_file():
+            self.model = model_cls(pretrain_weights=raw)
+        else:
+            self.model = model_cls()
 
-        # Generate color map for annotations if not provided
-        if not self.config.color_map:
+        if hasattr(self.model, "class_names") and self.model.class_names:
+            self.config.class_names = list(self.model.class_names.values())
+        if self.config.class_names and not self.config.color_map:
             color_map = generate_color_map(len(self.config.class_names))
             self.config.color_map = {
-                class_name: color_map[i]
-                for i, class_name in enumerate(self.config.class_names)
+                cls_name: color_map[i] for i, cls_name in enumerate(self.config.class_names)
             }
 
-        logger.info(f"Loaded model with {len(self.config.class_names)} classes")
-        logger.info(f"Model running on {self.config.device}")
-
-    def preprocess(self, image: np.ndarray):
-        """Convert numpy array to PIL Image for the RTDetr processor"""
+    def preprocess(self, image: np.ndarray) -> Image.Image:
+        """Convert numpy RGB array to PIL Image for `rfdetr.predict()`."""
         self._original_image = (
             image.copy() if isinstance(image, np.ndarray) else np.array(image)
         )
-
         if isinstance(image, np.ndarray):
-            # Convert numpy array to PIL Image
-            pil_image = Image.fromarray(image.astype("uint8"))
-            return pil_image
+            return Image.fromarray(image.astype("uint8"))
         return image
 
-    def predict_boxes(self, image):
-        """Run object detection on the input image"""
-        # Prepare inputs
-        inputs = self.processor(images=image, return_tensors="pt")
-
-        # Move inputs to the same device as the model
-        inputs = {k: v.to(self.config.device) for k, v in inputs.items()}
-
-        # Run inference
-        with torch.no_grad():
-            outputs = self.model(**inputs)
-
-        # Get original image dimensions for post-processing
-        if isinstance(image, Image.Image):
-            image_size = torch.tensor([(image.height, image.width)])
-        else:
-            # Assuming numpy array with shape (height, width, channels)
-            image_size = torch.tensor([(image.shape[0], image.shape[1])])
-
-        # Post-process the outputs
-        results = self.processor.post_process_object_detection(
-            outputs,
-            target_sizes=torch.tensor(self.image_shape)
-            .unsqueeze(0)
-            .to(self.config.device),
-            threshold=self.config.confidence_threshold,
-        )
-
-        return results[0]  # Return the first (and only) result
+    def predict_boxes(self, image: Image.Image):
+        """Run object detection directly with `rfdetr`."""
+        return self.model.predict(image, threshold=self.config.confidence_threshold)
 
     def postprocess(self, output) -> list[PredictionResult]:
-        """Convert model output to PredictionResult objects"""
-        results = []
+        """Convert `rfdetr` `supervision.Detections` output into ImageBaker `PredictionResult`s."""
+        results: list[PredictionResult] = []
+        if output is None or not hasattr(output, "xyxy"):
+            return results
 
-        # Extract outputs
-        scores = output["scores"].cpu().numpy()
-        labels = output["labels"].cpu().numpy()
-        boxes = output["boxes"].cpu().numpy()
-
+        xyxy_arr = np.asarray(output.xyxy)
+        scores = (
+            np.asarray(output.confidence)
+            if output.confidence is not None
+            else np.ones(len(xyxy_arr))
+        )
+        labels = (
+            np.asarray(output.class_id)
+            if output.class_id is not None
+            else np.zeros(len(xyxy_arr), dtype=int)
+        )
         annotation_time = time.time()
 
-        for score, label_id, box in zip(scores, labels, boxes):
-            # Get the class name
-            class_name = self.model.config.id2label[label_id.item()]
-
-            # Convert box coordinates to integers of x, y, w, h
+        for score, label_id, box in zip(scores, labels, xyxy_arr, strict=False):
+            cid = int(label_id)
+            class_name = (
+                self.config.class_names[cid]
+                if 0 <= cid < len(self.config.class_names)
+                else f"class_{cid}"
+            )
             x = int(box[0])
             y = int(box[1])
             w = int(box[2] - box[0])
             h = int(box[3] - box[1])
 
-            # Create a PredictionResult
             result = PredictionResult(
                 class_name=class_name,
-                class_id=int(label_id),
+                class_id=cid,
                 score=float(score),
                 rectangle=[x, y, w, h],
                 annotation_time=f"{annotation_time:.6f}",
@@ -152,7 +138,6 @@ class RTDetrDetectionModel(BaseDetectionModel):
                     font_face=self.config.font_face,
                     color_map=self.config.color_map,
                 )
-
             results.append(result)
 
         return results

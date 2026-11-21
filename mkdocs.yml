@@ -24,6 +24,7 @@ theme:
 nav:
   - Home: index.md
   - Quick Start: QUICKSTART.md
+  - Model Training: training.md
   - Examples: examples.md
   - API Usage: api-usage.md
   - API Reference: api-reference.md

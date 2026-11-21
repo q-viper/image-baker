@@ -108,6 +108,9 @@ def web(
     models_file: str | None = typer.Option(
         None, help="Path to Python file defining LOADED_MODELS."
     ),
+    trainers_file: str | None = typer.Option(
+        None, help="Path to Python file defining LOADED_TRAINERS for the Train tab."
+    ),
     project_dir: str = typer.Option(
         ".", help="The project directory to use for the application."
     ),
@@ -142,6 +145,7 @@ def web(
         configs_file=configs_file or "imagebaker/core/configs.py",
         open_browser=open_browser,
         debug=is_debug,
+        trainers_file=trainers_file,
     )
 
 

@@ -180,6 +180,19 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, **info})
                 return
 
+            if route == "/api/train/catalog":
+                self._send_json({"ok": True, "catalog": self.engine.get_training_catalog()})
+                return
+
+            if route == "/api/train/pipeline":
+                self._send_json({"ok": True, "pipeline": self.engine.train_pipeline})
+                return
+
+            if route == "/api/train/status":
+                run_id = query.get("run_id", [None])[0]
+                self._send_json({"ok": True, "training": self.engine.get_training_status(run_id)})
+                return
+
             self._send_json({"ok": False, "message": f"Unknown route: {route}"}, HTTPStatus.NOT_FOUND)
 
         except Exception as err:
@@ -413,6 +426,68 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(res)
                 return
 
+            if route == "/api/train/pipeline":
+                if payload.get("reset"):
+                    ok, msg = engine.reset_train_pipeline()
+                elif payload.get("load_preset"):
+                    preset_name = str(payload.get("load_preset"))
+                    preset = engine.train_presets.get(preset_name)
+                    if preset:
+                        ok, msg = engine.save_train_pipeline(preset)
+                        msg = f"Loaded training preset '{preset_name}'"
+                    else:
+                        ok, msg = False, f"Preset '{preset_name}' not found."
+                else:
+                    ok, msg = engine.save_train_pipeline(
+                        payload.get("pipeline") or payload,
+                        preset_name=payload.get("preset_name"),
+                    )
+                self._send_json(
+                    {
+                        "ok": ok,
+                        "message": msg,
+                        "pipeline": engine.train_pipeline,
+                        "presets": list(engine.train_presets.keys()),
+                    }
+                )
+                return
+
+            if route == "/api/train/validate":
+                ok, msg, compiled = engine.validate_train_pipeline(payload.get("pipeline"))
+                self._send_json({"ok": ok, "message": msg, "compiled": compiled})
+                return
+
+            if route == "/api/train/start":
+                ok, msg, run_id = engine.start_training(payload.get("pipeline"))
+                self._send_json(
+                    {
+                        "ok": ok,
+                        "message": msg,
+                        "run_id": run_id,
+                        "training": engine.get_training_status(run_id),
+                    }
+                )
+                return
+
+            if route == "/api/train/stop":
+                ok, msg = engine.stop_training()
+                self._send_json(
+                    {"ok": ok, "message": msg, "training": engine.get_training_status()}
+                )
+                return
+
+            if route == "/api/train/load-model":
+                run_id = str(payload.get("run_id") or "")
+                ok, msg = engine.load_trained_model_into_layerify(run_id)
+                self._send_json({"ok": ok, "message": msg, "state": engine.get_state_dict()})
+                return
+
+            if route == "/api/train/preview-node":
+                node_id = str(payload.get("node_id") or "")
+                res = engine.preview_pipeline_node(payload.get("pipeline"), node_id)
+                self._send_json(res)
+                return
+
             self._send_json({"ok": False, "message": f"Unknown route: {route}"}, HTTPStatus.NOT_FOUND)
 
         except Exception as err:
@@ -499,6 +574,7 @@ def run_web_server(
     port: int = 8000,
     open_browser: bool = True,
     debug: bool = False,
+    trainers_file: str | None = None,
 ):
     """Initialize WebAppEngine and start the standalone ImageBaker Web server."""
     if debug:
@@ -516,6 +592,7 @@ def run_web_server(
         project_dir=project_dir,
         configs_file=configs_file,
         is_debug=debug,
+        trainers_file=trainers_file,
     )
     server, bound_port = create_http_server(engine, host=host, port=port)
     url = f"http://{host}:{bound_port}"

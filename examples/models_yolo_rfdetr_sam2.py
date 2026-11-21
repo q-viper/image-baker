@@ -254,9 +254,81 @@ class RFDetrModelConfig(DefaultModelConfig):
     return_annotated_image: bool = False
 
 
+def _load_rfdetr_class(model_name: str, is_segmentation: bool = False):
+    """Instantiate an RF-DETR model directly from the `rfdetr` package (no transformers)."""
+    import rfdetr  # type: ignore[import-not-found]
+
+    cls_map = {
+        "rfdetr-nano": "RFDETRNano",
+        "rfdetr-small": "RFDETRSmall",
+        "rfdetr-medium": "RFDETRMedium",
+        "rfdetr-large": "RFDETRLarge",
+        "rfdetr-base": "RFDETRBase",
+        "rfdetr-seg-nano": "RFDETRSegNano",
+        "rfdetr-seg-small": "RFDETRSegSmall",
+        "rfdetr-seg-medium": "RFDETRSegMedium",
+        "rfdetr-seg-large": "RFDETRSegLarge",
+        "rfdetr-seg-preview": "RFDETRSegPreview",
+        "rfdetr-seg-base": "RFDETRSegSmall",
+    }
+    default_cls = "RFDETRSegSmall" if is_segmentation else "RFDETRSmall"
+    raw = str(model_name or "").strip()
+    cls_name = cls_map.get(raw.lower(), default_cls)
+    model_cls = getattr(rfdetr, cls_name, None) or getattr(rfdetr, default_cls, None)
+    if model_cls is None:
+        raise ImportError(f"RF-DETR class '{cls_name}' not found in installed `rfdetr` package.")
+    # If user passed a local checkpoint path, forward it as `pretrain_weights`
+    if raw and Path(raw).is_file():
+        return model_cls(pretrain_weights=raw)
+    return model_cls()
+
+
+def _extract_rfdetr_seg_instances(
+    rfdetr_model: Any,
+    img_rgb: np.ndarray,
+    threshold: float,
+) -> list[dict[str, Any]]:
+    """Run native `rfdetr` segmentation prediction and normalize `supervision.Detections` or dict items."""
+    from PIL import Image as PILImage
+
+    pil_img = PILImage.fromarray(img_rgb.astype(np.uint8))
+    preds = rfdetr_model.predict(pil_img, threshold=threshold)
+    instances: list[dict[str, Any]] = []
+    if hasattr(preds, "xyxy"):
+        xyxy_arr = np.asarray(preds.xyxy)
+        conf_arr = np.asarray(preds.confidence) if preds.confidence is not None else np.ones(len(xyxy_arr))
+        cls_arr = np.asarray(preds.class_id) if preds.class_id is not None else np.zeros(len(xyxy_arr), dtype=int)
+        mask_arr = getattr(preds, "mask", None)
+        for i, (box, score, cid) in enumerate(zip(xyxy_arr, conf_arr, cls_arr, strict=False)):
+            m = mask_arr[i] if (mask_arr is not None and i < len(mask_arr)) else None
+            instances.append(
+                {
+                    "mask": np.asarray(m, dtype=np.uint8) if m is not None else None,
+                    "box": [int(v) for v in box],
+                    "class": f"rfdetr_instance_{int(cid)}",
+                    "class_id": int(cid),
+                    "score": float(score),
+                }
+            )
+        return instances
+
+    for idx, p in enumerate(preds or []):
+        if isinstance(p, dict):
+            instances.append(
+                {
+                    "mask": p.get("mask"),
+                    "box": p.get("box") or p.get("bbox"),
+                    "class": p.get("class", "rfdetr_object"),
+                    "class_id": int(p.get("class_id", idx)),
+                    "score": float(p.get("score", 0.94)),
+                }
+            )
+    return instances
+
+
 class RFDetrDetectionModel(BaseDetectionModel):
     """
-    RF-DETR Object Detection model wrapper.
+    RF-DETR Object Detection model wrapper using the native `rfdetr` package.
     Real-Time Detection Transformer for fast, accurate bounding box detection.
     """
 
@@ -267,39 +339,51 @@ class RFDetrDetectionModel(BaseDetectionModel):
 
     def setup(self):
         try:
-            import rfdetr  # type: ignore[import-not-found]
-
-            logger.info(f"Loading RF-DETR model from {self.config.pretrained_model_name}")
-            if hasattr(rfdetr, "RFDETR"):
-                self.rfdetr_model = rfdetr.RFDETR(self.config.pretrained_model_name)
-            elif hasattr(rfdetr, "load_model"):
-                self.rfdetr_model = rfdetr.load_model(self.config.pretrained_model_name)
-            else:
-                self.rfdetr_model = rfdetr
-        except ImportError:
+            logger.info(f"Loading RF-DETR detection model via `rfdetr`: {self.config.pretrained_model_name}")
+            self.rfdetr_model = _load_rfdetr_class(
+                self.config.pretrained_model_name, is_segmentation=False
+            )
+        except Exception as exc:
             logger.warning(
-                "RF-DETR is not installed. Run `pip install imagebaker[rfdetr]` or `pip install imagebaker[all]`. "
-                "Running in fallback simulation mode."
+                f"RF-DETR could not be initialized ({exc}). "
+                "Run `pip install imagebaker[rfdetr]`. Running in fallback simulation mode."
             )
             self.rfdetr_model = None
 
     def predict_boxes(self, image: np.ndarray) -> list[PredictionResult]:
         h, w = image.shape[:2]
         if self.rfdetr_model is not None:
-            # Predict using RF-DETR API
+            # Predict using native `rfdetr` API (accepts PIL Image or RGB ndarray, returns supervision.Detections)
             try:
-                preds = self.rfdetr_model.predict(image, threshold=self.config.confidence_threshold)
+                from PIL import Image as PILImage
+
+                pil_img = PILImage.fromarray(image.astype(np.uint8))
+                preds = self.rfdetr_model.predict(pil_img, threshold=self.config.confidence_threshold)
                 results: list[PredictionResult] = []
+                if hasattr(preds, "xyxy"):
+                    xyxy_arr = np.asarray(preds.xyxy)
+                    conf_arr = np.asarray(preds.confidence) if preds.confidence is not None else np.ones(len(xyxy_arr))
+                    cls_arr = np.asarray(preds.class_id) if preds.class_id is not None else np.zeros(len(xyxy_arr), dtype=int)
+                    for box, score, cls_id in zip(xyxy_arr, conf_arr, cls_arr, strict=False):
+                        x1, y1, x2, y2 = [float(v) for v in box]
+                        results.append(
+                            PredictionResult(
+                                class_name=f"class_{int(cls_id)}",
+                                class_id=int(cls_id),
+                                score=round(float(score), 4),
+                                rectangle=[int(x1), int(y1), int(x2 - x1), int(y2 - y1)],
+                            )
+                        )
+                    return results
                 for p in preds:
                     box = p.get("box") or p.get("bbox")
                     cls_name = p.get("class", "object")
                     cls_id = int(p.get("class_id", 0))
                     score = float(p.get("score", 0.9))
-                    # Normalize box to [x, y, w, h]
                     if len(box) == 4:
-                        if box[2] > box[0] and box[3] > box[1]:  # xyxy
+                        if box[2] > box[0] and box[3] > box[1]:
                             rect = [int(box[0]), int(box[1]), int(box[2] - box[0]), int(box[3] - box[1])]
-                        else:  # xywh
+                        else:
                             rect = [int(box[0]), int(box[1]), int(box[2]), int(box[3])]
                         results.append(
                             PredictionResult(
@@ -358,19 +442,14 @@ class RFDetrSegmentationModel(BaseSegmentationModel):
 
     def setup(self):
         try:
-            import rfdetr  # type: ignore[import-not-found]
-
-            logger.info(f"Loading RF-DETR segmentation model from {self.config.pretrained_model_name}")
-            if hasattr(rfdetr, "RFDETRSegmentation"):
-                self.rfdetr_model = rfdetr.RFDETRSegmentation(self.config.pretrained_model_name)
-            elif hasattr(rfdetr, "load_segmentation_model"):
-                self.rfdetr_model = rfdetr.load_segmentation_model(self.config.pretrained_model_name)
-            else:
-                self.rfdetr_model = rfdetr
-        except ImportError:
+            logger.info(f"Loading RF-DETR segmentation model via `rfdetr`: {self.config.pretrained_model_name}")
+            self.rfdetr_model = _load_rfdetr_class(
+                self.config.pretrained_model_name, is_segmentation=True
+            )
+        except Exception as exc:
             logger.warning(
-                "RF-DETR is not installed. Run `pip install imagebaker[rfdetr]`. "
-                "Running in fallback simulation mode."
+                f"RF-DETR segmentation could not be initialized ({exc}). "
+                "Run `pip install imagebaker[rfdetr]`. Running in fallback simulation mode."
             )
             self.rfdetr_model = None
 
@@ -411,24 +490,9 @@ class RFDetrSegmentationModel(BaseSegmentationModel):
                 crop_instances: list[dict[str, Any]] = []
                 if self.rfdetr_model is not None:
                     try:
-                        preds = self.rfdetr_model.predict(
-                            crop, threshold=self.config.confidence_threshold, return_masks=True
+                        crop_instances = _extract_rfdetr_seg_instances(
+                            self.rfdetr_model, crop, self.config.confidence_threshold
                         )
-                        for p in preds:
-                            p_mask = p.get("mask")
-                            p_box = p.get("box") or p.get("bbox")
-                            p_cls = p.get("class", "rfdetr_object")
-                            p_cid = int(p.get("class_id", idx))
-                            p_score = float(p.get("score", 0.94))
-                            crop_instances.append(
-                                {
-                                    "mask": p_mask,
-                                    "box": p_box,
-                                    "class": p_cls,
-                                    "class_id": p_cid,
-                                    "score": p_score,
-                                }
-                            )
                     except Exception as e:
                         logger.error(f"Error executing RF-DETR instance segmentation on crop: {e}")
 
@@ -542,10 +606,10 @@ class RFDetrSegmentationModel(BaseSegmentationModel):
         # Full image inference when no bounding box annotation was provided
         if self.rfdetr_model is not None:
             try:
-                preds = self.rfdetr_model.predict(
-                    image, threshold=self.config.confidence_threshold, return_masks=True
+                full_instances = _extract_rfdetr_seg_instances(
+                    self.rfdetr_model, image, self.config.confidence_threshold
                 )
-                for p in preds:
+                for p in full_instances:
                     cls_name = p.get("class", "object")
                     cls_id = int(p.get("class_id", 0))
                     score = float(p.get("score", 0.92))

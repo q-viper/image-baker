@@ -2,8 +2,8 @@
 
 > [!NOTE]
 > This project started as a fun personal project, but now I am actively **vibecoding** it!
-> The most stable version for the Windows desktop app is [0.0.64](https://pypi.org/project/imagebaker/0.0.64/).
-> If you are on Linux, macOS, or want a modern, cross-platform Label Studio-like experience with zero OS headaches, use the new standalone **Web Version** (`imagebaker web`).
+> The most stable version for the Windows desktop app is [0.0.64](https://pypi.org/project/imagebaker/0.0.64/), and the most stable version for the Web app is [0.0.71](https://pypi.org/project/imagebaker/0.0.71/).
+> If you are on Linux, macOS, or want a modern, cross-platform Label Studio-like experience with zero OS headaches, use the standalone **Web Version** (`imagebaker web`).
 
 ![Dependabot Status](https://img.shields.io/badge/dependabot-active-brightgreen)
 ![GitHub License](https://img.shields.io/github/license/q-viper/image-baker)
@@ -47,12 +47,12 @@ This project is available on PyPI:
 # Standard installation
 pip install imagebaker
 
-# Install with model extras
-pip install "imagebaker[yolo]"       # Ultralytics YOLO detection & segmentation
+# Install with permissive open-source model extras
 pip install "imagebaker[rfdetr]"     # RF-DETR detection & instance segmentation
 pip install "imagebaker[sam2]"       # Segment Anything 2 (SAM 2)
+pip install "imagebaker[torch]"      # PyTorch & TorchVision
 pip install "imagebaker[plugins]"    # Optional plugins (e.g. SmokeSim)
-pip install "imagebaker[all]"        # All models & plugins combined
+pip install "imagebaker[all]"        # All permissive models & plugins combined
 ```
 
 #### Developing Locally
@@ -75,8 +75,10 @@ Launch the standalone browser-based application with Label Studio-inspired UX an
 # Launch web server and automatically open in your default browser
 imagebaker web
 
-# Specify custom host, port, project directory, and models file
-imagebaker web --host 127.0.0.1 --port 8765 --project-dir . --models-file examples/loaded_models.py
+# Specify custom host, port, project directory, models file, and trainers file
+imagebaker web --host 127.0.0.1 --port 8765 --project-dir . \
+    --models-file examples/loaded_models.py \
+    --trainers-file examples/loaded_trainers.py
 ```
 
 #### 🖥️ Desktop GUI Mode
@@ -147,12 +149,14 @@ extract_baked_dataset(
 
 **📚 Documentation:**
 - [Quick Start Guide](docs/QUICKSTART.md) - Get started in 5 minutes
+- [Visual Model Training Guide](docs/training.md) - Custom `--trainers-file`, ReactFlow-style pipeline editor, augmentations & hover previews
 - [Full API Reference](docs/api-usage.md) - Comprehensive documentation
-- [Examples & Models](docs/examples.md) - Examples for YOLO, RF-DETR, SAM 2, and PyTorch dataset synthesis
+- [Examples & Models](docs/examples.md) - Examples for RF-DETR, SAM 2, and PyTorch dataset synthesis
 
 ## Features
-- **Cross-Platform Annotation Studio**: Run either via the standalone Web interface (`imagebaker web`) or native desktop UI (`imagebaker gui`), featuring Label Studio-style interactive label chips, draggable sidebar splitters, and persistent user configuration.
-- **AI Model Prediction & Text Prompts**: Run AI model inferences (YOLO, RF-DETR detection & instance segmentation, SAM 2) with optional text prompts (e.g. `"pedestrian"`, `"car"`) directly from the UI or code.
+- **Cross-Platform Annotation Studio**: Run either via the standalone Web interface (`imagebaker web`) or native desktop UI (`imagebaker gui`), featuring Label Studio-style controls, auto-fading mode HUD with top-left reveal icon, label-colored mouse mode cursors, configurable keyboard shortcuts (`⌨️ Keys`), and draggable sidebar splitters.
+- **Visual Model Training Tab (`Train`)**: Build multi-source training pipelines (`Layerify` real + `Baker` synthetic) on a ReactFlow-style node graph with label & annotation-type filtering, chainable augmentations, live hover simulation previews, `finetune` / `full` / `few_shot` regimes, custom backend `--trainers-file` scripts, live metrics, and one-click **Load in Layerify**.
+- **AI Model Prediction & Cycling**: Run AI model inferences (RF-DETR detection & instance segmentation, SAM 2, or custom models) with optional text or selected-rectangle prompts (`P`), and cycle loaded models with `M`.
 - **Layerifying**: Crop images based on annotations into reusable compositing layers with single-click or "Layerify All" batch processing.
 - **Multi-Format Annotation Support**: Import and export annotations seamlessly across **COCO**, **YOLO**, and ImageBaker **Default** JSON formats using the `AnnotationFormat` enum.
 - **Baking Timeline States**: Compose multiple layers with transforms (translation, scaling, rotation, edge width/opacity), interpolate states, randomize variations, and preview playback.
@@ -174,10 +178,15 @@ extract_baked_dataset(
 * **Ctrl + E**: Erase Mode on Baker Tab.
 * **Ctrl + H**: Opens a help window.
 * **Wheel**: Change the size of the drawing pointer.
-* **Q**: Point mode on annotation.
+* **Q**: Select / Idle mode (configurable via **⌨️ Keys**).
 * **W**: Polygon mode on annotation. Moves selected layer one step up in layer lists in baker.
+* **E**: Point mode on annotation (configurable).
+* **R**: Rectangle mode on annotation (configurable).
+* **T**: Pan mode on annotation (configurable).
+* **B**: Brush segmentation mask mode.
+* **M**: Cycle to the next loaded AI model.
+* **P**: Run AI model prediction (uses selected prompt annotation if any, hiding only that prompt).
 * **S**: Moves selected layer one step down in layer list in baker.
-* **E**: Rectangle mode on annotation.
 * **H**: Hides/un-hides selected annotation/layer.
 * **L**: Creates layer from an annotation. If any annotation selected, creates only its, else creates layers from all visible annotations.
 * **C**: If any annotation is selected, a input box for Caption is created. It can be edited on baker tab as well and is state aware.

@@ -45,9 +45,6 @@ torch = [
     "torch>=2.0.0",
     "torchvision>=0.15.0",
 ]
-yolo = [
-    "ultralytics>=8.0.0",
-]
 rfdetr = [
     "rfdetr",
 ]
@@ -57,7 +54,6 @@ sam2 = [
 models = [
     "torch>=2.0.0",
     "torchvision>=0.15.0",
-    "ultralytics>=8.0.0",
     "rfdetr",
     "sam2",
 ]
@@ -76,7 +72,6 @@ docs = [
 all = [
     "torch>=2.0.0",
     "torchvision>=0.15.0",
-    "ultralytics>=8.0.0",
     "rfdetr",
     "sam2",
     "smokesim==0.0.33",

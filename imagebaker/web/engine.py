@@ -31,6 +31,7 @@ from imagebaker.web.engine_baking import WebEngineBakingMixin
 from imagebaker.web.engine_cache import WebEngineCacheMixin
 from imagebaker.web.engine_canvas import WebEngineCanvasMixin
 from imagebaker.web.engine_layerify import WebEngineLayerifyMixin
+from imagebaker.web.engine_training import WebEngineTrainingMixin
 from imagebaker.web.models import (
     ImageUndoHistory,
     WebCanvasItem,
@@ -48,6 +49,7 @@ class WebAppEngine(
     WebEngineAiExtractMixin,
     WebEngineCanvasMixin,
     WebEngineBakingMixin,
+    WebEngineTrainingMixin,
 ):
     """
     Core stateful engine for the ImageBaker standalone web app.
@@ -59,6 +61,7 @@ class WebAppEngine(
         project_dir: str = ".",
         configs_file: str | None = "imagebaker/core/configs.py",
         is_debug: bool = False,
+        trainers_file: str | None = None,
     ):
         ensure_headless_qapp()
         self.lock = threading.RLock()
@@ -143,6 +146,9 @@ class WebAppEngine(
             self.last_message = f"Showing image 1/{len(self.image_entries)}"
         else:
             self.last_message = "No images found in the assets folder."
+
+        # Training subsystem
+        self._init_training_subsystem(trainers_file=trainers_file)
 
     # -------------------------------------------------------------------------
     # Image Serving & State Serialization

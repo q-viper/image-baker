@@ -185,6 +185,47 @@
 
     async updateSettings(settings) {
       return await apiPost("/api/settings", settings);
+    },
+
+    async getTrainCatalog() {
+      return await apiGet("/api/train/catalog");
+    },
+
+    async getTrainPipeline() {
+      return await apiGet("/api/train/pipeline");
+    },
+
+    async saveTrainPipeline(pipeline, extra = {}) {
+      return await apiPost("/api/train/pipeline", { pipeline, ...extra });
+    },
+
+    async resetTrainPipeline() {
+      return await apiPost("/api/train/pipeline", { reset: true });
+    },
+
+    async validateTrainPipeline(pipeline) {
+      return await apiPost("/api/train/validate", { pipeline });
+    },
+
+    async startTraining(pipeline) {
+      return await apiPost("/api/train/start", { pipeline });
+    },
+
+    async stopTraining() {
+      return await apiPost("/api/train/stop", {});
+    },
+
+    async getTrainStatus(runId = null) {
+      const q = runId ? `?run_id=${encodeURIComponent(runId)}` : "";
+      return await apiGet(`/api/train/status${q}`);
+    },
+
+    async loadTrainedModel(runId) {
+      return await apiPost("/api/train/load-model", { run_id: runId });
+    },
+
+    async previewTrainNode(pipeline, nodeId) {
+      return await apiPost("/api/train/preview-node", { pipeline, node_id: nodeId });
     }
   };
 

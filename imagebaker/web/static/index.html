@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/static/css/workspace.css" />
   <link rel="stylesheet" href="/static/css/panels.css" />
   <link rel="stylesheet" href="/static/css/modals_and_help.css" />
+  <link rel="stylesheet" href="/static/css/train.css" />
 </head>
 <body class="theme-dark">
   <div id="app-shell">
@@ -27,6 +28,7 @@
         <div class="tab-buttons">
           <button class="tab-btn active" data-tab="Layerify" id="tab-btn-layerify">Layerify</button>
           <button class="tab-btn" data-tab="Baker" id="tab-btn-baker">Baker</button>
+          <button class="tab-btn" data-tab="Train" id="tab-btn-train">Train</button>
           <button class="tab-btn" data-tab="Help" id="tab-btn-help">Help</button>
         </div>
       </div>
@@ -478,6 +480,86 @@
         </footer>
       </section>
 
+      <!-- ==================== TRAIN VIEW ==================== -->
+      <section id="view-train" class="tab-view">
+        <div class="dock-upper">
+          <!-- Left Dock: Node Palette & Run History -->
+          <aside class="dock-widget dock-left" id="dock-train-palette">
+            <div class="dock-title">Pipeline Nodes</div>
+            <div class="dock-content list-panel">
+              <button class="btn btn-sm palette-btn" id="btn-add-node-data"><span>🖼️ Layerify Local Source</span><span>+</span></button>
+              <button class="btn btn-sm palette-btn" id="btn-add-node-baker-data"><span>🧁 Baker Synthetic Source</span><span>+</span></button>
+              <button class="btn btn-sm palette-btn" id="btn-add-node-split"><span>✂️ Split &amp; Filter</span><span>+</span></button>
+              <button class="btn btn-sm palette-btn" id="btn-add-node-aug"><span>✨ Augmentation</span><span>+</span></button>
+              <button class="btn btn-sm palette-btn" id="btn-add-node-trainer"><span>🧠 Trainer</span><span>+</span></button>
+              <button class="btn btn-sm palette-btn" id="btn-add-node-output"><span>🏁 Checkpoint</span><span>+</span></button>
+              <div class="dock-title" style="margin: 8px -6px 6px -6px;">Training Runs</div>
+              <div id="train-runs-list" class="scroll-list"></div>
+            </div>
+          </aside>
+
+          <!-- Center Column: Toolbar + ReactFlow-like Canvas + Live Monitor -->
+          <div class="train-center-column">
+            <div class="train-toolbar">
+              <div class="train-toolbar-group">
+                <button class="btn btn-sm btn-primary" id="btn-train-start">▶ Start Training</button>
+                <button class="btn btn-sm" id="btn-train-stop" disabled>⏹ Stop</button>
+                <button class="btn btn-sm" id="btn-train-validate">✓ Validate</button>
+                <button class="btn btn-sm" id="btn-train-save-pipeline" title="Save pipeline &amp; configs to .imagebaker/cache/train_cache.json">💾 Cache Config</button>
+                <button class="btn btn-sm" id="btn-train-export-config" title="Download training pipeline config as JSON">⬇ Export JSON</button>
+                <button class="btn btn-sm" id="btn-train-import-config" title="Load training pipeline config from JSON file">📂 Load JSON</button>
+                <input type="file" id="input-train-import-json" accept=".json,application/json" class="hidden" />
+                <button class="btn btn-sm" id="btn-train-reset-pipeline" title="Reset pipeline to default graph">↺ Reset</button>
+                <button class="btn btn-sm" id="btn-train-autolayout">⊞ Auto Layout</button>
+                <button class="btn btn-sm" id="btn-train-delete-node">🗑️ Delete Selected</button>
+              </div>
+              <span class="train-device-badge" id="train-device-badge">Device: cpu</span>
+            </div>
+
+            <div class="flow-viewport" id="train-flow-viewport">
+              <div class="flow-stage" id="train-flow-stage">
+                <svg class="flow-edges-svg" id="train-flow-edges"></svg>
+                <div id="train-flow-nodes"></div>
+              </div>
+              <div id="flow-hover-preview" class="flow-hover-preview hidden">
+                <div class="flow-preview-header">
+                  <strong id="flow-preview-title">Node Preview</strong>
+                  <span id="flow-preview-meta" class="flow-node-badge"></span>
+                </div>
+                <img id="flow-preview-img" class="flow-preview-img" alt="Simulated node preview" />
+                <div id="flow-preview-augs" class="flow-preview-augs"></div>
+              </div>
+              <div id="train-toast" class="canvas-toast hidden"></div>
+            </div>
+
+            <div class="train-monitor">
+              <div class="train-monitor-top">
+                <strong id="train-status-text">IDLE</strong>
+              </div>
+              <div class="train-progress-track">
+                <div class="train-progress-fill" id="train-progress-fill"></div>
+              </div>
+              <div class="train-monitor-grid">
+                <canvas class="train-chart-canvas" id="train-chart-canvas" width="240" height="92"></canvas>
+                <div class="train-log-box" id="train-log-box">Ready. Connect nodes and click Start Training.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Dock: Dynamic Node Inspector -->
+          <aside class="dock-right-stack">
+            <div class="dock-widget" style="flex: 1;">
+              <div class="dock-title">Node Inspector</div>
+              <div class="dock-content">
+                <div id="train-node-inspector" class="inspector-form">
+                  <div class="item-subtitle">Click a node on the canvas to configure its parameters.</div>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
       <!-- ==================== HELP VIEW ==================== -->
       <section id="view-help" class="tab-view">
         <div class="help-container">
@@ -814,6 +896,8 @@
   <script src="/static/js/ui_layerify_modals.js"></script>
   <script src="/static/js/ui_layerify.js"></script>
   <script src="/static/js/ui_baker.js"></script>
+  <script src="/static/js/train_flow.js"></script>
+  <script src="/static/js/ui_train.js"></script>
   <script src="/static/js/shortcuts.js"></script>
   <script src="/static/app.js"></script>
 </body>

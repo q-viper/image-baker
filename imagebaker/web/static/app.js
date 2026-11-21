@@ -95,19 +95,22 @@
     // 3. Active Tab
     const activeTab = state.active_tab || "Layerify";
     const isHelpTab = activeTab === "Help";
+    const isTrainTab = activeTab === "Train";
+    const hideCanvasTools = isHelpTab || isTrainTab;
     document.querySelectorAll(".tab-btn").forEach(btn => {
       btn.classList.toggle("active", btn.dataset.tab === activeTab);
     });
     if (el("view-layerify")) el("view-layerify").classList.toggle("active", activeTab === "Layerify");
     if (el("view-baker")) el("view-baker").classList.toggle("active", activeTab === "Baker");
+    if (el("view-train")) el("view-train").classList.toggle("active", isTrainTab);
     if (el("view-help")) el("view-help").classList.toggle("active", isHelpTab);
 
     const topZoomGroup = el("top-zoom-group") || document.querySelector(".zoom-group");
-    if (topZoomGroup) topZoomGroup.classList.toggle("hidden", isHelpTab);
-    if (el("btn-zoom-fit")) el("btn-zoom-fit").classList.toggle("hidden", isHelpTab);
-    if (el("btn-top-grid")) el("btn-top-grid").classList.toggle("hidden", isHelpTab);
-    if (el("btn-header-prev")) el("btn-header-prev").classList.toggle("hidden", isHelpTab);
-    if (el("btn-header-next")) el("btn-header-next").classList.toggle("hidden", isHelpTab);
+    if (topZoomGroup) topZoomGroup.classList.toggle("hidden", hideCanvasTools);
+    if (el("btn-zoom-fit")) el("btn-zoom-fit").classList.toggle("hidden", hideCanvasTools);
+    if (el("btn-top-grid")) el("btn-top-grid").classList.toggle("hidden", hideCanvasTools);
+    if (el("btn-header-prev")) el("btn-header-prev").classList.toggle("hidden", hideCanvasTools);
+    if (el("btn-header-next")) el("btn-header-next").classList.toggle("hidden", hideCanvasTools);
 
     if (activeTab === "Baker") {
       canvasBaker.resizeBakerCanvas();
@@ -408,6 +411,9 @@
     initHeaderControls();
     uiLayerify.initLayerifyUI();
     uiBaker.initBakerUI();
+    if (window.ImageBaker.uiTrain?.initTrainUI) {
+      window.ImageBaker.uiTrain.initTrainUI();
+    }
     shortcuts.initShortcuts();
 
     const logDrawer = el("web-log-drawer");

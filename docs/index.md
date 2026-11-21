@@ -31,13 +31,13 @@ This project is also available on the PyPI server.
 ```bash
 pip install imagebaker
 
-# Install with model extras (YOLO, RF-DETR, SAM 2, PyTorch)
+# Install with permissive open-source model extras (RF-DETR, SAM 2, PyTorch)
 pip install "imagebaker[all]"
 
-# Or install specific model extras:
-pip install "imagebaker[yolo]"
+# Or install specific extras:
 pip install "imagebaker[rfdetr]"
 pip install "imagebaker[sam2]"
+pip install "imagebaker[torch]"
 ```
 
 #### Developing
@@ -59,7 +59,7 @@ imagebaker --models-file examples/loaded_models.py
 Or launch the standalone Web version:
 
 ```bash
-imagebaker web --port 8000 --models-file examples/loaded_models.py
+imagebaker web --port 8765 --models-file examples/loaded_models.py --trainers-file examples/loaded_trainers.py
 
 # Launch web server in debug mode (verbose logging and live debug indicators)
 imagebaker web --debug
@@ -79,8 +79,9 @@ After cloning and going to the project directory, the following code should work
 
 ## Features
 - **Cross-Platform**: Run as a desktop application (PySide6 Qt) or as a modern browser-based web application (`imagebaker web`).
-- **Annotating Images**: Load images and annotate with bounding boxes, points, and polygons. Mode-specific mouse cursor indicators.
-- **Model Support**: Integrate with YOLO (detection & segmentation), RF-DETR (detection & instance segmentation), and SAM 2 (prompt-guided segmentation) via `imagebaker[all]`.
+- **Annotating Images**: Load images and annotate with bounding boxes, points, polygons, and RLE brush masks. Features an auto-fading top-left mode HUD (revealed via the `ℹ` icon), label-tinted mouse mode cursors, and configurable keyboard shortcuts (`⌨️ Keys`).
+- **Visual Model Training Tab (`Train`)**: Wire multi-source pipelines (`Layerify` real + `Baker` synthetic) on a ReactFlow-style canvas with label & annotation-type filtering, chainable augmentations, live hover simulation previews, custom `--trainers-file` scripts (`finetune`, `full`, `few_shot`), live metrics, and one-click **Load in Layerify**. See [Model Training Guide](training.md).
+- **Model Support**: Integrate with RF-DETR (detection & instance segmentation), SAM 2 (prompt-guided segmentation), or custom PyTorch models via `--models-file`. Press `M` to cycle models and `P` to run prediction.
 - **Annotation Formats**: Export and import annotations directly in **COCO**, **YOLO**, and ImageBaker **JSON** formats.
 - **Layerifying**: Crop images based on annotations to create reusable layers with a single click ("Layerify All").
 - **Baking States & Caching**: Arrange layers by dragging, rotating, scaling, adjusting opacity, and drawing. Caching is persistent across sessions for both Layerify and Baker tabs with direct state download prompts.
@@ -105,10 +106,15 @@ After cloning and going to the project directory, the following code should work
 * **Ctrl + E**: Erase Mode on Baker Tab.
 * **Ctrl + H**: Opens a help window.
 * **Wheel**: Change the size of the drawing pointer.
-* **Q**: Point mode on annotation.
+* **Q**: Select / Idle mode (configurable via **⌨️ Keys**).
 * **W**: Polygon mode on annotation. Moves selected layer one step up in layer lists in baker.
+* **E**: Point mode on annotation (configurable).
+* **R**: Rectangle mode on annotation (configurable).
+* **T**: Pan mode on annotation (configurable).
+* **B**: Brush segmentation mask mode.
+* **M**: Cycle to the next loaded AI model.
+* **P**: Run AI model prediction (uses selected prompt annotation if any, hiding only that prompt).
 * **S**: Moves selected layer one step down in layer list in baker.
-* **E**: Rectangle mode on annotation.
 * **H**: Hides/un-hides selected annotation/layer.
 * **L**: Creates layer from an annotation. If any annotation selected, creates only its, else creates layers from all visible annotations.
 * **C**: If any annotation is selected, a input box for Caption is created. It can be edited on baker tab as well and is state aware.
