@@ -706,12 +706,26 @@ class WebEngineCanvasMixin:
 
             if action == "save":
                 steps = max(1, int(payload.get("steps", 1)))
-                start_step = (max(canvas.states.keys()) + 1) if canvas.states else 0
+                last_saved_key = max(canvas.states.keys()) if canvas.states else None
+                start_step = (last_saved_key + 1) if last_saved_key is not None else 0
+                last_saved_by_id: dict[int, LayerState] = {}
+                last_saved_by_name: dict[str, LayerState] = {}
+                if last_saved_key is not None:
+                    for prev_st in canvas.states[last_saved_key]:
+                        last_saved_by_id[int(prev_st.layer_id)] = prev_st
+                        last_saved_by_name[str(prev_st.layer_name)] = prev_st
+
                 curr_states: dict[int, list[LayerState]] = {}
 
                 for layer in canvas.layers:
+                    # Always anchor interpolation to the actual last saved state (consistent across reloads/seeks)
+                    prev_state = (
+                        last_saved_by_id.get(int(layer.layer_id))
+                        or last_saved_by_name.get(str(layer.layer_name))
+                        or layer.previous_state
+                    )
                     inter_states = calculate_intermediate_states(
-                        layer.previous_state, layer.layer_state.copy(), steps
+                        prev_state, layer.layer_state.copy(), steps
                     )
                     is_sel = layer.selected
                     for local_step, st in enumerate(inter_states):
@@ -736,13 +750,10 @@ class WebEngineCanvasMixin:
                     canvas.current_step = state_step
 
                 canvas._current_step_index = canvas.state_step_index(canvas.current_step)
-                for lyr in canvas.layers:
-                    lyr.bump_revision()
 
                 self.save_baker_cache()
                 self.last_message = (
-                    f"State saved. Total states: {len(canvas.states)} | "
-                    f"Steps: {steps} | Current step: {canvas.current_step}"
+                    f"Saved {steps} state(s). Total states: {len(canvas.states)}"
                 )
                 return True, self.last_message
 
@@ -831,8 +842,6 @@ class WebEngineCanvasMixin:
                 layer.layer_state = st.copy()
                 if update_edge:
                     layer._apply_edge_opacity()
-                else:
-                    layer.bump_revision()
 
         self.last_message = f"Seeking to step {step_key}"
         return True

@@ -147,6 +147,22 @@ class WebEngineTrainingMixin:
             except Exception:
                 pass
 
+            baker_states = (
+                self.count_saved_baker_states()
+                if hasattr(self, "count_saved_baker_states")
+                else 0
+            )
+            layerify_total = len(self.image_entries)
+            layerify_annotated = 0
+            for idx, entry in enumerate(self.image_entries):
+                anns = (
+                    self.current_annotations
+                    if idx == self.curr_image_idx
+                    else self.load_image_annotations(entry.file_path)
+                )
+                if anns:
+                    layerify_annotated += 1
+
             return {
                 "trainers_file": str(self.trainers_file) if self.trainers_file else None,
                 "trainers": {
@@ -157,6 +173,11 @@ class WebEngineTrainingMixin:
                 },
                 "device_info": device_info,
                 "labels": [lbl.name for lbl in self.layer_config.predefined_labels],
+                "data_counts": {
+                    "baker_states": baker_states,
+                    "layerify_images": layerify_total,
+                    "layerify_annotated": layerify_annotated,
+                },
                 "presets": list(self.train_presets.keys()),
                 "cache_file": str(self.train_cache_file),
             }
@@ -166,27 +187,35 @@ class WebEngineTrainingMixin:
         compiled_spec: dict[str, Any],
         dataset_dir: Path,
     ) -> Path:
-        """Prepare a training dataset snapshot from one or more Layerify/Baker data sources."""
+        """Prepare a clean, faithful training dataset snapshot from Layerify images and/or saved Baker states.
+
+        When `source == "baker"`, uses ONLY the user's saved Baker timeline states rendered via
+        the exact Baker compositor (`bake_saved_states_in_memory`) — never random synthetic noise.
+        Supports COCO (`train/`, `valid/`, `test/` with `_annotations.coco.json`), YOLO (`data.yaml`),
+        and Default JSON formats.
+        """
+        import numpy as np
+
+        from imagebaker.utils.annotation_formats import export_annotations_data
+
         dataset_dir.mkdir(parents=True, exist_ok=True)
         sources_list = compiled_spec.get("data_sources") or [compiled_spec.get("data_source") or {}]
         split_cfg = compiled_spec.get("split_filter") or {}
         selected_labels = {str(x) for x in (split_cfg.get("selected_labels") or []) if x}
         allowed_types = {str(x).lower() for x in (split_cfg.get("annotation_types") or []) if x}
+        real_only_val = bool(split_cfg.get("real_only_val", True))
         export_fmt = str(
             compiled_spec.get("trainer_config", {}).get("export_format")
             or (sources_list[0].get("export_format") if sources_list else None)
-            or "yolo"
+            or "coco"
         ).lower()
 
         train_r = float(split_cfg.get("train_ratio", 0.7))
         val_r = float(split_cfg.get("val_ratio", 0.2))
         test_r = float(split_cfg.get("test_ratio", 0.1))
         total_r = max(1e-6, train_r + val_r + test_r)
-        split_ratios = {
-            "train": train_r / total_r,
-            "val": val_r / total_r,
-            "test": test_r / total_r,
-        }
+        train_frac = train_r / total_r
+        val_frac = val_r / total_r
 
         def _ann_matches(ann) -> bool:
             if selected_labels and ann.label not in selected_labels:
@@ -205,85 +234,329 @@ class WebEngineTrainingMixin:
                     return False
             return True
 
+        class_names = [
+            lbl.name
+            for lbl in self.layer_config.predefined_labels
+            if not selected_labels or lbl.name in selected_labels
+        ] or [lbl.name for lbl in self.layer_config.predefined_labels]
+
+        # Optional ROI cropping by label names (default empty = no ROI cropping)
+        roi_labels: set[str] = set()
+        roi_padding = 0
         for src_cfg in sources_list:
-            source_mode = str(src_cfg.get("source", "hybrid")).lower()
+            for rlbl in src_cfg.get("roi_labels") or []:
+                if rlbl:
+                    roi_labels.add(str(rlbl))
+            if src_cfg.get("roi_padding") is not None:
+                roi_padding = max(roi_padding, int(src_cfg.get("roi_padding") or 0))
 
-            # 1. Baker synthetic dataset (if baker or hybrid and baker cache exists)
-            if source_mode in ("baker", "hybrid") and self.baker_cache_file.is_file():
-                try:
-                    from imagebaker.dataset import CacheDatasetGenerator, DatasetBakeConfig
+        def _ann_bbox_xyxy(ann, img_w: int, img_h: int) -> tuple[int, int, int, int] | None:
+            if ann.rectangle is not None:
+                r = ann.rectangle
+                x1, y1 = int(round(r.x())), int(round(r.y()))
+                x2, y2 = int(round(r.x() + r.width())), int(round(r.y() + r.height()))
+            elif ann.polygon is not None and len(ann.polygon) >= 3:
+                xs = [p.x() for p in ann.polygon]
+                ys = [p.y() for p in ann.polygon]
+                x1, y1, x2, y2 = int(round(min(xs))), int(round(min(ys))), int(round(max(xs))), int(round(max(ys)))
+            elif ann.mask is not None and bool(getattr(ann.mask, "any", lambda: False)()):
+                ys, xs = np.nonzero(ann.mask)
+                x1, y1, x2, y2 = int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
+            else:
+                return None
+            x1 = max(0, min(img_w - 1, x1))
+            y1 = max(0, min(img_h - 1, y1))
+            x2 = max(x1 + 1, min(img_w, x2))
+            y2 = max(y1 + 1, min(img_h, y2))
+            return (x1, y1, x2, y2)
 
-                    num_samples = max(2, int(src_cfg.get("num_synthetic_samples", 20)))
-                    ds_cfg = DatasetBakeConfig(
-                        export_format=export_fmt,
-                        split_ratios=split_ratios,
-                        labeled_labels=sorted(selected_labels) if selected_labels else None,
-                    )
-                    gen = CacheDatasetGenerator(
-                        cache_dir=self.canvas_config.cache_dir,
-                        config=ds_cfg,
-                    )
-                    if gen.foreground_assets:
-                        gen.extract_dataset(
-                            output_dir=dataset_dir,
-                            num_samples=num_samples,
-                            format=export_fmt,
-                        )
-                except Exception as exc:
-                    logger.warning(f"Baker dataset generation skipped: {exc}")
+        def _crop_ann_to_roi(ann, cx1: int, cy1: int, cw: int, ch: int):
+            from PySide6.QtCore import QPointF, QRectF
+            from PySide6.QtGui import QPolygonF
 
-            # 2. Layerify real images & annotations
-            if source_mode in ("layerify", "hybrid"):
-                images_train = dataset_dir / "images" / "train"
-                labels_train = dataset_dir / "labels" / "train"
-                images_val = dataset_dir / "images" / "val"
-                labels_val = dataset_dir / "labels" / "val"
-                for d in (images_train, labels_train, images_val, labels_val):
-                    d.mkdir(parents=True, exist_ok=True)
+            ac = ann.copy()
+            if ac.rectangle is not None:
+                r = ac.rectangle
+                nx1 = max(0.0, min(float(cw), r.x() - cx1))
+                ny1 = max(0.0, min(float(ch), r.y() - cy1))
+                nx2 = max(0.0, min(float(cw), r.x() + r.width() - cx1))
+                ny2 = max(0.0, min(float(ch), r.y() + r.height() - cy1))
+                if nx2 - nx1 < 2.0 or ny2 - ny1 < 2.0:
+                    return None
+                ac.rectangle = QRectF(nx1, ny1, nx2 - nx1, ny2 - ny1)
+            if ac.polygon is not None and len(ac.polygon) >= 3:
+                pts = [
+                    QPointF(max(0.0, min(float(cw), p.x() - cx1)), max(0.0, min(float(ch), p.y() - cy1)))
+                    for p in ac.polygon
+                ]
+                xs = [p.x() for p in pts]
+                ys = [p.y() for p in pts]
+                if max(xs) - min(xs) < 2.0 or max(ys) - min(ys) < 2.0:
+                    return None
+                ac.polygon = QPolygonF(pts)
+            if ac.mask is not None and getattr(ac.mask, "ndim", 0) == 2:
+                sub = ac.mask[cy1 : cy1 + ch, cx1 : cx1 + cw]
+                if sub.size == 0 or not np.any(sub):
+                    return None
+                ac.mask = sub.copy()
+            if ac.points:
+                kept_pts = [
+                    QPointF(p.x() - cx1, p.y() - cy1)
+                    for p in ac.points
+                    if cx1 <= p.x() <= cx1 + cw and cy1 <= p.y() <= cy1 + ch
+                ]
+                if not kept_pts and ac.rectangle is None and ac.polygon is None and ac.mask is None:
+                    return None
+                ac.points = kept_pts
+            return ac
 
-                class_names = [
-                    lbl.name
-                    for lbl in self.layer_config.predefined_labels
-                    if not selected_labels or lbl.name in selected_labels
-                ] or [lbl.name for lbl in self.layer_config.predefined_labels]
-                n_imgs = len(self.image_entries)
-                for idx, entry in enumerate(self.image_entries):
-                    if not entry.file_path.is_file():
+        def _expand_with_roi(sample: dict[str, Any], raw_anns: list[Any]) -> list[dict[str, Any]]:
+            if not roi_labels:
+                return [sample]
+            from PySide6.QtGui import QImage
+
+            qimg = sample["qimage"]
+            if qimg is None and sample["src_path"] is not None:
+                qimg = QImage(str(sample["src_path"]))
+            if qimg is None or qimg.isNull():
+                return []
+            iw, ih = qimg.width(), qimg.height()
+            roi_anns = [a for a in raw_anns if a.label in roi_labels]
+            if not roi_anns:
+                return []
+            out_crops: list[dict[str, Any]] = []
+            stem = Path(sample["name"]).stem
+            for r_idx, r_ann in enumerate(roi_anns):
+                box = _ann_bbox_xyxy(r_ann, iw, ih)
+                if box is None:
+                    continue
+                bx1, by1, bx2, by2 = box
+                cx1 = max(0, bx1 - roi_padding)
+                cy1 = max(0, by1 - roi_padding)
+                cx2 = min(iw, bx2 + roi_padding)
+                cy2 = min(ih, by2 + roi_padding)
+                cw, ch = cx2 - cx1, cy2 - cy1
+                if cw < 4 or ch < 4:
+                    continue
+                crop_img = qimg.copy(cx1, cy1, cw, ch)
+                crop_anns = []
+                for a in sample["annotations"]:
+                    if a is r_ann and (not selected_labels or a.label not in selected_labels):
                         continue
-                    is_val = n_imgs >= 2 and idx >= max(1, int(n_imgs * split_ratios["train"]))
-                    img_dest = (images_val if is_val else images_train) / entry.file_path.name
-                    if not img_dest.exists():
-                        shutil.copy2(entry.file_path, img_dest)
-                    anns = (
-                        self.current_annotations
-                        if idx == self.curr_image_idx
-                        else self.load_image_annotations(entry.file_path)
+                    ca = _crop_ann_to_roi(a, cx1, cy1, cw, ch)
+                    if ca is not None:
+                        crop_anns.append(ca)
+                out_crops.append(
+                    {
+                        "name": f"{stem}_roi{r_idx:02d}.png",
+                        "width": cw,
+                        "height": ch,
+                        "annotations": crop_anns,
+                        "origin": sample["origin"],
+                        "qimage": crop_img,
+                        "src_path": None,
+                    }
+                )
+            return out_crops
+
+        # Collect concrete sample records: {"name", "width", "height", "annotations", "origin", "qimage", "src_path"}
+        baker_samples: list[dict[str, Any]] = []
+        layerify_samples: list[dict[str, Any]] = []
+        wants_baker = any(str(s.get("source", "")).lower() in ("baker", "hybrid") for s in sources_list)
+        wants_layerify = any(str(s.get("source", "")).lower() in ("layerify", "hybrid") for s in sources_list)
+
+        if wants_baker:
+            baked_states = self.bake_saved_states_in_memory()
+            for idx, res in enumerate(baked_states):
+                filtered = [a for a in res.annotations if _ann_matches(a)]
+                fname = f"baker_{idx:04d}_{res.filename.name}"
+                base_sample = {
+                    "name": fname,
+                    "width": res.image.width(),
+                    "height": res.image.height(),
+                    "annotations": filtered,
+                    "origin": "baker",
+                    "qimage": res.image,
+                    "src_path": None,
+                }
+                baker_samples.extend(_expand_with_roi(base_sample, res.annotations))
+
+        if wants_layerify:
+            for idx, entry in enumerate(self.image_entries):
+                if not entry.file_path.is_file():
+                    continue
+                anns = (
+                    self.current_annotations
+                    if idx == self.curr_image_idx
+                    else self.load_image_annotations(entry.file_path)
+                )
+                filtered = [a for a in anns if _ann_matches(a)]
+                base_sample = {
+                    "name": f"lyr_{idx:04d}_{entry.file_path.name}",
+                    "width": entry.width,
+                    "height": entry.height,
+                    "annotations": filtered,
+                    "origin": "layerify",
+                    "qimage": None,
+                    "src_path": entry.file_path,
+                }
+                layerify_samples.extend(_expand_with_roi(base_sample, anns))
+
+        if not baker_samples and not layerify_samples:
+            if roi_labels:
+                raise ValueError(
+                    f"No ROI crops found matching label(s): {', '.join(sorted(roi_labels))}."
+                )
+            if wants_baker and not wants_layerify:
+                raise ValueError(
+                    "No saved Baker states available. Save states in the Baker tab before training."
+                )
+            raise ValueError(
+                "No training images available from the selected data source(s)."
+            )
+
+        # Assign splits cleanly (respecting real_only_val when mixing Layerify + Baker)
+        splits: dict[str, list[dict[str, Any]]] = {"train": [], "val": [], "test": []}
+
+        def _partition(items: list[dict[str, Any]]) -> None:
+            n = len(items)
+            if n == 0:
+                return
+            if n == 1:
+                splits["train"].append(items[0])
+                return
+            n_train = max(1, int(round(n * train_frac)))
+            n_val = max(1, int(round(n * val_frac))) if (n - n_train) >= 1 else 0
+            if n_train + n_val > n:
+                n_train = max(1, n - n_val)
+            splits["train"].extend(items[:n_train])
+            splits["val"].extend(items[n_train : n_train + n_val])
+            splits["test"].extend(items[n_train + n_val :])
+
+        if layerify_samples and baker_samples and real_only_val:
+            splits["train"].extend(baker_samples)
+            _partition(layerify_samples)
+        else:
+            _partition(baker_samples + layerify_samples)
+
+        if not splits["val"] and len(splits["train"]) >= 2:
+            splits["val"].append(splits["train"].pop())
+
+        # Write dataset files in the requested format
+        if export_fmt == "coco":
+            coco_dir_names = {"train": "train", "val": "valid", "test": "test"}
+            for split_key, items in splits.items():
+                if not items and split_key == "test":
+                    continue
+                sdir = dataset_dir / coco_dir_names[split_key]
+                sdir.mkdir(parents=True, exist_ok=True)
+                coco_images = []
+                coco_anns = []
+                coco_cats = [
+                    {"id": i, "name": cname, "supercategory": "object"}
+                    for i, cname in enumerate(class_names, start=1)
+                ]
+                valid_cat_ids = {c["id"] for c in coco_cats}
+                cat_name_to_id = {c["name"]: c["id"] for c in coco_cats}
+                ann_uid = 1
+                for img_uid, item in enumerate(items, start=1):
+                    img_out = sdir / item["name"]
+                    if item["qimage"] is not None:
+                        item["qimage"].save(str(img_out), "PNG")
+                    elif item["src_path"] is not None:
+                        shutil.copy2(item["src_path"], img_out)
+                    coco_images.append(
+                        {
+                            "id": img_uid,
+                            "file_name": item["name"],
+                            "width": int(item["width"]),
+                            "height": int(item["height"]),
+                        }
                     )
-                    filtered_anns = [a for a in anns if _ann_matches(a)]
-                    if filtered_anns:
-                        ext = ".txt" if export_fmt == "yolo" else ".json"
-                        lbl_dest = (labels_val if is_val else labels_train) / f"{entry.file_path.stem}{ext}"
-                        save_annotations_to_path(
-                            annotations=filtered_anns,
-                            output_path=lbl_dest,
-                            fmt=export_fmt,
-                            image_name=entry.file_path.name,
-                            image_width=entry.width,
-                            image_height=entry.height,
+                    if item["annotations"]:
+                        exp = export_annotations_data(
+                            annotations=item["annotations"],
+                            fmt="coco",
+                            image_name=item["name"],
+                            image_width=int(item["width"]),
+                            image_height=int(item["height"]),
                             class_names=class_names,
                         )
+                        exp_cat_id_to_name = {
+                            int(c["id"]): str(c["name"])
+                            for c in (exp.get("data") or {}).get("categories") or []
+                        }
+                        for ca in (exp.get("data") or {}).get("annotations") or []:
+                            ca_copy = dict(ca)
+                            ca_copy["id"] = ann_uid
+                            ca_copy["image_id"] = img_uid
+                            cid = int(ca_copy.get("category_id", 1))
+                            if cid not in valid_cat_ids:
+                                cname = exp_cat_id_to_name.get(cid)
+                                if cname and cname in cat_name_to_id:
+                                    cid = cat_name_to_id[cname]
+                                elif cname:
+                                    cid = len(coco_cats) + 1
+                                    coco_cats.append({"id": cid, "name": cname, "supercategory": "object"})
+                                    valid_cat_ids.add(cid)
+                                    cat_name_to_id[cname] = cid
+                                else:
+                                    cid = coco_cats[0]["id"] if coco_cats else 1
+                            ca_copy["category_id"] = cid
+                            coco_anns.append(ca_copy)
+                            ann_uid += 1
+                (sdir / "_annotations.coco.json").write_text(
+                    json.dumps(
+                        {"images": coco_images, "annotations": coco_anns, "categories": coco_cats},
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+        else:
+            for split_key, items in splits.items():
+                img_dir = dataset_dir / "images" / split_key
+                lbl_dir = dataset_dir / "labels" / split_key
+                img_dir.mkdir(parents=True, exist_ok=True)
+                lbl_dir.mkdir(parents=True, exist_ok=True)
+                ext = ".txt" if export_fmt == "yolo" else ".json"
+                for item in items:
+                    img_out = img_dir / item["name"]
+                    if item["qimage"] is not None:
+                        item["qimage"].save(str(img_out), "PNG")
+                    elif item["src_path"] is not None:
+                        shutil.copy2(item["src_path"], img_out)
+                    if item["annotations"]:
+                        lbl_out = lbl_dir / f"{Path(item['name']).stem}{ext}"
+                        save_annotations_to_path(
+                            annotations=item["annotations"],
+                            output_path=lbl_out,
+                            fmt=export_fmt,
+                            image_name=item["name"],
+                            image_width=int(item["width"]),
+                            image_height=int(item["height"]),
+                            class_names=class_names,
+                        )
+            names_yaml = "\n".join(f"  {i}: {name}" for i, name in enumerate(class_names))
+            (dataset_dir / "data.yaml").write_text(
+                f"path: {dataset_dir.resolve().as_posix()}\n"
+                f"train: images/train\n"
+                f"val: images/val\n"
+                f"test: images/test\n"
+                f"names:\n{names_yaml}\n",
+                encoding="utf-8",
+            )
+            (dataset_dir / "classes.txt").write_text("\n".join(class_names) + "\n", encoding="utf-8")
 
-                data_yaml = dataset_dir / "data.yaml"
-                if not data_yaml.is_file():
-                    names_yaml = "\n".join(f"  {i}: {name}" for i, name in enumerate(class_names))
-                    data_yaml.write_text(
-                        f"path: {dataset_dir.resolve().as_posix()}\n"
-                        f"train: images/train\n"
-                        f"val: images/val\n"
-                        f"names:\n{names_yaml}\n",
-                        encoding="utf-8",
-                    )
-
+        manifest = {
+            "export_format": export_fmt,
+            "baker_states_used": len(baker_samples),
+            "layerify_images_used": len(layerify_samples),
+            "roi_labels": sorted(roi_labels),
+            "roi_padding": roi_padding,
+            "counts": {k: len(v) for k, v in splits.items()},
+            "class_names": class_names,
+        }
+        (dataset_dir / "dataset_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         return dataset_dir
 
     def preview_pipeline_node(
@@ -336,30 +609,57 @@ class WebEngineTrainingMixin:
             selected_labels = {str(x) for x in (split_cfg.get("selected_labels") or []) if x}
             allowed_types = {str(x).lower() for x in (split_cfg.get("annotation_types") or []) if x}
 
+            # 0. If hovering over an Eval & Visualize node, show the latest post-training val/test image if available
+            if node_map[node_id].get("type") == "eval_vis":
+                st = self.get_training_status()
+                eval_imgs = st.get("eval_images") or []
+                if eval_imgs:
+                    first_ev = eval_imgs[0]
+                    ev_path = self.training_manager.runs_dir / str(st.get("active_run_id", "")) / "eval_vis" / first_ev["name"]
+                    if ev_path.is_file():
+                        b64_ev = base64.b64encode(ev_path.read_bytes()).decode("ascii")
+                        return {
+                            "ok": True,
+                            "node_id": node_id,
+                            "node_label": node_map[node_id].get("label", "Eval & Visualize"),
+                            "source": f"Eval ({first_ev.get('split', 'val')}: {first_ev.get('source_image', '')})",
+                            "num_annotations": int(first_ev.get("num_preds", 0)),
+                            "applied_augmentations": [f"GT: {first_ev.get('num_gt', 0)}", f"Preds: {first_ev.get('num_preds', 0)}"],
+                            "image_b64": f"data:image/png;base64,{b64_ev}",
+                        }
+
             # 1. Obtain a sample image + annotation overlays
             img_rgb = None
             boxes: list[tuple[int, int, int, int, str]] = []
             source_desc = src_mode
 
-            if src_mode in ("baker", "hybrid") and self.baker_cache_file.is_file():
+            if src_mode in ("baker", "hybrid"):
                 try:
-                    from imagebaker.dataset import CacheDatasetGenerator, DatasetBakeConfig
+                    baked_list = self.bake_saved_states_in_memory(max_states=1)
+                    if baked_list:
+                        from imagebaker.utils.image import qpixmap_to_numpy
 
-                    gen = CacheDatasetGenerator(
-                        cache_dir=self.canvas_config.cache_dir,
-                        config=DatasetBakeConfig(background_size=(320, 240)),
-                    )
-                    if gen.foreground_assets:
-                        sample = gen.generate_sample(split="train", sample_index=0)
-                        img_rgb = sample["image"].copy()
-                        source_desc = "Baker Synthetic"
-                        for a in sample.get("annotations") or []:
-                            lbl = str(a.get("label", "Undefined"))
-                            if selected_labels and lbl not in selected_labels:
+                        baked_res = baked_list[0]
+                        rgba_np = qpixmap_to_numpy(baked_res.image.copy())
+                        img_rgb = rgba_np[:, :, :3].copy()
+                        total_states = self.count_saved_baker_states()
+                        source_desc = f"Baker Saved State (1/{total_states})"
+                        for ann in baked_res.annotations:
+                            if selected_labels and ann.label not in selected_labels:
                                 continue
-                            r = a.get("rectangle")
-                            if r and len(r) == 4:
-                                boxes.append((int(r[0]), int(r[1]), int(r[0] + r[2]), int(r[1] + r[3]), lbl))
+                            has_mask = ann.mask is not None and bool(getattr(ann.mask, "any", lambda: False)())
+                            atype = (
+                                "brush" if (has_mask and not ann.polygon and not ann.rectangle)
+                                else ("polygon" if ann.polygon else ("rectangle" if ann.rectangle else "point"))
+                            )
+                            if allowed_types and atype not in allowed_types:
+                                continue
+                            if ann.rectangle:
+                                r = ann.rectangle
+                                boxes.append((int(r.x()), int(r.y()), int(r.x() + r.width()), int(r.y() + r.height()), ann.label))
+                            elif ann.polygon and len(ann.polygon) >= 3:
+                                br = ann.polygon.boundingRect()
+                                boxes.append((int(br.x()), int(br.y()), int(br.x() + br.width()), int(br.y() + br.height()), ann.label))
                 except Exception:
                     pass
 
@@ -459,7 +759,11 @@ class WebEngineTrainingMixin:
             target = pipeline if pipeline is not None else self.train_pipeline
             return validate_and_compile_pipeline(target, self.loaded_trainers)
 
-    def start_training(self, pipeline: dict[str, Any] | None = None) -> tuple[bool, str, str | None]:
+    def start_training(
+        self,
+        pipeline: dict[str, Any] | None = None,
+        run_name: str | None = None,
+    ) -> tuple[bool, str, str | None]:
         with self.lock:
             if pipeline is not None:
                 self.save_train_pipeline(pipeline)
@@ -471,14 +775,75 @@ class WebEngineTrainingMixin:
             dataset_dir = self.training_manager.runs_dir / "_staging_dataset"
             if dataset_dir.exists():
                 shutil.rmtree(dataset_dir, ignore_errors=True)
-            self._prepare_training_dataset(compiled, dataset_dir)
+            try:
+                self._prepare_training_dataset(compiled, dataset_dir)
+            except Exception as exc:
+                self.last_message = str(exc)
+                return False, str(exc), None
             ok, msg, run_id = self.training_manager.start_run(
                 compiled_spec=compiled,
                 dataset_dir=dataset_dir,
                 pipeline_snapshot=self.train_pipeline,
+                run_name=run_name,
             )
             self.last_message = msg
             return ok, msg, run_id
+
+    def delete_training_run(self, run_id: str) -> tuple[bool, str]:
+        with self.lock:
+            ok, msg = self.training_manager.delete_run(run_id)
+            self.last_message = msg
+            return ok, msg
+
+    def get_training_run_pipeline(self, run_id: str) -> dict[str, Any] | None:
+        with self.lock:
+            return self.training_manager.get_run_pipeline(run_id)
+
+    def run_eval_visualization(
+        self,
+        run_id: str | None = None,
+        split: str = "val",
+        max_samples: int = 6,
+        conf_threshold: float = 0.35,
+        draw_ground_truth: bool = True,
+    ) -> dict[str, Any]:
+        """Run or re-run post-training visualization on a completed run's val/test split."""
+        from imagebaker.training.worker import _generate_eval_visualizations
+
+        with self.lock:
+            st = self.get_training_status(run_id)
+            target_id = run_id or st.get("active_run_id")
+            if not target_id:
+                return {"ok": False, "message": "No training run available to visualize."}
+            run_dir = self.training_manager.runs_dir / target_id
+            spec_file = run_dir / "run_spec.json"
+            result_file = run_dir / "result.json"
+            if not spec_file.is_file() or not result_file.is_file():
+                return {"ok": False, "message": f"Run '{target_id}' is not completed yet."}
+            spec = json.loads(spec_file.read_text(encoding="utf-8"))
+            res = json.loads(result_file.read_text(encoding="utf-8"))
+            ckpt = res.get("checkpoint_path")
+            trainer = self.loaded_trainers.get(spec.get("trainer_name"))
+            if not ckpt or not Path(ckpt).exists() or trainer is None:
+                return {"ok": False, "message": "Trained checkpoint or trainer not available."}
+            eval_images = _generate_eval_visualizations(
+                trainer=trainer,
+                checkpoint_path=Path(ckpt),
+                dataset_dir=Path(spec["dataset_dir"]),
+                run_dir=run_dir,
+                eval_cfg={
+                    "split": split,
+                    "max_samples": max_samples,
+                    "conf_threshold": conf_threshold,
+                    "draw_ground_truth": draw_ground_truth,
+                },
+            )
+            return {
+                "ok": True,
+                "message": f"Generated {len(eval_images)} {split} visualization(s).",
+                "eval_images": eval_images,
+                "training": self.get_training_status(target_id),
+            }
 
     def stop_training(self) -> tuple[bool, str]:
         with self.lock:

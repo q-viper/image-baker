@@ -96,13 +96,15 @@
     const activeTab = state.active_tab || "Layerify";
     const isHelpTab = activeTab === "Help";
     const isTrainTab = activeTab === "Train";
-    const hideCanvasTools = isHelpTab || isTrainTab;
+    const isCompareTab = activeTab === "Compare";
+    const hideCanvasTools = isHelpTab || isTrainTab || isCompareTab;
     document.querySelectorAll(".tab-btn").forEach(btn => {
       btn.classList.toggle("active", btn.dataset.tab === activeTab);
     });
     if (el("view-layerify")) el("view-layerify").classList.toggle("active", activeTab === "Layerify");
     if (el("view-baker")) el("view-baker").classList.toggle("active", activeTab === "Baker");
     if (el("view-train")) el("view-train").classList.toggle("active", isTrainTab);
+    if (el("view-compare")) el("view-compare").classList.toggle("active", isCompareTab);
     if (el("view-help")) el("view-help").classList.toggle("active", isHelpTab);
 
     const topZoomGroup = el("top-zoom-group") || document.querySelector(".zoom-group");
@@ -220,6 +222,10 @@
       } else {
         lbl.textContent = `Canvas: ${curCanvas.name} (${curCanvas.num_layers} layers)`;
       }
+    } else if (activeTab === "Train") {
+      lbl.textContent = "Training Pipeline Studio";
+    } else if (activeTab === "Compare") {
+      lbl.textContent = "Model & Image Comparison";
     } else {
       lbl.textContent = "Shortcuts & Help";
     }
@@ -413,6 +419,9 @@
     uiBaker.initBakerUI();
     if (window.ImageBaker.uiTrain?.initTrainUI) {
       window.ImageBaker.uiTrain.initTrainUI();
+    }
+    if (window.ImageBaker.uiCompare?.initCompareUI) {
+      window.ImageBaker.uiCompare.initCompareUI();
     }
     shortcuts.initShortcuts();
 

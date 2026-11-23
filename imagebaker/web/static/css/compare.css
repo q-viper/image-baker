@@ -1,0 +1,383 @@
+/* ==================== COMPARE TAB (LUMINA-INSPIRED) ==================== */
+.cmp-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 6px;
+  overflow: hidden;
+}
+
+.cmp-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  background-color: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.cmp-tools-bar {
+  padding: 4px 9px;
+}
+
+.cmp-tools-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.cmp-toolbar-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 2px;
+}
+
+.cmp-toolbar-spacer {
+  flex: 1;
+}
+
+.cmp-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.cmp-swatches {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cmp-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--panel);
+  box-shadow: 0 0 0 1px var(--border);
+  cursor: pointer;
+  padding: 0;
+}
+
+.cmp-swatch.active {
+  box-shadow: 0 0 0 2px var(--accent);
+  transform: scale(1.1);
+}
+
+.cmp-check-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.cmp-diff-stat {
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--muted);
+}
+
+.cmp-mix-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cmp-mix-wrap input[type="range"] {
+  width: 96px;
+}
+
+.cmp-zoom-readout {
+  min-width: 46px;
+  text-align: right;
+  font-family: monospace;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.cmp-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 6px;
+}
+
+.cmp-sidebar {
+  width: 245px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.cmp-sidebar-head {
+  display: flex;
+  gap: 4px;
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cmp-image-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cmp-list-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  user-select: none;
+}
+
+.cmp-list-row:hover {
+  background: var(--panel-alt);
+}
+
+.cmp-list-row.in-pane {
+  background: rgba(59, 130, 246, 0.14);
+  border-color: rgba(59, 130, 246, 0.45);
+}
+
+.cmp-list-thumb {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: #0b1120;
+  flex: none;
+}
+
+.cmp-list-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cmp-list-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cmp-list-sub {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cmp-list-pane-tags {
+  display: flex;
+  gap: 3px;
+  flex: none;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.cmp-panes {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.cmp-pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cmp-pane.active {
+  border-color: var(--accent);
+}
+
+.cmp-pane-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 7px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-alt);
+  font-size: 11.5px;
+  flex-shrink: 0;
+}
+
+.cmp-pane-src {
+  max-width: 175px;
+  height: 23px;
+  padding: 0 5px;
+  font-size: 11px;
+}
+
+.cmp-pane-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cmp-viewport {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  background: var(--canvas-bg);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.cmp-viewport.dragging {
+  cursor: grabbing;
+}
+
+.cmp-viewport.draw-mode {
+  cursor: crosshair;
+}
+
+.cmp-viewport.drop-over {
+  outline: 3px dashed var(--accent);
+  outline-offset: -3px;
+}
+
+.cmp-viewport.pixelated img,
+.cmp-viewport.pixelated canvas.cmp-diff-canvas {
+  image-rendering: pixelated;
+}
+
+.cmp-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.cmp-stage img,
+.cmp-stage canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.cmp-ov-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 8;
+}
+
+.cmp-swipe-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  margin-left: -7px;
+  cursor: ew-resize;
+  z-index: 12;
+  background: linear-gradient(90deg, transparent 5px, #ffffff 5px, #ffffff 8px, transparent 8px);
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.85));
+}
+
+.cmp-cross-x,
+.cmp-cross-y {
+  position: absolute;
+  pointer-events: none;
+  background: #f43f5e;
+  opacity: 0.78;
+  z-index: 11;
+}
+
+.cmp-cross-x { width: 1px; top: 0; bottom: 0; }
+.cmp-cross-y { height: 1px; left: 0; right: 0; }
+
+.cmp-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 16px;
+  pointer-events: none;
+}
+
+.cmp-pane-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 8px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted);
+  font-family: monospace;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.cmp-foot-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cmp-foot-rd {
+  color: var(--text);
+}

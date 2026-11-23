@@ -435,6 +435,26 @@ class WebAppEngine(
                     "available_plugins": sorted(self.plugin_registry.keys()),
                     "selected_plugins": selected_plugins_union,
                     "states": canvas.ordered_state_steps() if canvas else [],
+                    "state_frames": [
+                        {
+                            "step": int(step_k),
+                            "layers": [
+                                {
+                                    "layer_id": int(st.layer_id),
+                                    "layer_name": str(st.layer_name),
+                                    "position": [float(st.position.x()), float(st.position.y())],
+                                    "rotation": float(st.rotation),
+                                    "scale_x": float(st.scale_x),
+                                    "scale_y": float(st.scale_y),
+                                    "opacity": float(st.opacity),
+                                    "visible": bool(st.visible),
+                                    "order": int(st.order),
+                                }
+                                for st in canvas.states.get(step_k, [])
+                            ],
+                        }
+                        for step_k in (canvas.ordered_state_steps() if canvas else [])
+                    ],
                     "state_count": len(canvas.states) if canvas else 0,
                     "num_states": len(canvas.states) if canvas else 0,
                     "current_step": canvas.current_step if canvas else 0,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -28,9 +29,8 @@ def default_pipeline_graph(default_trainer: str | None = None) -> dict[str, Any]
                 "x": 60,
                 "y": 140,
                 "config": {
-                    "source": "hybrid",  # layerify | baker | hybrid
-                    "num_synthetic_samples": 20,
-                    "export_format": "yolo",
+                    "source": "layerify",  # layerify | baker | hybrid
+                    "export_format": "coco",
                 },
             },
             {
@@ -83,9 +83,22 @@ def default_pipeline_graph(default_trainer: str | None = None) -> dict[str, Any]
                 "type": "output",
                 "label": "Checkpoint & Layerify",
                 "x": 1120,
-                "y": 140,
+                "y": 90,
                 "config": {
                     "auto_load_layerify": True,
+                },
+            },
+            {
+                "id": "node_eval_vis",
+                "type": "eval_vis",
+                "label": "Eval & Visualize",
+                "x": 1120,
+                "y": 215,
+                "config": {
+                    "split": "val",
+                    "max_samples": 6,
+                    "conf_threshold": 0.35,
+                    "draw_ground_truth": True,
                 },
             },
         ],
@@ -94,6 +107,7 @@ def default_pipeline_graph(default_trainer: str | None = None) -> dict[str, Any]
             {"id": "e2", "source": "node_split", "target": "node_aug"},
             {"id": "e3", "source": "node_aug", "target": "node_trainer"},
             {"id": "e4", "source": "node_trainer", "target": "node_output"},
+            {"id": "e5", "source": "node_trainer", "target": "node_eval_vis"},
         ],
     }
 
@@ -179,6 +193,7 @@ def validate_and_compile_pipeline(
     split_nodes = [n for n in ordered_nodes if n.get("type") == "split_filter" and str(n["id"]) in visited]
     aug_nodes = [n for n in ordered_nodes if n.get("type") == "augmentation" and str(n["id"]) in visited]
     out_nodes = [n for n in ordered_nodes if n.get("type") == "output"]
+    eval_nodes = [n for n in ordered_nodes if n.get("type") == "eval_vis"]
 
     augmentations = []
     for an in aug_nodes:
@@ -199,6 +214,7 @@ def validate_and_compile_pipeline(
         "trainer_name": trainer_name,
         "trainer_config": t_cfg,
         "output": dict(out_nodes[0].get("config") or {}) if out_nodes else {},
+        "eval_vis": dict(eval_nodes[0].get("config") or {}) if eval_nodes else None,
     }
     return True, "Pipeline is valid.", compiled
 
@@ -224,8 +240,9 @@ class TrainingRunManager:
         compiled_spec: dict[str, Any],
         dataset_dir: Path,
         pipeline_snapshot: dict[str, Any] | None = None,
+        run_name: str | None = None,
     ) -> tuple[bool, str, str | None]:
-        """Create a timestamped run directory, persist `run_spec.json`, and spawn the worker subprocess.
+        """Create a run directory (using optional custom `run_name`), persist `run_spec.json`, and spawn the worker subprocess.
 
         Returns `(ok, message, run_id)`. Only one active training subprocess runs per project
         at a time so GPU VRAM is not contended.
@@ -234,24 +251,29 @@ class TrainingRunManager:
             if self._proc is not None and self._proc.poll() is None:
                 return False, f"Run '{self._active_run_id}' is already running.", self._active_run_id
 
-            run_id = time.strftime("run_%Y%m%d_%H%M%S")
+            cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(run_name or "").strip()).strip("_.-")[:64]
+            base_id = cleaned if cleaned else time.strftime("run_%Y%m%d_%H%M%S")
+            run_id = base_id
             run_dir = self.runs_dir / run_id
             suffix = 1
             while run_dir.exists():
-                run_id = f"{time.strftime('run_%Y%m%d_%H%M%S')}_{suffix}"
+                run_id = f"{base_id}_{suffix}"
                 run_dir = self.runs_dir / run_id
                 suffix += 1
             run_dir.mkdir(parents=True, exist_ok=True)
 
             spec = {
                 "run_id": run_id,
+                "run_name": str(run_name or "").strip() or run_id,
                 "trainers_file": str(self.trainers_file) if self.trainers_file else None,
                 "trainer_name": compiled_spec["trainer_name"],
                 "trainer_config": compiled_spec["trainer_config"],
                 "augmentations": compiled_spec["augmentations"],
                 "data_source": compiled_spec["data_source"],
+                "data_sources": compiled_spec.get("data_sources") or [compiled_spec["data_source"]],
                 "split_filter": compiled_spec["split_filter"],
                 "output": compiled_spec["output"],
+                "eval_vis": compiled_spec.get("eval_vis"),
                 "dataset_dir": str(dataset_dir.resolve()),
                 "created_at": time.time(),
             }
@@ -262,20 +284,53 @@ class TrainingRunManager:
                 )
 
             log_path = run_dir / "train.log"
-            log_fh = log_path.open("w", encoding="utf-8")
             env = dict(os.environ)
+            env["PYTHONIOENCODING"] = "utf-8"
+            env["PYTHONUTF8"] = "1"
+            env["PYTHONUNBUFFERED"] = "1"
+            env.setdefault("NO_COLOR", "1")
             repo_root = str(Path(__file__).resolve().parent.parent.parent)
             existing_pp = env.get("PYTHONPATH", "")
             env["PYTHONPATH"] = f"{repo_root}{os.pathsep}{existing_pp}" if existing_pp else repo_root
 
-            cmd = [sys.executable, "-m", "imagebaker.training.worker", "--run-dir", str(run_dir)]
+            cmd = [sys.executable, "-u", "-m", "imagebaker.training.worker", "--run-dir", str(run_dir)]
             self._proc = subprocess.Popen(
                 cmd,
                 cwd=str(self.project_dir),
-                stdout=log_fh,
+                stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
                 env=env,
             )
+
+            # Tee worker stdout/stderr to both train.log and the backend console
+            proc_ref = self._proc
+
+            def _tee_worker_output() -> None:
+                try:
+                    with log_path.open("w", encoding="utf-8", errors="replace") as log_fh:
+                        if proc_ref.stdout is None:
+                            return
+                        for line in proc_ref.stdout:
+                            log_fh.write(line)
+                            log_fh.flush()
+                            try:
+                                sys.stdout.write(f"[train:{run_id}] {line}")
+                                sys.stdout.flush()
+                            except Exception:
+                                pass
+                except Exception as exc:
+                    logger.warning(f"Training log tee stopped for {run_id}: {exc}")
+
+            threading.Thread(
+                target=_tee_worker_output,
+                name=f"train-log-tee-{run_id}",
+                daemon=True,
+            ).start()
+
             self._active_run_id = run_id
             logger.info(f"Started training run {run_id} (PID {self._proc.pid})")
             return True, f"Started training run {run_id}", run_id
@@ -346,6 +401,14 @@ class TrainingRunManager:
             if log_file.is_file():
                 logs = log_file.read_text(encoding="utf-8", errors="replace")[-8000:]
 
+            eval_images: list[dict[str, Any]] = []
+            eval_manifest = run_dir / "eval_vis" / "manifest.json"
+            if eval_manifest.is_file():
+                try:
+                    eval_images = json.loads(eval_manifest.read_text(encoding="utf-8"))
+                except Exception:
+                    eval_images = []
+
             return {
                 "active_run_id": target_id,
                 "is_running": running,
@@ -353,6 +416,7 @@ class TrainingRunManager:
                 "metrics_history": metrics_history[-200:],
                 "latest": latest,
                 "logs": logs,
+                "eval_images": eval_images,
                 "runs": self.list_runs(),
             }
 
@@ -381,15 +445,49 @@ class TrainingRunManager:
             runs.append(
                 {
                     "run_id": run_dir.name,
+                    "run_name": spec.get("run_name") or run_dir.name,
                     "trainer_name": spec.get("trainer_name", ""),
                     "training_mode": (spec.get("trainer_config") or {}).get("training_mode", ""),
                     "status": "running" if is_active else res.get("status", "unknown"),
                     "checkpoint_path": res.get("checkpoint_path"),
+                    "has_eval": (run_dir / "eval_vis" / "manifest.json").is_file(),
+                    "has_pipeline": (run_dir / "pipeline.json").is_file(),
                     "metrics": res.get("metrics") or {},
                     "created_at": spec.get("created_at"),
                 }
             )
         return runs[:30]
+
+    def delete_run(self, run_id: str) -> tuple[bool, str]:
+        """Delete a completed/stopped/failed training run directory from `.imagebaker/runs/`."""
+        with self._lock:
+            safe_id = Path(str(run_id or "")).name
+            if not safe_id or safe_id.startswith("_"):
+                return False, "Invalid run ID."
+            if self._active_run_id == safe_id and self.is_running():
+                return False, f"Cannot delete active running job '{safe_id}'. Stop it first."
+            target = (self.runs_dir / safe_id).resolve()
+            runs_root = self.runs_dir.resolve()
+            if not str(target).startswith(str(runs_root)) or not target.is_dir():
+                return False, f"Run '{safe_id}' not found."
+            shutil.rmtree(target, ignore_errors=False)
+            if self._active_run_id == safe_id:
+                self._active_run_id = None
+            return True, f"Deleted training run '{safe_id}'."
+
+    def get_run_pipeline(self, run_id: str) -> dict[str, Any] | None:
+        """Load the saved `pipeline.json` snapshot for a past training run, if available."""
+        with self._lock:
+            safe_id = Path(str(run_id or "")).name
+            if not safe_id:
+                return None
+            pfile = (self.runs_dir / safe_id / "pipeline.json").resolve()
+            if not str(pfile).startswith(str(self.runs_dir.resolve())) or not pfile.is_file():
+                return None
+            try:
+                return json.loads(pfile.read_text(encoding="utf-8"))
+            except Exception:
+                return None
 
     def cleanup_dataset_copy(self, path: Path) -> None:
         if path.exists():

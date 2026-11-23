@@ -193,6 +193,26 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, "training": self.engine.get_training_status(run_id)})
                 return
 
+            if route == "/api/train/run-pipeline":
+                run_id = query.get("run_id", [""])[0]
+                pipe = self.engine.get_training_run_pipeline(run_id)
+                if pipe is None:
+                    self._send_json({"ok": False, "message": "Saved pipeline not found for run"}, HTTPStatus.NOT_FOUND)
+                    return
+                self._send_json({"ok": True, "pipeline": pipe})
+                return
+
+            if route == "/api/train/eval-image":
+                run_id = Path(query.get("run_id", [""])[0]).name
+                name = Path(query.get("name", [""])[0]).name
+                target = (self.engine.training_manager.runs_dir / run_id / "eval_vis" / name).resolve()
+                runs_root = self.engine.training_manager.runs_dir.resolve()
+                if not run_id or not name or not str(target).startswith(str(runs_root)) or not target.is_file():
+                    self._send_json({"ok": False, "message": "Eval image not found"}, HTTPStatus.NOT_FOUND)
+                    return
+                self._send_bytes(target.read_bytes(), "image/png", cache_control="no-cache")
+                return
+
             self._send_json({"ok": False, "message": f"Unknown route: {route}"}, HTTPStatus.NOT_FOUND)
 
         except Exception as err:
@@ -426,6 +446,31 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(res)
                 return
 
+            if route == "/api/baker/predict-state/prepare":
+                self._send_json(engine.prepare_baker_predict_state())
+                return
+
+            if route == "/api/baker/predict-state/run":
+                res = engine.run_baker_predict_state(
+                    model_name=str(payload.get("model_name") or ""),
+                    text_prompt=str(payload.get("text_prompt") or ""),
+                )
+                self._send_json(res)
+                return
+
+            if route == "/api/baker/predict-state/commit":
+                ok, msg = engine.commit_baker_predict_state(
+                    include_predictions=bool(payload.get("include_predictions", True)),
+                    kept_indices=payload.get("kept_indices"),
+                )
+                self._send_json({"ok": ok, "message": msg, "state": engine.get_state_dict()})
+                return
+
+            if route == "/api/baker/predict-state/discard":
+                ok, msg = engine.discard_baker_predict_state()
+                self._send_json({"ok": ok, "message": msg})
+                return
+
             if route == "/api/train/pipeline":
                 if payload.get("reset"):
                     ok, msg = engine.reset_train_pipeline()
@@ -458,13 +503,28 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
                 return
 
             if route == "/api/train/start":
-                ok, msg, run_id = engine.start_training(payload.get("pipeline"))
+                ok, msg, run_id = engine.start_training(
+                    payload.get("pipeline"),
+                    run_name=payload.get("run_name"),
+                )
                 self._send_json(
                     {
                         "ok": ok,
                         "message": msg,
                         "run_id": run_id,
                         "training": engine.get_training_status(run_id),
+                    }
+                )
+                return
+
+            if route == "/api/train/delete-run":
+                run_id = str(payload.get("run_id") or "")
+                ok, msg = engine.delete_training_run(run_id)
+                self._send_json(
+                    {
+                        "ok": ok,
+                        "message": msg,
+                        "training": engine.get_training_status(),
                     }
                 )
                 return
@@ -485,6 +545,17 @@ class ImageBakerRequestHandler(BaseHTTPRequestHandler):
             if route == "/api/train/preview-node":
                 node_id = str(payload.get("node_id") or "")
                 res = engine.preview_pipeline_node(payload.get("pipeline"), node_id)
+                self._send_json(res)
+                return
+
+            if route == "/api/train/eval-visualize":
+                res = engine.run_eval_visualization(
+                    run_id=payload.get("run_id"),
+                    split=str(payload.get("split") or "val"),
+                    max_samples=int(payload.get("max_samples", 6)),
+                    conf_threshold=float(payload.get("conf_threshold", 0.35)),
+                    draw_ground_truth=bool(payload.get("draw_ground_truth", True)),
+                )
                 self._send_json(res)
                 return
 

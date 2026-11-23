@@ -13,12 +13,18 @@
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![PyPI version](https://img.shields.io/pypi/v/imagebaker.svg)](https://pypi.org/project/imagebaker/)
 
+
+<details>
+<summary>Preview: Baked Image Animation (click to expand)</summary>
+
 <p align="center">
     <img src="https://github.com/q-viper/image-baker/blob/main/assets/demo.gif?raw=true" alt="Centered Demo" />
 </p>
 
-
 *An example of baked images. (Each object is a layer and an annotation will also be extracted for all layers.)*
+
+</details>
+
 
 Let's bake an image.
 
@@ -155,7 +161,8 @@ extract_baked_dataset(
 
 ## Features
 - **Cross-Platform Annotation Studio**: Run either via the standalone Web interface (`imagebaker web`) or native desktop UI (`imagebaker gui`), featuring Label Studio-style controls, auto-fading mode HUD with top-left reveal icon, label-colored mouse mode cursors, configurable keyboard shortcuts (`⌨️ Keys`), and draggable sidebar splitters.
-- **Visual Model Training Tab (`Train`)**: Build multi-source training pipelines (`Layerify` real + `Baker` synthetic) on a ReactFlow-style node graph with label & annotation-type filtering, chainable augmentations, live hover simulation previews, `finetune` / `full` / `few_shot` regimes, custom backend `--trainers-file` scripts, live metrics, and one-click **Load in Layerify**.
+- **Visual Model Training Tab (`Train`)**: Build multi-source training pipelines (`Layerify` real + `Baker` exact saved states) on a ReactFlow-style node graph with label & annotation-type filtering, chainable augmentations, header-hover simulation previews, `finetune` / `full` / `few_shot` regimes, custom backend `--trainers-file` scripts, live metric charts & auto-trimmed logs, post-training **Eval & Visualize** lightbox previews, and one-click **Load in Layerify**.
+- **Side-by-Side Image Comparison Tab (`Compare`)**: Compare evaluation outputs across training runs, Layerify images, or local uploads with relative synchronized zoom & pan, 1–4 independent panes, draggable swipe curtain, blend, blink, pixel-difference map, and synchronized annotations. *(Adapted from [@Crazz-Zaac](https://github.com/Crazz-Zaac)'s original image comparison tool.)*
 - **AI Model Prediction & Cycling**: Run AI model inferences (RF-DETR detection & instance segmentation, SAM 2, or custom models) with optional text or selected-rectangle prompts (`P`), and cycle loaded models with `M`.
 - **Layerifying**: Crop images based on annotations into reusable compositing layers with single-click or "Layerify All" batch processing.
 - **Multi-Format Annotation Support**: Import and export annotations seamlessly across **COCO**, **YOLO**, and ImageBaker **Default** JSON formats using the `AnnotationFormat` enum.
@@ -194,6 +201,10 @@ extract_baked_dataset(
 * **Escape**: Closes the application.
 
 ## Demo
+
+<details>
+<summary>Click to view Demo Screenshots &amp; Video</summary>
+
 ### Annotation Page
 This is where the loading of the image folder and annotation, connection with the model running in the backend, and layerifying happen.
 
@@ -223,6 +234,8 @@ To see the tool in action, check out the demo video below:
 
 
 Click on the image above to play the video on YouTube.
+
+</details>
 
 
 ## Contributions

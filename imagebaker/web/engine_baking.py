@@ -560,6 +560,181 @@ class WebEngineBakingMixin:
                 "switched_to_layerify": export_to_annotation_tab,
             }
 
+    def count_saved_baker_states(self) -> int:
+        """Return the exact number of saved Baker timeline states across all canvases."""
+        with self.lock:
+            return sum(
+                len(c.states)
+                for c in getattr(self, "canvases", [])
+                if c.layers and c.states
+            )
+
+    def bake_saved_states_in_memory(
+        self,
+        max_states: int | None = None,
+    ) -> list[BakingResult]:
+        """Render ONLY saved Baker timeline states in memory using the exact Baker compositor.
+
+        Unlike synthetic random generation, every returned `BakingResult` matches the exact
+        composited image and z-order occluded annotations saved by the user in the Baker tab.
+        """
+        with self.lock:
+            results: list[BakingResult] = []
+            for canvas in getattr(self, "canvases", []):
+                if not canvas.layers or not canvas.states:
+                    continue
+                timeline_total_steps = max(1, len(canvas.states))
+                state_snapshots = {lyr.layer_id: lyr.layer_state.copy() for lyr in canvas.layers}
+                image_snapshots = {lyr.layer_id: lyr.image.copy() for lyr in canvas.layers}
+                try:
+                    for raw_step_key, raw_step_states in sorted(canvas.states.items()):
+                        if max_states is not None and len(results) >= max_states:
+                            return results
+                        timeline_step = int(raw_step_key)
+                        resolved_list: list[LayerState] = []
+                        seen_lids: set[int] = set()
+                        for st in raw_step_states:
+                            lyr = canvas.get_layer(st.layer_id, st.layer_name)
+                            if lyr is not None and lyr.layer_id not in seen_lids:
+                                st_copy = st.copy()
+                                st_copy.layer_id = lyr.layer_id
+                                resolved_list.append(st_copy)
+                                seen_lids.add(lyr.layer_id)
+                        for order_idx, lyr in enumerate(canvas.layers):
+                            if lyr.layer_id not in seen_lids:
+                                fallback_st = lyr.layer_state.copy()
+                                fallback_st.order = order_idx
+                                fallback_st.selected = False
+                                fallback_st = canvas.apply_plugins_to_state(
+                                    lyr, fallback_st, timeline_step, timeline_total_steps
+                                )
+                                resolved_list.append(fallback_st)
+                                seen_lids.add(lyr.layer_id)
+
+                        top_left = QPointF(sys.maxsize, sys.maxsize)
+                        bottom_right = QPointF(-sys.maxsize, -sys.maxsize)
+                        rendered_images: dict[int, QImage] = {}
+
+                        for st in resolved_list:
+                            layer = canvas.get_layer(st.layer_id, st.layer_name)
+                            if layer and st.visible and not layer.image.isNull():
+                                st.layer_id = layer.layer_id
+                                update_edge = (
+                                    layer.edge_width != st.edge_width
+                                    or layer.edge_opacity != st.edge_opacity
+                                )
+                                layer.layer_state = st
+                                if update_edge:
+                                    layer._apply_edge_opacity()
+                                pix = canvas.get_layer_render_pixmap(
+                                    layer, timeline_step, timeline_total_steps
+                                )
+                                qimg = pix.toImage().convertToFormat(QImage.Format_RGBA8888)
+                                rendered_images[layer.layer_id] = qimg
+                                tf = self._layer_scene_transform(
+                                    layer.position,
+                                    qimg.width(),
+                                    qimg.height(),
+                                    layer.scale_x,
+                                    layer.scale_y,
+                                    layer.rotation,
+                                )
+                                t_rect = tf.mapRect(QRectF(QPointF(0, 0), qimg.size()))
+                                top_left.setX(min(top_left.x(), t_rect.left()))
+                                top_left.setY(min(top_left.y(), t_rect.top()))
+                                bottom_right.setX(max(bottom_right.x(), t_rect.right()))
+                                bottom_right.setY(max(bottom_right.y(), t_rect.bottom()))
+
+                        width = int(math.ceil(bottom_right.x() - top_left.x()))
+                        height = int(math.ceil(bottom_right.y() - top_left.y()))
+                        if width <= 0 or height <= 0:
+                            continue
+
+                        out_image = QImage(width, height, QImage.Format_ARGB32)
+                        out_image.fill(Qt.transparent)
+                        new_annotations: list[Annotation] = []
+                        painter = QPainter(out_image)
+                        painter.setRenderHints(
+                            QPainter.Antialiasing | QPainter.SmoothPixmapTransform
+                        )
+                        layer_entries: list[dict[str, Any]] = []
+                        try:
+                            for st in resolved_list:
+                                layer = canvas.get_layer(st.layer_id, st.layer_name)
+                                if not layer or not st.visible or layer.image.isNull():
+                                    continue
+                                img = rendered_images.get(layer.layer_id)
+                                if img is None:
+                                    continue
+                                tf = self._layer_scene_transform(
+                                    layer.position,
+                                    img.width(),
+                                    img.height(),
+                                    layer.scale_x,
+                                    layer.scale_y,
+                                    layer.rotation,
+                                    origin_offset=top_left,
+                                )
+                                painter.save()
+                                painter.setTransform(tf)
+                                painter.setOpacity(layer.opacity / 255.0)
+                                painter.drawImage(0, 0, img)
+                                painter.restore()
+
+                                layer_mask = QImage(width, height, QImage.Format_ARGB32)
+                                layer_mask.fill(Qt.transparent)
+                                mp = QPainter(layer_mask)
+                                mp.setTransform(tf)
+                                mp.drawImage(0, 0, img)
+                                mp.end()
+                                layer_alpha = qpixmap_to_numpy(layer_mask)[:, :, 3]
+                                layer_entries.append(
+                                    {
+                                        "layer": layer,
+                                        "st": st,
+                                        "alpha": layer_alpha,
+                                        "tf": tf,
+                                    }
+                                )
+                        finally:
+                            painter.end()
+
+                        # Apply exact z-order occlusion across layers
+                        occluder_union = np.zeros((height, width), dtype=np.uint8)
+                        for entry in reversed(layer_entries):
+                            layer = entry["layer"]
+                            st = entry["st"]
+                            layer_alpha = entry["alpha"]
+                            if st.allow_annotation_export and layer.annotations:
+                                visible_alpha = np.where(occluder_union > 0, 0, layer_alpha).astype(np.uint8)
+                                if np.any(visible_alpha):
+                                    ann = layer.annotations[0].copy()
+                                    ann.caption = st.caption
+                                    ann.color = self._label_color(ann.label)
+                                    new_ann = self._generate_annotation_from_mask(ann, visible_alpha)
+                                    new_ann.annotation_id = len(new_annotations)
+                                    new_annotations.append(new_ann)
+                            occluder_union = np.maximum(
+                                occluder_union, (layer_alpha > 0).astype(np.uint8)
+                            )
+
+                        results.append(
+                            BakingResult(
+                                image=out_image,
+                                filename=Path(f"baker_c{canvas.canvas_id}_state_{timeline_step}.png"),
+                                annotations=new_annotations,
+                                masks=[],
+                                mask_names=[],
+                            )
+                        )
+                finally:
+                    for lyr in canvas.layers:
+                        if lyr.layer_id in state_snapshots:
+                            lyr.layer_state = state_snapshots[lyr.layer_id]
+                        if lyr.layer_id in image_snapshots:
+                            lyr.image = image_snapshots[lyr.layer_id]
+            return results
+
     @staticmethod
     def _generate_annotation_from_mask(ann: Annotation, alpha_channel: np.ndarray) -> Annotation:
         new_ann = Annotation(
@@ -654,3 +829,279 @@ class WebEngineBakingMixin:
             caption=caption or (base_ann.caption if base_ann is not None else ""),
         )
         return brush_ann
+
+    # -------------------------------------------------------------------------
+    # Interactive Baker Predict-State Popup Workflow
+    # -------------------------------------------------------------------------
+    def _bake_current_state_qimage(self) -> tuple[QImage | None, str]:
+        """Render the current Baker canvas state in memory without mutating Layerify."""
+        canvas = self.current_canvas
+        if canvas is None or not canvas.layers:
+            return None, "No layers on the current canvas to bake."
+
+        timeline_total = max(1, len(canvas.states)) if canvas.states else 1
+        step_key = int(canvas.current_step) if canvas.states else 0
+        step_states = canvas.build_states_for_step(step=step_key, total_steps=timeline_total)
+
+        top_left = QPointF(sys.maxsize, sys.maxsize)
+        bottom_right = QPointF(-sys.maxsize, -sys.maxsize)
+        rendered: list[tuple[WebLayerItem, LayerState, QImage]] = []
+
+        for st in step_states:
+            layer = canvas.get_layer(st.layer_id, st.layer_name)
+            if not layer or not st.visible or layer.image.isNull():
+                continue
+            pix = canvas.get_layer_render_pixmap(layer, step_key, timeline_total)
+            qimg = pix.toImage().convertToFormat(QImage.Format_RGBA8888)
+            tf = self._layer_scene_transform(
+                st.position, qimg.width(), qimg.height(), st.scale_x, st.scale_y, st.rotation
+            )
+            t_rect = tf.mapRect(QRectF(QPointF(0, 0), qimg.size()))
+            top_left.setX(min(top_left.x(), t_rect.left()))
+            top_left.setY(min(top_left.y(), t_rect.top()))
+            bottom_right.setX(max(bottom_right.x(), t_rect.right()))
+            bottom_right.setY(max(bottom_right.y(), t_rect.bottom()))
+            rendered.append((layer, st, qimg))
+
+        width = int(math.ceil(bottom_right.x() - top_left.x()))
+        height = int(math.ceil(bottom_right.y() - top_left.y()))
+        if width <= 0 or height <= 0:
+            return None, "Current canvas has no visible content."
+
+        out_img = QImage(width, height, QImage.Format_ARGB32)
+        out_img.fill(Qt.transparent)
+        painter = QPainter(out_img)
+        painter.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
+        try:
+            for _layer, st, qimg in rendered:
+                tf = self._layer_scene_transform(
+                    st.position, qimg.width(), qimg.height(), st.scale_x, st.scale_y, st.rotation, top_left
+                )
+                painter.save()
+                painter.setTransform(tf, combine=False)
+                painter.setOpacity(max(0.0, min(1.0, st.opacity / 255.0)))
+                painter.drawImage(QPoint(0, 0), qimg)
+                painter.restore()
+        finally:
+            painter.end()
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return out_img, f"baker_predict_{ts}.png"
+
+    @staticmethod
+    def _qimage_to_b64_png(qimg: QImage) -> str:
+        import base64
+
+        from PySide6.QtCore import QBuffer, QIODevice
+
+        buf = QBuffer()
+        buf.open(QIODevice.WriteOnly)
+        qimg.save(buf, "PNG")
+        return "data:image/png;base64," + base64.b64encode(bytes(buf.data())).decode("ascii")
+
+    def prepare_baker_predict_state(self) -> dict[str, Any]:
+        """Bake current Baker state into memory and return preview + loaded models list."""
+        with self.lock:
+            qimg, name_or_err = self._bake_current_state_qimage()
+            if qimg is None:
+                return {"ok": False, "message": name_or_err}
+            self._pending_baker_predict = {
+                "qimage": qimg,
+                "name": name_or_err,
+                "annotations": [],
+                "model_name": self.current_model_name,
+            }
+            return {
+                "ok": True,
+                "image_b64": self._qimage_to_b64_png(qimg),
+                "width": qimg.width(),
+                "height": qimg.height(),
+                "name": name_or_err,
+                "models": [str(k) for k in self.loaded_models.keys()],
+                "current_model": self.current_model_name,
+            }
+
+    def run_baker_predict_state(self, model_name: str, text_prompt: str = "") -> dict[str, Any]:
+        """Run a selected loaded model on the pending baked state image and return overlaid preview."""
+        import base64
+
+        with self.lock:
+            pending = getattr(self, "_pending_baker_predict", None)
+            if not pending or pending.get("qimage") is None:
+                prep = self.prepare_baker_predict_state()
+                if not prep.get("ok"):
+                    return prep
+                pending = self._pending_baker_predict
+
+            target_model_name = str(model_name or self.current_model_name or "").strip()
+            model = self.loaded_models.get(target_model_name)
+            if model is None:
+                return {
+                    "ok": False,
+                    "message": f"Model '{target_model_name or 'None'}' is not loaded. Pass --models-file to load models.",
+                }
+
+            qimg: QImage = pending["qimage"]
+            rgba = qpixmap_to_numpy(qimg)
+            rgb = rgba[:, :, :3].copy()
+            h, w = rgb.shape[:2]
+
+            try:
+                if text_prompt:
+                    preds = model.predict(rgb, prompt=text_prompt)
+                else:
+                    preds = model.predict(rgb)
+            except TypeError:
+                preds = model.predict(rgb)
+            preds = preds or []
+
+            bgr_vis = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+            annotations: list[Annotation] = []
+            pred_summaries: list[dict[str, Any]] = []
+
+            for idx, p in enumerate(preds):
+                lbl = str(getattr(p, "class_name", None) or self.current_label or "Predicted")
+                score = float(p.score) if getattr(p, "score", None) is not None else None
+                color = self._label_color(lbl)
+                ann = Annotation(
+                    annotation_id=idx,
+                    label=lbl,
+                    color=color,
+                    is_complete=True,
+                    visible=True,
+                    is_model_generated=True,
+                    annotator=target_model_name,
+                    score=score,
+                )
+                bgr_col = (color.blue(), color.green(), color.red())
+                if getattr(p, "polygon", None) is not None and len(p.polygon) >= 3:
+                    pts_np = np.round(np.asarray(p.polygon, dtype=np.float32)).astype(np.int32)
+                    ann.polygon = QPolygonF([QPointF(float(pt[0]), float(pt[1])) for pt in pts_np])
+                    cv2.polylines(bgr_vis, [pts_np], isClosed=True, color=bgr_col, thickness=2)
+                if getattr(p, "rectangle", None) is not None and len(p.rectangle) == 4:
+                    rx, ry, rw, rh = [float(v) for v in p.rectangle]
+                    ann.rectangle = QRectF(rx, ry, rw, rh)
+                    cv2.rectangle(
+                        bgr_vis,
+                        (int(rx), int(ry)),
+                        (int(rx + rw), int(ry + rh)),
+                        bgr_col,
+                        2,
+                    )
+                    tag = f"{lbl} {score:.2f}" if score is not None else lbl
+                    cv2.putText(
+                        bgr_vis,
+                        tag,
+                        (max(2, int(rx)), max(14, int(ry) - 4)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        bgr_col,
+                        1,
+                        cv2.LINE_AA,
+                    )
+                if getattr(p, "mask", None) is not None and np.any(p.mask):
+                    ann.mask = (np.asarray(p.mask) > 0).astype(np.uint8)
+                annotations.append(ann)
+                pred_summaries.append(
+                    {
+                        "index": idx,
+                        "label": lbl,
+                        "score": round(score, 4) if score is not None else None,
+                        "color": [color.red(), color.green(), color.blue()],
+                        "rectangle": (
+                            [
+                                float(ann.rectangle.x()),
+                                float(ann.rectangle.y()),
+                                float(ann.rectangle.width()),
+                                float(ann.rectangle.height()),
+                            ]
+                            if ann.rectangle is not None
+                            else None
+                        ),
+                        "polygon": (
+                            [[float(pt.x()), float(pt.y())] for pt in ann.polygon]
+                            if ann.polygon is not None and len(ann.polygon) >= 3
+                            else []
+                        ),
+                        "has_box": ann.rectangle is not None,
+                        "has_polygon": ann.polygon is not None,
+                    }
+                )
+
+            pending["annotations"] = annotations
+            pending["model_name"] = target_model_name
+
+            ok_enc, png_buf = cv2.imencode(".png", bgr_vis)
+            pred_b64 = (
+                "data:image/png;base64," + base64.b64encode(png_buf.tobytes()).decode("ascii")
+                if ok_enc
+                else self._qimage_to_b64_png(qimg)
+            )
+            return {
+                "ok": True,
+                "pred_image_b64": pred_b64,
+                "count": len(annotations),
+                "predictions": pred_summaries,
+                "width": w,
+                "height": h,
+                "message": f"{target_model_name}: {len(annotations)} prediction(s)",
+            }
+
+    def commit_baker_predict_state(
+        self,
+        include_predictions: bool = True,
+        kept_indices: list[int] | None = None,
+    ) -> tuple[bool, str]:
+        """Save the pending baked state (and kept predictions) into Layerify and switch to Layerify tab."""
+        with self.lock:
+            pending = getattr(self, "_pending_baker_predict", None)
+            if not pending or pending.get("qimage") is None:
+                return False, "No pending Baker prediction state to move."
+
+            qimg: QImage = pending["qimage"]
+            self.layer_config.bake_dir.mkdir(parents=True, exist_ok=True)
+            out_path = (self.layer_config.bake_dir / pending["name"]).resolve()
+            qimg.save(str(out_path), "PNG")
+
+            self.save_current_image_annotations(delete_if_empty=False)
+            anns_to_save: list[Annotation] = []
+            if include_predictions and pending.get("annotations"):
+                kept_set = (
+                    {int(i) for i in kept_indices}
+                    if isinstance(kept_indices, list)
+                    else None
+                )
+                for raw_idx, a in enumerate(pending["annotations"]):
+                    if kept_set is not None and raw_idx not in kept_set:
+                        continue
+                    ac = a.copy()
+                    ac.annotation_id = len(anns_to_save)
+                    ac.file_path = out_path
+                    self.ensure_label_available(ac.label, ac.color)
+                    anns_to_save.append(ac)
+                if anns_to_save:
+                    Annotation.save_as_json(
+                        anns_to_save, str(self._cache_path_for_file(out_path))
+                    )
+
+            entry = WebImageEntry(
+                is_baked_result=True,
+                file_path=out_path,
+                width=qimg.width(),
+                height=qimg.height(),
+            )
+            self.image_entries.append(entry)
+            new_idx = len(self.image_entries) - 1
+            self._select_image_by_index(new_idx, save_previous=False)
+
+            self.active_tab = "Layerify"
+            self._pending_baker_predict = None
+            self.last_message = f"Moved {out_path.name} ({len(self.current_annotations)} ann) to Layerify."
+            return True, self.last_message
+
+    def discard_baker_predict_state(self) -> tuple[bool, str]:
+        """Discard the pending Baker prediction state without touching Layerify."""
+        with self.lock:
+            self._pending_baker_predict = None
+            self.last_message = "Discarded Baker prediction preview."
+            return True, self.last_message

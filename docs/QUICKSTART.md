@@ -15,9 +15,30 @@ cd image-baker
 pip install -e .
 ```
 
-## Three Ways to Use ImageBaker
+## Four Ways to Use ImageBaker
 
-### 1. GUI Mode (Visual Interface)
+### 1. Web Studio Mode (Recommended — Cross-Platform)
+
+Modern browser-based studio for Linux, macOS, and Windows with **Layerify**, **Baker**, **Train**, and **Compare** tabs:
+
+```bash
+# Launch Web Studio
+imagebaker web
+
+# With custom inference models and training backends
+imagebaker web \
+  --models-file examples/loaded_models.py \
+  --trainers-file examples/loaded_trainers.py \
+  --project-dir .
+```
+
+**Highlights:**
+- **Layerify**: Label Studio-style annotation (rectangles, polygons, points, multi-island brush masks), AI prediction (`P`), model cycling (`M`), and one-click layer extraction (`L`).
+- **Baker**: Multi-layer compositing, smooth interpolated timeline states (`Add Steps`), clean 60 FPS single-pass playback, and an interactive **Predict State** popup with hover glow and per-prediction removal.
+- **Train**: Visual node-graph pipeline editor with exact saved Baker states, Layerify counts, optional ROI cropping by label names, live metric charts, auto-trimmed logs, interactive run history, and post-training **Eval & Visualize** lightbox previews.
+- **Compare**: Side-by-side, swipe, blend, blink, and difference-map model comparison with relative synchronized zoom/pan and mirrored annotations (adapted from [@Crazz-Zaac](https://github.com/Crazz-Zaac)'s original tool).
+
+### 2. Desktop GUI Mode (Visual Interface)
 
 Perfect for interactive work and exploration.
 

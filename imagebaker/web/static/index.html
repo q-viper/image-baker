@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="/static/css/panels.css" />
   <link rel="stylesheet" href="/static/css/modals_and_help.css" />
   <link rel="stylesheet" href="/static/css/train.css" />
+  <link rel="stylesheet" href="/static/css/compare.css" />
 </head>
 <body class="theme-dark">
   <div id="app-shell">
@@ -29,6 +30,7 @@
           <button class="tab-btn active" data-tab="Layerify" id="tab-btn-layerify">Layerify</button>
           <button class="tab-btn" data-tab="Baker" id="tab-btn-baker">Baker</button>
           <button class="tab-btn" data-tab="Train" id="tab-btn-train">Train</button>
+          <button class="tab-btn" data-tab="Compare" id="tab-btn-compare">Compare</button>
           <button class="tab-btn" data-tab="Help" id="tab-btn-help">Help</button>
         </div>
       </div>
@@ -425,8 +427,8 @@
               <span class="toolbar-group-tag">Playback</span>
               <button class="btn btn-sm" id="btn-baker-undo" title="Undo layer change (Ctrl+Z).">↶ Undo</button>
               <button class="btn btn-sm" id="btn-baker-redo" title="Redo layer change (Ctrl+Y / Ctrl+Shift+Z).">↷ Redo</button>
-              <label class="inline-spin-label" for="input-bake-steps">Steps:</label>
-              <input type="number" id="input-bake-steps" class="spin-box" min="1" max="100" value="1" title="Number of states to interpolate on Save State or generate on Randomize States." />
+              <label class="inline-spin-label" for="input-bake-steps">Add Steps:</label>
+              <input type="number" id="input-bake-steps" class="spin-box" min="1" max="100" value="1" title="How many transition steps to add on Save State (or states to generate on Randomize States)." />
               <button class="btn btn-sm toggle-btn" id="btn-play-states" title="Play or pause saved timeline states.">Play States</button>
               <div class="timeline-slider-wrap" title="Scrub through saved states.">
                 <input type="range" id="slider-state-timeline" min="0" max="0" value="0" disabled />
@@ -453,8 +455,6 @@
             <!-- Group 3: Composition, Plugins & Tools -->
             <div class="toolbar-group">
               <span class="toolbar-group-tag">Layer Tools</span>
-              <button class="btn btn-sm" id="btn-group-layers-tool" title="Merge 2 selected layers into a single layer (Ctrl+G).">Group</button>
-              <button class="btn btn-sm" id="btn-ungroup-layers-tool" title="Ungroup selected grouped layer back into individual layers.">Ungroup</button>
               <button class="btn btn-sm" id="btn-convert-ann-type" title="Convert selected layer annotation geometry between rectangle and polygon.">Convert Ann Type</button>
 
               <!-- Plugin Options Dropdown -->
@@ -487,12 +487,13 @@
           <aside class="dock-widget dock-left" id="dock-train-palette">
             <div class="dock-title">Pipeline Nodes</div>
             <div class="dock-content list-panel">
-              <button class="btn btn-sm palette-btn" id="btn-add-node-data"><span>🖼️ Layerify Local Source</span><span>+</span></button>
-              <button class="btn btn-sm palette-btn" id="btn-add-node-baker-data"><span>🧁 Baker Synthetic Source</span><span>+</span></button>
+              <button class="btn btn-sm palette-btn" id="btn-add-node-data"><span>🖼️ Layerify Data Source</span><span>+</span></button>
+              <button class="btn btn-sm palette-btn" id="btn-add-node-baker-data"><span>🧁 Baker States Source</span><span>+</span></button>
               <button class="btn btn-sm palette-btn" id="btn-add-node-split"><span>✂️ Split &amp; Filter</span><span>+</span></button>
               <button class="btn btn-sm palette-btn" id="btn-add-node-aug"><span>✨ Augmentation</span><span>+</span></button>
               <button class="btn btn-sm palette-btn" id="btn-add-node-trainer"><span>🧠 Trainer</span><span>+</span></button>
               <button class="btn btn-sm palette-btn" id="btn-add-node-output"><span>🏁 Checkpoint</span><span>+</span></button>
+              <button class="btn btn-sm palette-btn" id="btn-add-node-eval"><span>📊 Eval &amp; Visualize</span><span>+</span></button>
               <div class="dock-title" style="margin: 8px -6px 6px -6px;">Training Runs</div>
               <div id="train-runs-list" class="scroll-list"></div>
             </div>
@@ -533,16 +534,35 @@
             </div>
 
             <div class="train-monitor">
+              <div class="train-run-name-bar">
+                <label for="input-train-run-name">Run Name:</label>
+                <input type="text" id="input-train-run-name" class="text-input flex-1" placeholder="Auto-generated from data source, model &amp; epochs..." />
+                <button type="button" class="btn btn-xs" id="btn-train-run-name-auto" title="Auto-generate run name from current pipeline">↻ Auto</button>
+              </div>
               <div class="train-monitor-top">
                 <strong id="train-status-text">IDLE</strong>
+                <div class="train-monitor-actions">
+                  <label class="train-log-limit-wrap" title="Auto-trim log viewer to keep the latest N lines">
+                    Max lines:
+                    <select id="select-train-log-lines" class="combo-box">
+                      <option value="150">150</option>
+                      <option value="300" selected>300</option>
+                      <option value="500">500</option>
+                      <option value="1000">1000</option>
+                    </select>
+                  </label>
+                  <button class="btn btn-xs" id="btn-train-clear-logs" title="Clear log display (train.log on disk is preserved)">🧹 Clear Logs</button>
+                  <button class="btn btn-xs" id="btn-train-run-eval" title="Run trained checkpoint on val/test images and visualize predictions">📊 Visualize Val/Test</button>
+                </div>
               </div>
               <div class="train-progress-track">
                 <div class="train-progress-fill" id="train-progress-fill"></div>
               </div>
               <div class="train-monitor-grid">
-                <canvas class="train-chart-canvas" id="train-chart-canvas" width="240" height="92"></canvas>
+                <canvas class="train-chart-canvas" id="train-chart-canvas" width="260" height="110"></canvas>
                 <div class="train-log-box" id="train-log-box">Ready. Connect nodes and click Start Training.</div>
               </div>
+              <div id="train-eval-gallery" class="train-eval-gallery hidden"></div>
             </div>
           </div>
 
@@ -557,6 +577,92 @@
               </div>
             </div>
           </aside>
+        </div>
+      </section>
+
+      <!-- ==================== COMPARE VIEW (LUMINA-INSPIRED) ==================== -->
+      <section id="view-compare" class="tab-view">
+        <div class="cmp-shell">
+          <!-- Row 1: Sources, Modes, Sync & Viewport Controls -->
+          <div class="cmp-toolbar">
+            <button class="btn btn-sm toggle-btn active" id="btn-cmp-side" title="Show or hide image list">List</button>
+            <select id="cmp-npanes" class="combo-box" title="Number of panes">
+              <option value="1">1 pane</option>
+              <option value="2" selected>2 panes</option>
+              <option value="3">3 panes</option>
+              <option value="4">4 panes</option>
+            </select>
+            <button class="btn btn-sm toggle-btn" id="btn-cmp-stack" title="Stack panes vertically">Stack</button>
+            <select id="cmp-mode" class="combo-box" title="Compare Mode">
+              <option value="grid">Side by side</option>
+              <option value="swipe">Swipe 1 | 2</option>
+              <option value="blend">Blend 1 + 2</option>
+              <option value="blink">Blink 1 / 2</option>
+              <option value="diff">Difference</option>
+              <option value="map">Difference map</option>
+            </select>
+            <span id="cmp-mix-wrap" class="cmp-mix-wrap hidden">
+              <input type="range" id="cmp-mix" min="0" max="1" step="0.01" value="0.5" />
+              <span id="cmp-mix-lbl">Split 50%</span>
+            </span>
+            <span class="cmp-toolbar-sep"></span>
+            <button class="btn btn-sm toggle-btn active" id="btn-cmp-sync" title="Link relative zoom and pan across panes">Sync: On</button>
+            <select id="cmp-step-mode" class="combo-box" title="How sidebar / arrow navigation updates panes">
+              <option value="match">Match names across panes</option>
+              <option value="one">Active pane only</option>
+              <option value="all">Move all panes</option>
+            </select>
+            <span class="cmp-toolbar-sep"></span>
+            <button class="btn btn-sm" id="btn-cmp-fit" title="Fit (F)">Fit</button>
+            <button class="btn btn-sm" id="btn-cmp-one" title="Actual pixels 1:1 (Z)">1:1</button>
+            <span id="cmp-zoom-readout" class="cmp-zoom-readout">100%</span>
+            <button class="btn btn-sm toggle-btn" id="btn-cmp-cross" title="Synchronized crosshair & RGB pixel delta (H)">Crosshair</button>
+            <button class="btn btn-sm toggle-btn" id="btn-cmp-px" title="Crisp pixels when zoomed in">Pixelated</button>
+            <span class="cmp-toolbar-spacer"></span>
+            <button class="btn btn-sm" id="btn-cmp-upload" title="Add local images to compare">🖼️ Add Images</button>
+            <input type="file" id="input-cmp-upload" multiple accept="image/*" class="hidden" />
+            <button class="btn btn-sm" id="btn-cmp-export-view" title="Export current comparison view as PNG">⬇ Export View</button>
+            <button class="btn btn-sm" id="btn-cmp-refresh" title="Reload training eval runs and Layerify images">↻ Refresh</button>
+          </div>
+
+          <!-- Row 2: Annotation Tools (Lumina-style) -->
+          <div class="cmp-toolbar cmp-tools-bar" id="cmp-tools-bar">
+            <span class="cmp-tools-label">Annotate</span>
+            <button class="btn btn-xs toggle-btn active" data-cmp-tool="pan" title="Pan viewport (V)">Pan</button>
+            <button class="btn btn-xs toggle-btn" data-cmp-tool="rect" title="Draw rectangle box (R)">Box</button>
+            <button class="btn btn-xs toggle-btn" data-cmp-tool="ell" title="Draw ellipse (O)">Ellipse</button>
+            <button class="btn btn-xs toggle-btn" data-cmp-tool="arrow" title="Draw arrow (A)">Arrow</button>
+            <button class="btn btn-xs toggle-btn" data-cmp-tool="pen" title="Freehand draw (D)">Draw</button>
+            <button class="btn btn-xs toggle-btn" data-cmp-tool="text" title="Place text label (T)">Text</button>
+            <button class="btn btn-xs toggle-btn" data-cmp-tool="mark" title="Place numbered marker (M)">Marker</button>
+            <button class="btn btn-xs toggle-btn" data-cmp-tool="erase" title="Click an annotation to erase (E)">Erase</button>
+            <span class="cmp-toolbar-sep"></span>
+            <span id="cmp-swatches" class="cmp-swatches"></span>
+            <label class="cmp-mix-wrap">Width <input type="range" id="cmp-lw" min="1" max="10" value="3" style="width:68px;" /></label>
+            <label class="cmp-check-label" title="Draw annotations at the same relative position on every pane">
+              <input type="checkbox" id="cmp-mirror" checked /> On all panes
+            </label>
+            <span class="cmp-toolbar-sep"></span>
+            <button class="btn btn-xs" id="btn-cmp-undo" title="Undo annotation (Ctrl+Z)">↶ Undo</button>
+            <button class="btn btn-xs" id="btn-cmp-clear-ann" title="Clear annotations on active pane">🗑️ Clear</button>
+            <button class="btn btn-xs btn-primary" id="btn-cmp-save-ann" title="Download active pane with annotations as PNG">💾 Save Annotated</button>
+            <span class="cmp-toolbar-spacer"></span>
+            <span id="cmp-diff-stat" class="cmp-diff-stat"></span>
+          </div>
+
+          <div class="cmp-body">
+            <aside class="cmp-sidebar" id="cmp-sidebar">
+              <div class="cmp-sidebar-head">
+                <select id="cmp-list-source" class="combo-box w-full" title="Filter sidebar by source"></select>
+              </div>
+              <div class="cmp-sidebar-head">
+                <input type="search" id="cmp-search" class="text-input w-full" placeholder="Filter images..." />
+              </div>
+              <div id="cmp-image-list" class="cmp-image-list"></div>
+            </aside>
+            <div id="cmp-panes" class="cmp-panes"></div>
+          </div>
+          <div id="compare-toast" class="canvas-toast hidden"></div>
         </div>
       </section>
 
@@ -859,6 +965,44 @@
       </div>
     </div>
 
+    <!-- Baker Predict State Interactive Modal -->
+    <div id="modal-baker-predict-state" class="modal-dialog modal-dialog-lg hidden">
+      <div class="modal-header">
+        <h3>🔮 Predict Current Baker State</h3>
+        <button class="modal-close" id="btn-baker-predict-close" data-close-modal>&times;</button>
+      </div>
+      <div class="modal-body baker-predict-body">
+        <div class="baker-predict-preview-pane">
+          <div class="baker-predict-stage" id="baker-predict-stage">
+            <img id="baker-predict-preview-img" class="baker-predict-img" alt="Baked state preview" />
+            <canvas id="baker-predict-overlay-canvas" class="baker-predict-overlay"></canvas>
+          </div>
+          <div id="baker-predict-preview-meta" class="item-subtitle"></div>
+        </div>
+        <div class="baker-predict-controls-pane">
+          <div class="field-group">
+            <label for="select-baker-predict-model">Loaded Model:</label>
+            <select id="select-baker-predict-model" class="combo-box w-full"></select>
+          </div>
+          <div class="field-group">
+            <label for="input-baker-predict-prompt">Prompt (optional):</label>
+            <input type="text" id="input-baker-predict-prompt" class="text-input w-full" placeholder="Optional text prompt..." />
+          </div>
+          <button type="button" class="btn btn-primary w-full" id="btn-baker-modal-run-predict">🔮 Predict</button>
+          <div class="field-group" style="flex:1; min-height:0; display:flex; flex-direction:column;">
+            <label>Predictions (<span id="baker-predict-count">0</span>):</label>
+            <div id="baker-predict-results-list" class="scroll-list baker-predict-results-list">
+              <div class="item-subtitle">Select a model and click Predict.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn" id="btn-baker-modal-discard">🗑️ Remove / Ignore</button>
+        <button type="button" class="btn btn-primary" id="btn-baker-modal-commit">➡️ Move to Annotation Page</button>
+      </div>
+    </div>
+
     <!-- Configure Shortcuts Modal -->
     <div id="modal-configure-shortcuts" class="modal-dialog modal-dialog-lg hidden">
       <div class="modal-header">
@@ -875,6 +1019,27 @@
         <button class="btn" id="btn-reset-shortcuts">↺ Reset Defaults</button>
         <button class="btn" data-close-modal>Cancel</button>
         <button class="btn btn-primary" id="btn-save-shortcuts">Save Shortcuts</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Eval & Visualize Popup Lightbox (closes on backdrop click or Esc) -->
+  <div id="eval-lightbox-modal" class="eval-lightbox hidden" role="dialog" aria-modal="true">
+    <div class="eval-lightbox-card">
+      <div class="eval-lightbox-head">
+        <div class="eval-lightbox-title-wrap">
+          <strong id="eval-lightbox-title">Evaluation Preview</strong>
+          <span id="eval-lightbox-meta" class="flow-node-badge"></span>
+        </div>
+        <div class="eval-lightbox-actions">
+          <button type="button" class="btn btn-xs" id="btn-eval-lightbox-prev" title="Previous (←)">◀</button>
+          <button type="button" class="btn btn-xs" id="btn-eval-lightbox-next" title="Next (→)">▶</button>
+          <button type="button" class="btn btn-xs btn-primary" id="btn-eval-lightbox-compare" title="Open in Compare tab">⚖️ Compare</button>
+          <button type="button" class="btn btn-xs" id="btn-eval-lightbox-close" title="Close (Esc)">✕</button>
+        </div>
+      </div>
+      <div class="eval-lightbox-body">
+        <img id="eval-lightbox-img" class="eval-lightbox-img" alt="Evaluation visualization" />
       </div>
     </div>
   </div>
@@ -898,6 +1063,7 @@
   <script src="/static/js/ui_baker.js"></script>
   <script src="/static/js/train_flow.js"></script>
   <script src="/static/js/ui_train.js"></script>
+  <script src="/static/js/ui_compare.js"></script>
   <script src="/static/js/shortcuts.js"></script>
   <script src="/static/app.js"></script>
 </body>

@@ -26,6 +26,7 @@
     onGraphChange: null,
     onNodeHover: null,
     onNodeLeave: null,
+    dataCounts: { baker_states: 0, layerify_images: 0, layerify_annotated: 0 },
   };
 
   function initFlow(options = {}) {
@@ -42,6 +43,10 @@
 
     bindViewportEvents();
     applyTransform();
+
+    if (window.ResizeObserver && viewportEl) {
+      new ResizeObserver(() => renderEdges()).observe(viewportEl);
+    }
   }
 
   function setPipeline(pipeline) {
@@ -103,12 +108,23 @@
     }
   }
 
+  function setDataCounts(counts) {
+    flowState.dataCounts = {
+      baker_states: Number(counts?.baker_states || 0),
+      layerify_images: Number(counts?.layerify_images || 0),
+      layerify_annotated: Number(counts?.layerify_annotated || 0),
+    };
+    render();
+  }
+
   function autoLayout() {
-    const order = ["data_source", "split_filter", "augmentation", "trainer", "output"];
+    const order = ["data_source", "split_filter", "augmentation", "trainer", "sink"];
     const groups = new Map();
     order.forEach(t => groups.set(t, []));
     flowState.nodes.forEach(n => {
-      const key = groups.has(n.type) ? n.type : "augmentation";
+      const key = (n.type === "output" || n.type === "eval_vis")
+        ? "sink"
+        : (groups.has(n.type) ? n.type : "augmentation");
       groups.get(key).push(n);
     });
     let col = 0;
@@ -158,11 +174,23 @@
 
   function nodeSummaryLines(node) {
     const c = node.config || {};
+    const dc = flowState.dataCounts || { baker_states: 0, layerify_images: 0, layerify_annotated: 0 };
     if (node.type === "data_source") {
-      return [
-        `Source: ${c.source || "hybrid"}`,
-        `Format: ${(c.export_format || "yolo").toUpperCase()}`,
+      const src = c.source || "layerify";
+      let countLine = `Layerify: ${dc.layerify_images} imgs (${dc.layerify_annotated} ann)`;
+      if (src === "baker") {
+        countLine = `Baker States: ${dc.baker_states} available`;
+      } else if (src === "hybrid") {
+        countLine = `Baker: ${dc.baker_states} • Layerify: ${dc.layerify_images}`;
+      }
+      const lines = [
+        countLine,
+        `Format: ${(c.export_format || "coco").toUpperCase()}`,
       ];
+      if (Array.isArray(c.roi_labels) && c.roi_labels.length) {
+        lines.push(`ROI Crop: ${c.roi_labels.join(", ")}`);
+      }
+      return lines;
     }
     if (node.type === "split_filter") {
       return [
@@ -180,6 +208,12 @@
       return [
         `Mode: ${c.training_mode || "finetune"}`,
         `Epochs: ${c.epochs ?? 10} • BS: ${c.batch_size ?? 8}`,
+      ];
+    }
+    if (node.type === "eval_vis") {
+      return [
+        `Split: ${(c.split || "val").toUpperCase()} • Max: ${c.max_samples ?? 6}`,
+        `Conf ≥ ${c.conf_threshold ?? 0.35}${c.draw_ground_truth !== false ? " • +GT" : ""}`,
       ];
     }
     return [c.auto_load_layerify ? "Auto-load in Layerify" : "Save checkpoint"];
@@ -213,25 +247,40 @@
       el.appendChild(header);
       el.appendChild(body);
 
+      function finishConnectionTo(targetNode) {
+        if (!flowState.connectingFrom || flowState.connectingFrom.nodeId === targetNode.id) return;
+        const from = flowState.connectingFrom;
+        let srcId = from.side === "out" ? from.nodeId : targetNode.id;
+        let tgtId = from.side === "out" ? targetNode.id : from.nodeId;
+        const srcNode = flowState.nodes.find(n => n.id === srcId);
+        const tgtNode = flowState.nodes.find(n => n.id === tgtId);
+        if (!srcNode || !tgtNode || tgtNode.type === "data_source" || srcNode.type === "output" || srcNode.type === "eval_vis") {
+          return;
+        }
+        const exists = flowState.edges.some(ed => ed.source === srcId && ed.target === tgtId);
+        if (!exists) {
+          flowState.edges.push({
+            id: `edge_${Date.now().toString(36)}_${Math.floor(Math.random() * 999)}`,
+            source: srcId,
+            target: tgtId,
+          });
+          notifyChange();
+        }
+      }
+
       if (node.type !== "data_source") {
         const portIn = document.createElement("div");
         portIn.className = "flow-port flow-port-in";
-        portIn.title = "Input port";
+        portIn.title = "Input port (drop connection here or drag to an output port)";
+        portIn.addEventListener("pointerdown", e => {
+          e.stopPropagation();
+          flowState.connectingFrom = { nodeId: node.id, side: "in" };
+          flowState.draftMouse = screenToStage(e.clientX, e.clientY);
+          renderEdges();
+        });
         portIn.addEventListener("pointerup", e => {
           e.stopPropagation();
-          if (flowState.connectingFrom && flowState.connectingFrom !== node.id) {
-            const exists = flowState.edges.some(
-              ed => ed.source === flowState.connectingFrom && ed.target === node.id
-            );
-            if (!exists) {
-              flowState.edges.push({
-                id: `edge_${Date.now().toString(36)}_${Math.floor(Math.random() * 999)}`,
-                source: flowState.connectingFrom,
-                target: node.id,
-              });
-              notifyChange();
-            }
-          }
+          finishConnectionTo(node);
           flowState.connectingFrom = null;
           flowState.draftMouse = null;
           renderEdges();
@@ -239,18 +288,35 @@
         el.appendChild(portIn);
       }
 
-      if (node.type !== "output") {
+      if (node.type !== "output" && node.type !== "eval_vis") {
         const portOut = document.createElement("div");
         portOut.className = "flow-port flow-port-out";
-        portOut.title = "Drag to connect to next node";
+        portOut.title = "Output port (drag to connect to next node)";
         portOut.addEventListener("pointerdown", e => {
           e.stopPropagation();
-          flowState.connectingFrom = node.id;
+          flowState.connectingFrom = { nodeId: node.id, side: "out" };
           flowState.draftMouse = screenToStage(e.clientX, e.clientY);
+          renderEdges();
+        });
+        portOut.addEventListener("pointerup", e => {
+          e.stopPropagation();
+          finishConnectionTo(node);
+          flowState.connectingFrom = null;
+          flowState.draftMouse = null;
           renderEdges();
         });
         el.appendChild(portOut);
       }
+
+      // Also allow dropping a wire anywhere on the target node body for effortless connecting
+      el.addEventListener("pointerup", e => {
+        if (!flowState.connectingFrom) return;
+        e.stopPropagation();
+        finishConnectionTo(node);
+        flowState.connectingFrom = null;
+        flowState.draftMouse = null;
+        renderEdges();
+      });
 
       el.addEventListener("pointerdown", e => {
         if (e.target.classList.contains("flow-port")) return;
@@ -267,12 +333,12 @@
         notifySelect();
       });
 
-      el.addEventListener("mouseenter", () => {
+      header.addEventListener("mouseenter", () => {
         if (!flowState.draggingNode && !flowState.connectingFrom && flowState.onNodeHover) {
           flowState.onNodeHover(node);
         }
       });
-      el.addEventListener("mouseleave", () => {
+      header.addEventListener("mouseleave", () => {
         if (flowState.onNodeLeave) {
           flowState.onNodeLeave(node);
         }
@@ -287,8 +353,9 @@
   function getPortPos(nodeId, side) {
     const node = flowState.nodes.find(n => n.id === nodeId);
     if (!node) return null;
-    const w = 205;
-    const h = 84;
+    const nodeEl = nodesEl?.querySelector(`.flow-node[data-node-id="${CSS.escape(String(nodeId))}"]`);
+    const w = nodeEl && nodeEl.offsetWidth > 0 ? nodeEl.offsetWidth : 205;
+    const h = nodeEl && nodeEl.offsetHeight > 0 ? nodeEl.offsetHeight : 84;
     return {
       x: (node.x || 0) + (side === "out" ? w : 0),
       y: (node.y || 0) + h / 2,
@@ -305,12 +372,30 @@
     svgEl.innerHTML = "";
     const ns = "http://www.w3.org/2000/svg";
 
+    // Arrowhead marker so pipeline flow direction is always clear
+    const defs = document.createElementNS(ns, "defs");
+    const marker = document.createElementNS(ns, "marker");
+    marker.setAttribute("id", "flow-arrow");
+    marker.setAttribute("viewBox", "0 0 10 10");
+    marker.setAttribute("refX", "8");
+    marker.setAttribute("refY", "5");
+    marker.setAttribute("markerWidth", "6");
+    marker.setAttribute("markerHeight", "6");
+    marker.setAttribute("orient", "auto");
+    const arrowPath = document.createElementNS(ns, "path");
+    arrowPath.setAttribute("d", "M 0 1.5 L 10 5 L 0 8.5 z");
+    arrowPath.setAttribute("fill", "#60a5fa");
+    marker.appendChild(arrowPath);
+    defs.appendChild(marker);
+    svgEl.appendChild(defs);
+
     flowState.edges.forEach(edge => {
       const p1 = getPortPos(edge.source, "out");
       const p2 = getPortPos(edge.target, "in");
       if (!p1 || !p2) return;
       const path = document.createElementNS(ns, "path");
       path.setAttribute("d", bezierPath(p1, p2));
+      path.setAttribute("marker-end", "url(#flow-arrow)");
       path.setAttribute(
         "class",
         "flow-edge-path" + (edge.id === flowState.selectedEdgeId ? " selected" : "")
@@ -326,10 +411,13 @@
     });
 
     if (flowState.connectingFrom && flowState.draftMouse) {
-      const p1 = getPortPos(flowState.connectingFrom, "out");
+      const p1 = getPortPos(flowState.connectingFrom.nodeId, flowState.connectingFrom.side);
       if (p1) {
         const draft = document.createElementNS(ns, "path");
-        draft.setAttribute("d", bezierPath(p1, flowState.draftMouse));
+        const dStr = flowState.connectingFrom.side === "out"
+          ? bezierPath(p1, flowState.draftMouse)
+          : bezierPath(flowState.draftMouse, p1);
+        draft.setAttribute("d", dStr);
         draft.setAttribute("class", "flow-edge-draft");
         svgEl.appendChild(draft);
       }
@@ -424,9 +512,11 @@
     setPipeline,
     getPipeline,
     getSelectedNode,
+    setDataCounts,
     addNode,
     deleteSelection,
     autoLayout,
     updateSelectedNodeConfig,
+    refreshEdges: renderEdges,
   };
 })(window);

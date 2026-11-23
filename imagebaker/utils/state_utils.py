@@ -20,43 +20,44 @@ def calculate_intermediate_states(
     if not previous_state:
         previous_state = current_state
 
+    # Shortest angular delta so 350 deg -> 10 deg rotates +20 deg instead of -340 deg
+    rot_delta = ((current_state.rotation - previous_state.rotation + 180.0) % 360.0) - 180.0
+
     intermediate_states = []
     for i in range(1, steps + 1):
+        t = i / steps
         # Interpolate attributes between previous_state and current_state
         interpolated_state = LayerState(
             layer_id=current_state.layer_id,
             layer_name=current_state.layer_name,
             opacity=previous_state.opacity
-            + (current_state.opacity - previous_state.opacity) * (i / steps),
+            + (current_state.opacity - previous_state.opacity) * t,
             position=QPointF(
                 previous_state.position.x()
-                + (current_state.position.x() - previous_state.position.x())
-                * (i / steps),
+                + (current_state.position.x() - previous_state.position.x()) * t,
                 previous_state.position.y()
-                + (current_state.position.y() - previous_state.position.y())
-                * (i / steps),
+                + (current_state.position.y() - previous_state.position.y()) * t,
             ),
-            rotation=previous_state.rotation
-            + (current_state.rotation - previous_state.rotation) * (i / steps),
+            rotation=(previous_state.rotation + rot_delta * t) % 360.0,
             scale=previous_state.scale
-            + (current_state.scale - previous_state.scale) * (i / steps),
+            + (current_state.scale - previous_state.scale) * t,
             scale_x=previous_state.scale_x
-            + (current_state.scale_x - previous_state.scale_x) * (i / steps),
+            + (current_state.scale_x - previous_state.scale_x) * t,
             scale_y=previous_state.scale_y
-            + (current_state.scale_y - previous_state.scale_y) * (i / steps),
+            + (current_state.scale_y - previous_state.scale_y) * t,
             transform_origin=QPointF(
                 previous_state.transform_origin.x()
                 + (
                     current_state.transform_origin.x()
                     - previous_state.transform_origin.x()
                 )
-                * (i / steps),
+                * t,
                 previous_state.transform_origin.y()
                 + (
                     current_state.transform_origin.y()
                     - previous_state.transform_origin.y()
                 )
-                * (i / steps),
+                * t,
             ),
             order=current_state.order,
             visible=current_state.visible,
@@ -68,15 +69,13 @@ def calculate_intermediate_states(
             edge_opacity=int(
                 round(
                     previous_state.edge_opacity
-                    + (current_state.edge_opacity - previous_state.edge_opacity)
-                    * (i / steps)
+                    + (current_state.edge_opacity - previous_state.edge_opacity) * t
                 )
             ),
             edge_width=int(
                 round(
                     previous_state.edge_width
-                    + (current_state.edge_width - previous_state.edge_width)
-                    * (i / steps)
+                    + (current_state.edge_width - previous_state.edge_width) * t
                 )
             ),
             caption=current_state.caption or previous_state.caption,

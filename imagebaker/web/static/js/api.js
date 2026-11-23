@@ -183,6 +183,27 @@
       });
     },
 
+    async prepareBakerPredictState() {
+      return await apiPost("/api/baker/predict-state/prepare", {});
+    },
+
+    async runBakerPredictState(modelName, textPrompt = "") {
+      return await apiPost("/api/baker/predict-state/run", {
+        model_name: modelName,
+        text_prompt: textPrompt
+      });
+    },
+
+    async commitBakerPredictState(includePredictions = true, keptIndices = null) {
+      const payload = { include_predictions: includePredictions };
+      if (Array.isArray(keptIndices)) payload.kept_indices = keptIndices;
+      return await apiPost("/api/baker/predict-state/commit", payload);
+    },
+
+    async discardBakerPredictState() {
+      return await apiPost("/api/baker/predict-state/discard", {});
+    },
+
     async updateSettings(settings) {
       return await apiPost("/api/settings", settings);
     },
@@ -207,8 +228,16 @@
       return await apiPost("/api/train/validate", { pipeline });
     },
 
-    async startTraining(pipeline) {
-      return await apiPost("/api/train/start", { pipeline });
+    async startTraining(pipeline, runName = "") {
+      return await apiPost("/api/train/start", { pipeline, run_name: runName });
+    },
+
+    async deleteTrainRun(runId) {
+      return await apiPost("/api/train/delete-run", { run_id: runId });
+    },
+
+    async getTrainRunPipeline(runId) {
+      return await apiGet(`/api/train/run-pipeline?run_id=${encodeURIComponent(runId)}`);
     },
 
     async stopTraining() {
@@ -226,6 +255,10 @@
 
     async previewTrainNode(pipeline, nodeId) {
       return await apiPost("/api/train/preview-node", { pipeline, node_id: nodeId });
+    },
+
+    async runEvalVisualization(payload = {}) {
+      return await apiPost("/api/train/eval-visualize", payload);
     }
   };
 

@@ -169,9 +169,15 @@
     ctx.fillRect(0, 0, cssW, cssH);
 
     const layers = state.baker.layers || [];
+    const isPlaying = Boolean(bkrView.isPlaying);
 
-    // Draw Multi-Depth Dimension-Adaptive Gridlines
-    if (state.show_gridlines) {
+    const coordsPill = document.getElementById("baker-coords-pill");
+    if (coordsPill) {
+      coordsPill.classList.toggle("hidden", isPlaying);
+    }
+
+    // Draw Multi-Depth Dimension-Adaptive Gridlines (hidden during clean playback)
+    if (state.show_gridlines && !isPlaying) {
       const hoverPt = bkrView.isMouseOver
         ? { x: bkrView.sceneMouseX * bkrView.zoom + bkrView.offsetX, y: bkrView.sceneMouseY * bkrView.zoom + bkrView.offsetY }
         : null;
@@ -231,7 +237,7 @@
           ctx.imageSmoothingQuality = "high";
         }
         ctx.drawImage(img, 0, 0);
-      } else {
+      } else if (!isPlaying) {
         ctx.save();
         ctx.strokeStyle = "rgba(79, 140, 255, 0.65)";
         ctx.lineWidth = 2 / Math.max(0.1, bkrView.zoom);
@@ -262,8 +268,8 @@
         });
       }
 
-      // Selection bounding box, 8 scale handles, and rotation handles
-      if (lyr.selected) {
+      // Selection bounding box, 8 scale handles, and rotation handles (hidden during playback)
+      if (lyr.selected && !isPlaying) {
         ctx.globalAlpha = 1.0;
         ctx.save();
         ctx.setLineDash([5 / (bkrView.zoom * sx), 4 / (bkrView.zoom * sx)]);
@@ -735,9 +741,67 @@
     }
   }
 
+  function applyInterpolatedStateFrame(frameA, frameB, alpha) {
+    const layers = state.baker.layers || [];
+    const t = Math.max(0, Math.min(1, alpha));
+    const mapA = new Map();
+    const mapB = new Map();
+    (frameA?.layers || []).forEach(st => {
+      mapA.set(String(st.layer_id), st);
+      if (st.layer_name) mapA.set(`name:${st.layer_name}`, st);
+    });
+    (frameB?.layers || []).forEach(st => {
+      mapB.set(String(st.layer_id), st);
+      if (st.layer_name) mapB.set(`name:${st.layer_name}`, st);
+    });
+
+    layers.forEach(lyr => {
+      const a = mapA.get(String(lyr.layer_id)) || mapA.get(`name:${lyr.layer_name}`);
+      const b = mapB.get(String(lyr.layer_id)) || mapB.get(`name:${lyr.layer_name}`) || a;
+      if (!a && !b) return;
+      const src = a || b;
+      const dst = b || a;
+      const ax = src.position ? src.position[0] : 0;
+      const ay = src.position ? src.position[1] : 0;
+      const bx = dst.position ? dst.position[0] : ax;
+      const by = dst.position ? dst.position[1] : ay;
+      lyr.position = [ax + (bx - ax) * t, ay + (by - ay) * t];
+
+      const aRot = src.rotation ?? 0;
+      const bRot = dst.rotation ?? aRot;
+      const rotDelta = (((bRot - aRot + 180) % 360) + 360) % 360 - 180;
+      lyr.rotation = ((aRot + rotDelta * t) % 360 + 360) % 360;
+
+      const aSx = src.scale_x ?? 1.0;
+      const bSx = dst.scale_x ?? aSx;
+      const aSy = src.scale_y ?? 1.0;
+      const bSy = dst.scale_y ?? aSy;
+      lyr.scale_x = aSx + (bSx - aSx) * t;
+      lyr.scale_y = aSy + (bSy - aSy) * t;
+
+      const aOp = src.opacity ?? 255;
+      const bOp = dst.opacity ?? aOp;
+      lyr.opacity = aOp + (bOp - aOp) * t;
+      lyr.visible = t < 0.5 ? src.visible !== false : dst.visible !== false;
+    });
+  }
+
+  function updateTimelineBadgeUI(stepIndex, total) {
+    const slider = document.getElementById("slider-state-timeline");
+    const badge = document.getElementById("label-state-step");
+    if (slider) {
+      slider.max = String(Math.max(0, total - 1));
+      slider.value = String(Math.max(0, Math.min(total - 1, stepIndex)));
+    }
+    if (badge) {
+      badge.textContent = `${Math.min(total, stepIndex + 1)} / ${total}`;
+    }
+  }
+
   function startPlayingStates() {
     stopPlayingStates();
-    const numStates = state.baker.states ? state.baker.states.length : (state.baker.num_states || 0);
+    const frames = state.baker.state_frames || [];
+    const numStates = frames.length || (state.baker.states ? state.baker.states.length : (state.baker.num_states || 0));
     if (numStates <= 0) {
       showToast("baker", "No saved states to play");
       return;
@@ -754,39 +818,86 @@
       playBtn.classList.add("active");
     }
 
-    const stepIntervalMs = 500;
+    // Smooth 60fps local requestAnimationFrame playback across state_frames
+    if (frames.length > 0) {
+      const curIdx = state.baker.current_step_index ?? state.baker.current_state_step ?? 0;
+      const startIdx = curIdx >= frames.length - 1 ? 0 : Math.max(0, curIdx);
+      const endIdx = frames.length - 1;
 
-    const tick = async () => {
-      if (!bkrView.isPlaying || bkrView.playSessionId !== sessionId) return;
-      const total = state.baker.states ? state.baker.states.length : (state.baker.num_states || 0);
-      if (total <= 0 || state.active_tab !== "Baker") {
-        stopPlayingStates();
+      if (startIdx >= endIdx) {
+        applyInterpolatedStateFrame(frames[endIdx], frames[endIdx], 1);
+        updateTimelineBadgeUI(endIdx, frames.length);
+        drawBakerCanvas();
+        bkrView.playTimerId = setTimeout(() => {
+          if (bkrView.isPlaying && bkrView.playSessionId === sessionId) {
+            stopPlayingStates();
+          }
+        }, 350);
         return;
       }
-      const curStep = state.baker.current_step ?? state.baker.current_state_step ?? 0;
-      const nextStep = (curStep + 1) % total;
-      try {
-        const res = await api.manageStates({ action: "seek", step: nextStep });
+
+      const fps = Math.max(2, Number(state.baker.fps) || 10);
+      const msPerStep = Math.max(40, Math.min(250, Math.round(1000 / fps)));
+      const totalSegments = endIdx - startIdx;
+      const totalDurationMs = totalSegments * msPerStep;
+      const startTime = performance.now();
+
+      applyInterpolatedStateFrame(frames[startIdx], frames[startIdx], 0);
+      updateTimelineBadgeUI(startIdx, frames.length);
+      drawBakerCanvas();
+
+      const stepRaf = now => {
         if (!bkrView.isPlaying || bkrView.playSessionId !== sessionId) return;
-        if (res && res.ok && res.state) {
-          window.ImageBaker.applyServerState(res.state);
+        if (state.active_tab !== "Baker") {
+          stopPlayingStates();
+          return;
         }
-      } catch (_) {
-        stopPlayingStates();
-        return;
-      }
-      if (bkrView.isPlaying && bkrView.playSessionId === sessionId) {
-        bkrView.playTimerId = setTimeout(tick, stepIntervalMs);
-      }
-    };
+        const elapsed = now - startTime;
+        const progress = Math.min(1, elapsed / totalDurationMs);
+        const exactPos = startIdx + progress * totalSegments;
+        const idxA = Math.min(endIdx, Math.floor(exactPos));
+        const idxB = Math.min(endIdx, idxA + 1);
+        const frac = exactPos - idxA;
 
-    bkrView.playTimerId = setTimeout(tick, stepIntervalMs);
+        applyInterpolatedStateFrame(frames[idxA], frames[idxB], frac);
+        updateTimelineBadgeUI(Math.round(exactPos), frames.length);
+        drawBakerCanvas();
+
+        if (progress < 1) {
+          bkrView.playRafId = requestAnimationFrame(stepRaf);
+        } else {
+          // One full pass completed: sync final step on server and pause cleanly
+          state.baker.current_step_index = endIdx;
+          state.baker.current_state_step = endIdx;
+          api.manageStates({ action: "seek", step: frames[endIdx].step }).then(res => {
+            if (bkrView.playSessionId !== sessionId) return;
+            if (res && res.ok && res.state) {
+              window.ImageBaker.applyServerState(res.state);
+            }
+            stopPlayingStates();
+          }).catch(() => {
+            if (bkrView.playSessionId === sessionId) stopPlayingStates();
+          });
+        }
+      };
+
+      bkrView.playRafId = requestAnimationFrame(stepRaf);
+      return;
+    }
+
+    // Fallback when state_frames are unavailable
+    drawBakerCanvas();
+    stopPlayingStates();
   }
 
   function stopPlayingStates() {
     bkrView.isPlaying = false;
     if (state.baker) state.baker.is_playing = false;
     bkrView.playSessionId = (bkrView.playSessionId || 0) + 1;
+    if (bkrView.playRafId) {
+      cancelAnimationFrame(bkrView.playRafId);
+      bkrView.playRafId = null;
+    }
     if (bkrView.playTimerId) {
       clearTimeout(bkrView.playTimerId);
       clearInterval(bkrView.playTimerId);
@@ -797,6 +908,7 @@
       playBtn.textContent = "▶ Play States";
       playBtn.classList.remove("active");
     }
+    drawBakerCanvas();
   }
 
   let lastFittedCanvasId = null;

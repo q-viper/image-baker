@@ -462,7 +462,8 @@
     const saveStateBtn = document.getElementById("btn-save-state");
     if (saveStateBtn) {
       saveStateBtn.addEventListener("click", async () => {
-        const steps = parseInt(document.getElementById("input-bake-steps")?.value || "1", 10);
+        const stepsInput = document.getElementById("input-bake-steps");
+        const steps = parseInt(stepsInput?.value || "1", 10);
         showToast("baker", "Saving state...");
         if (window.ImageBaker.canvasBaker?.syncLayersToServer) {
           await window.ImageBaker.canvasBaker.syncLayersToServer(false, "");
@@ -470,6 +471,7 @@
         const res = await api.manageStates({ action: "save", steps });
         if (res.ok && res.state) {
           window.ImageBaker.applyServerState(res.state);
+          if (stepsInput) stepsInput.value = "1";
           showToast("baker", res.message || "State saved");
         }
       });
@@ -629,22 +631,295 @@
       });
     }
 
-    // Predict State
+    // Predict State -> Interactive Popup Modal (select model, predict, hover glow, delete any prediction, move or discard)
+    const bakerPredState = {
+      width: 0,
+      height: 0,
+      predictions: [],
+      hoveredIdx: null,
+    };
+
+    function drawBakerPredictOverlay() {
+      const imgEl = document.getElementById("baker-predict-preview-img");
+      const cv = document.getElementById("baker-predict-overlay-canvas");
+      if (!imgEl || !cv) return;
+      const rect = imgEl.getBoundingClientRect();
+      const dispW = Math.max(1, Math.round(rect.width));
+      const dispH = Math.max(1, Math.round(rect.height));
+      const dpr = window.devicePixelRatio || 1;
+      if (cv.width !== Math.round(dispW * dpr) || cv.height !== Math.round(dispH * dpr)) {
+        cv.width = Math.round(dispW * dpr);
+        cv.height = Math.round(dispH * dpr);
+      }
+      const ctx = cv.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, dispW, dispH);
+
+      const iw = bakerPredState.width || imgEl.naturalWidth || 1;
+      const ih = bakerPredState.height || imgEl.naturalHeight || 1;
+      const sx = dispW / iw;
+      const sy = dispH / ih;
+
+      bakerPredState.predictions.forEach(p => {
+        const isHover = bakerPredState.hoveredIdx === p.index;
+        const [r, g, b] = p.color || [56, 189, 248];
+        const strokeCol = `rgb(${r}, ${g}, ${b})`;
+        const fillCol = `rgba(${r}, ${g}, ${b}, ${isHover ? 0.28 : 0.08})`;
+
+        ctx.save();
+        if (isHover) {
+          ctx.shadowColor = strokeCol;
+          ctx.shadowBlur = 16;
+        }
+        ctx.strokeStyle = strokeCol;
+        ctx.fillStyle = fillCol;
+        ctx.lineWidth = isHover ? 3.5 : 1.8;
+
+        if (Array.isArray(p.polygon) && p.polygon.length >= 3) {
+          ctx.beginPath();
+          p.polygon.forEach((pt, i) => {
+            const x = pt[0] * sx;
+            const y = pt[1] * sy;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          });
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+        if (Array.isArray(p.rectangle) && p.rectangle.length === 4) {
+          const [rx, ry, rw, rh] = p.rectangle;
+          ctx.fillRect(rx * sx, ry * sy, rw * sx, rh * sy);
+          ctx.strokeRect(rx * sx, ry * sy, rw * sx, rh * sy);
+
+          // Label pill
+          const tag = p.score !== null && p.score !== undefined
+            ? `${p.label} ${Number(p.score).toFixed(2)}`
+            : p.label;
+          ctx.shadowBlur = 0;
+          ctx.font = `${isHover ? "700" : "600"} 11px system-ui, sans-serif`;
+          const tw = ctx.measureText(tag).width;
+          const lx = Math.max(2, rx * sx);
+          const ly = Math.max(16, ry * sy - 3);
+          ctx.fillStyle = strokeCol;
+          ctx.fillRect(lx, ly - 13, tw + 8, 15);
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(tag, lx + 4, ly - 2);
+        }
+        ctx.restore();
+      });
+    }
+
+    function renderBakerPredictList() {
+      const listEl = document.getElementById("baker-predict-results-list");
+      const countEl = document.getElementById("baker-predict-count");
+      if (countEl) countEl.textContent = String(bakerPredState.predictions.length);
+      if (!listEl) return;
+      listEl.innerHTML = "";
+      if (!bakerPredState.predictions.length) {
+        listEl.innerHTML = `<div class="item-subtitle" style="padding:6px;">No predictions. Select a model and click Predict.</div>`;
+        drawBakerPredictOverlay();
+        return;
+      }
+      bakerPredState.predictions.forEach(p => {
+        const [r, g, b] = p.color || [56, 189, 248];
+        const row = document.createElement("div");
+        row.className = "baker-pred-row" + (bakerPredState.hoveredIdx === p.index ? " hovered" : "");
+        row.dataset.predIdx = String(p.index);
+        row.innerHTML = `
+          <div class="baker-pred-row-left">
+            <span class="baker-pred-swatch" style="background:rgb(${r},${g},${b});"></span>
+            <span>${escapeHtml(p.label)}</span>
+          </div>
+          <div class="baker-pred-row-right">
+            <span class="dock-badge">${p.score !== null && p.score !== undefined ? Number(p.score).toFixed(2) : "—"}</span>
+            <button type="button" class="icon-btn-xs" data-remove-pred="${p.index}" title="Remove this prediction">🗑️</button>
+          </div>
+        `;
+        row.addEventListener("mouseenter", () => {
+          bakerPredState.hoveredIdx = p.index;
+          drawBakerPredictOverlay();
+        });
+        row.addEventListener("mouseleave", () => {
+          if (bakerPredState.hoveredIdx === p.index) {
+            bakerPredState.hoveredIdx = null;
+            drawBakerPredictOverlay();
+          }
+        });
+        const delBtn = row.querySelector("[data-remove-pred]");
+        if (delBtn) {
+          delBtn.addEventListener("click", e => {
+            e.stopPropagation();
+            bakerPredState.predictions = bakerPredState.predictions.filter(item => item.index !== p.index);
+            if (bakerPredState.hoveredIdx === p.index) bakerPredState.hoveredIdx = null;
+            renderBakerPredictList();
+          });
+        }
+        listEl.appendChild(row);
+      });
+      drawBakerPredictOverlay();
+    }
+
+    const predOverlayCv = document.getElementById("baker-predict-overlay-canvas");
+    if (predOverlayCv) {
+      predOverlayCv.addEventListener("pointermove", e => {
+        const imgEl = document.getElementById("baker-predict-preview-img");
+        if (!imgEl || !bakerPredState.predictions.length) return;
+        const rect = imgEl.getBoundingClientRect();
+        const iw = bakerPredState.width || imgEl.naturalWidth || 1;
+        const ih = bakerPredState.height || imgEl.naturalHeight || 1;
+        const ix = ((e.clientX - rect.left) / Math.max(1, rect.width)) * iw;
+        const iy = ((e.clientY - rect.top) / Math.max(1, rect.height)) * ih;
+
+        let hitIdx = null;
+        for (let i = bakerPredState.predictions.length - 1; i >= 0; i--) {
+          const p = bakerPredState.predictions[i];
+          if (Array.isArray(p.rectangle) && p.rectangle.length === 4) {
+            const [rx, ry, rw, rh] = p.rectangle;
+            if (ix >= rx && ix <= rx + rw && iy >= ry && iy <= ry + rh) {
+              hitIdx = p.index;
+              break;
+            }
+          }
+        }
+        if (hitIdx !== bakerPredState.hoveredIdx) {
+          bakerPredState.hoveredIdx = hitIdx;
+          document.querySelectorAll(".baker-pred-row").forEach(r => {
+            r.classList.toggle("hovered", Number(r.dataset.predIdx) === hitIdx);
+          });
+          drawBakerPredictOverlay();
+        }
+      });
+      predOverlayCv.addEventListener("pointerleave", () => {
+        if (bakerPredState.hoveredIdx !== null) {
+          bakerPredState.hoveredIdx = null;
+          document.querySelectorAll(".baker-pred-row").forEach(r => r.classList.remove("hovered"));
+          drawBakerPredictOverlay();
+        }
+      });
+    }
+
     const predictStateBtn = document.getElementById("btn-predict-state");
     if (predictStateBtn) {
       predictStateBtn.addEventListener("click", async e => {
         e.currentTarget.blur();
-        showToast("baker", "Baking state & running prediction...");
+        showToast("baker", "Preparing current Baker state...");
         if (window.ImageBaker.canvasBaker?.syncLayersToServer) {
           await window.ImageBaker.canvasBaker.syncLayersToServer(false, "");
         }
-        const res = await api.exportBaker("predict_state");
-        if (res.ok && res.state) {
-          window.ImageBaker.applyServerState(res.state);
-          showToast("baker", "Transferred baked frame to Layerify and ran prediction");
+        try {
+          const res = await api.prepareBakerPredictState();
+          if (!res?.ok) {
+            showToast("baker", res?.message || "Could not prepare Baker state");
+            return;
+          }
+          bakerPredState.width = res.width || 0;
+          bakerPredState.height = res.height || 0;
+          bakerPredState.predictions = [];
+          bakerPredState.hoveredIdx = null;
+
+          const imgEl = document.getElementById("baker-predict-preview-img");
+          const metaEl = document.getElementById("baker-predict-preview-meta");
+          const selEl = document.getElementById("select-baker-predict-model");
+          const promptEl = document.getElementById("input-baker-predict-prompt");
+          if (imgEl) {
+            imgEl.onload = () => drawBakerPredictOverlay();
+            imgEl.src = res.image_b64;
+          }
+          if (metaEl) metaEl.textContent = `${res.name} (${res.width}×${res.height}px)`;
+          if (promptEl) promptEl.value = "";
+          if (selEl) {
+            selEl.innerHTML = "";
+            const models = res.models || [];
+            if (!models.length) {
+              const opt = document.createElement("option");
+              opt.value = "";
+              opt.textContent = "No models loaded (--models-file)";
+              selEl.appendChild(opt);
+            } else {
+              models.forEach(m => {
+                const opt = document.createElement("option");
+                opt.value = m;
+                opt.textContent = m;
+                if (m === res.current_model) opt.selected = true;
+                selEl.appendChild(opt);
+              });
+            }
+          }
+          renderBakerPredictList();
+          openModal("modal-baker-predict-state");
+          setTimeout(drawBakerPredictOverlay, 40);
+        } catch (err) {
+          showToast("baker", "Predict State failed: " + err.message);
         }
       });
     }
+
+    const modalRunPredictBtn = document.getElementById("btn-baker-modal-run-predict");
+    if (modalRunPredictBtn) {
+      modalRunPredictBtn.addEventListener("click", async () => {
+        const modelName = document.getElementById("select-baker-predict-model")?.value || "";
+        const promptText = document.getElementById("input-baker-predict-prompt")?.value || "";
+        if (!modelName) {
+          showToast("baker", "No loaded model selected.");
+          return;
+        }
+        modalRunPredictBtn.disabled = true;
+        modalRunPredictBtn.textContent = "⏳ Predicting...";
+        try {
+          const res = await api.runBakerPredictState(modelName, promptText);
+          if (!res?.ok) {
+            showToast("baker", res?.message || "Prediction failed");
+            return;
+          }
+          bakerPredState.width = res.width || bakerPredState.width;
+          bakerPredState.height = res.height || bakerPredState.height;
+          bakerPredState.predictions = Array.isArray(res.predictions) ? res.predictions : [];
+          bakerPredState.hoveredIdx = null;
+          renderBakerPredictList();
+          showToast("baker", res.message || `Found ${res.count ?? 0} prediction(s)`);
+        } catch (err) {
+          showToast("baker", "Prediction error: " + err.message);
+        } finally {
+          modalRunPredictBtn.disabled = false;
+          modalRunPredictBtn.textContent = "🔮 Predict";
+        }
+      });
+    }
+
+    const modalCommitBtn = document.getElementById("btn-baker-modal-commit");
+    if (modalCommitBtn) {
+      modalCommitBtn.addEventListener("click", async () => {
+        try {
+          const kept = bakerPredState.predictions.map(p => p.index);
+          const res = await api.commitBakerPredictState(true, kept);
+          closeAllModals();
+          if (res?.ok && res.state) {
+            window.ImageBaker.applyServerState(res.state);
+            showToast("layerify", res.message || "Moved predicted state to Layerify");
+          } else {
+            showToast("baker", res?.message || "Move failed");
+          }
+        } catch (err) {
+          showToast("baker", "Move failed: " + err.message);
+        }
+      });
+    }
+
+    const modalDiscardBtn = document.getElementById("btn-baker-modal-discard");
+    const modalCloseBtn = document.getElementById("btn-baker-predict-close");
+    [modalDiscardBtn, modalCloseBtn].forEach(btn => {
+      if (btn) {
+        btn.addEventListener("click", async () => {
+          bakerPredState.predictions = [];
+          bakerPredState.hoveredIdx = null;
+          closeAllModals();
+          try {
+            await api.discardBakerPredictState();
+          } catch (_) {}
+        });
+      }
+    });
 
     // Plugin Options Dropdown
     const pluginBtn = document.getElementById("btn-plugin-options");
