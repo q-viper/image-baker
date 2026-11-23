@@ -1,0 +1,880 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Documentation for the Image Baker project.">
+      
+      
+        <meta name="author" content="Ramkrishna Acharya">
+      
+      
+        <link rel="canonical" href="https://q-viper.github.io/Image-Baker/training/">
+      
+      
+        <link rel="prev" href="../QUICKSTART/">
+      
+      
+        <link rel="next" href="../examples/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/favicon_io/favicon-32x32.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Model Training - Image Baker Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="pink">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#visual-model-training-evaluation-comparison-guide" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Image Baker Documentation" class="md-header__button md-logo" aria-label="Image Baker Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Image Baker Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Model Training
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/q-viper/image-baker" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Image Baker
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../QUICKSTART/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quick Start
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Model Training
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../examples/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Examples
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../api-usage/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  API Usage
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../api-reference/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  API Reference
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Image Baker Documentation" class="md-nav__button md-logo" aria-label="Image Baker Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Image Baker Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/q-viper/image-baker" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Image Baker
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../QUICKSTART/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Training
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Training
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-launching-with-custom-models-trainers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Launching with Custom Models &amp; Trainers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-writing-a-custom-backend-trainer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Writing a Custom Backend Trainer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Writing a Custom Backend Trainer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#built-in-basetrainingconfig-hyperparameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Built-in BaseTrainingConfig Hyperparameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-visual-pipeline-editor-train-tab" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Visual Pipeline Editor (Train Tab)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Visual Pipeline Editor (Train Tab)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#header-hover-simulation-preview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Header-Hover Simulation Preview
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run-naming-live-charts-scrollable-logs-interactive-run-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run Naming, Live Charts, Scrollable Logs &amp; Interactive Run History
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#persistent-training-cache-train_cachejson" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistent Training Cache (train_cache.json)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-model-image-comparison-compare-tab" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Model &amp; Image Comparison (Compare Tab)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-baker-playback-interactive-predict-state-popup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Baker Playback &amp; Interactive Predict State Popup
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api-usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="visual-model-training-evaluation-comparison-guide">Visual Model Training, Evaluation &amp; Comparison Guide<a class="headerlink" href="#visual-model-training-evaluation-comparison-guide" title="Permanent link">&para;</a></h1>
+<p>ImageBaker's Web Studio (<code>imagebaker web</code>) closes the full computer-vision active-learning loop inside one cross-platform interface:</p>
+<blockquote>
+<p><strong>Annotate (<code>Layerify</code>) → Synthesize &amp; Preview (<code>Baker</code>) → Train &amp; Evaluate (<code>Train</code>) → Compare Models (<code>Compare</code>) → Load Checkpoint back into <code>Layerify</code> (<code>M</code> + <code>P</code>)</strong></p>
+</blockquote>
+<hr />
+<h2 id="1-launching-with-custom-models-trainers">1. Launching with Custom Models &amp; Trainers<a class="headerlink" href="#1-launching-with-custom-models-trainers" title="Permanent link">&para;</a></h2>
+<p>Just like <code>--models-file</code> loads <code>LOADED_MODELS</code> for inference, <code>--trainers-file</code> loads your own Python training backends (<code>LOADED_TRAINERS</code>) and optional custom augmentations (<code>LOADED_AUGMENTATIONS</code>):</p>
+<div class="highlight"><pre><span></span><code>imagebaker<span class="w"> </span>web<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--models-file<span class="w"> </span>examples/loaded_models.py<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--trainers-file<span class="w"> </span>examples/loaded_trainers.py<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--project-dir<span class="w"> </span>.
+</code></pre></div>
+<p>If a <code>loaded_trainers.py</code> file exists in <code>--project-dir</code>, ImageBaker loads it automatically even without passing <code>--trainers-file</code>.</p>
+<hr />
+<h2 id="2-writing-a-custom-backend-trainer">2. Writing a Custom Backend Trainer<a class="headerlink" href="#2-writing-a-custom-backend-trainer" title="Permanent link">&para;</a></h2>
+<p>Subclass <code>BaseTrainer</code> and define a Pydantic <code>BaseTrainingConfig</code> for your hyperparameters. The <strong>Node Inspector</strong> in the Web UI automatically generates form controls from your config's JSON schema.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">Field</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">imagebaker.training</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">BaseTrainer</span><span class="p">,</span>
+    <span class="n">BaseTrainingConfig</span><span class="p">,</span>
+    <span class="n">TrainingProgress</span><span class="p">,</span>
+    <span class="n">TrainingRegime</span><span class="p">,</span>
+<span class="p">)</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MyTrainerConfig</span><span class="p">(</span><span class="n">BaseTrainingConfig</span><span class="p">):</span>
+    <span class="n">variant</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="s2">"rfdetr-small"</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">"Model backbone/variant."</span><span class="p">)</span>
+    <span class="n">grad_accum_steps</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">ge</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">le</span><span class="o">=</span><span class="mi">64</span><span class="p">)</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MyCustomTrainer</span><span class="p">(</span><span class="n">BaseTrainer</span><span class="p">):</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">"My-RF-DETR-Trainer"</span>
+    <span class="n">description</span> <span class="o">=</span> <span class="s2">"Trains my custom detector with finetune, full, or few-shot regimes."</span>
+    <span class="n">supported_regimes</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">TrainingRegime</span><span class="o">.</span><span class="n">FINETUNE</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+        <span class="n">TrainingRegime</span><span class="o">.</span><span class="n">FULL</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+        <span class="n">TrainingRegime</span><span class="o">.</span><span class="n">FEW_SHOT</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+    <span class="p">]</span>
+    <span class="n">config_class</span> <span class="o">=</span> <span class="n">MyTrainerConfig</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">train</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dataset_dir</span><span class="p">,</span> <span class="n">work_dir</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">augmentations</span><span class="p">,</span> <span class="n">progress_cb</span><span class="p">,</span> <span class="n">stop_check</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">epoch</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">config</span><span class="o">.</span><span class="n">epochs</span> <span class="o">+</span> <span class="mi">1</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">stop_check</span><span class="p">():</span>
+                <span class="k">break</span>
+            <span class="c1"># ... run your training loop ...</span>
+            <span class="n">progress_cb</span><span class="p">(</span>
+                <span class="n">TrainingProgress</span><span class="p">(</span>
+                    <span class="n">epoch</span><span class="o">=</span><span class="n">epoch</span><span class="p">,</span>
+                    <span class="n">total_epochs</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">epochs</span><span class="p">,</span>
+                    <span class="n">status</span><span class="o">=</span><span class="s2">"running"</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">"Epoch </span><span class="si">{</span><span class="n">epoch</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">epochs</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+                    <span class="n">metrics</span><span class="o">=</span><span class="p">{</span><span class="s2">"loss"</span><span class="p">:</span> <span class="mf">0.42</span><span class="p">,</span> <span class="s2">"map50"</span><span class="p">:</span> <span class="mf">0.81</span><span class="p">},</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="n">ckpt</span> <span class="o">=</span> <span class="n">work_dir</span> <span class="o">/</span> <span class="s2">"best.pth"</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">"last_epoch"</span><span class="p">:</span> <span class="n">config</span><span class="o">.</span><span class="n">epochs</span><span class="p">,</span> <span class="s2">"checkpoint_path"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">ckpt</span><span class="p">),</span> <span class="s2">"metrics"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"map50"</span><span class="p">:</span> <span class="mf">0.81</span><span class="p">}}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">build_inference_model</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">checkpoint_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">):</span>
+        <span class="c1"># Optional: return a BaseModel instance to enable one-click "Load" &amp; post-training Eval &amp; Visualize</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+
+<span class="n">LOADED_TRAINERS</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"My-RF-DETR-Trainer"</span><span class="p">:</span> <span class="n">MyCustomTrainer</span><span class="p">(),</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="built-in-basetrainingconfig-hyperparameters">Built-in <code>BaseTrainingConfig</code> Hyperparameters<a class="headerlink" href="#built-in-basetrainingconfig-hyperparameters" title="Permanent link">&para;</a></h3>
+<p>Every trainer inherits optimization and regularization controls out of the box:
+- <strong>Regime</strong>: <code>training_mode</code> (<code>finetune</code>, <code>full</code>, <code>few_shot</code>, <code>custom</code>) + <code>shots_per_class</code>
+- <strong>Optimizer &amp; Scheduler</strong>: <code>optimizer</code> (<code>adamw</code>, <code>adam</code>, <code>sgd</code>), <code>scheduler</code> (<code>cosine</code>, <code>onecycle</code>, <code>step</code>, <code>none</code>), <code>learning_rate</code>, <code>backbone_lr</code> (differential backbone LR), <code>weight_decay</code>
+- <strong>Staged Training &amp; Regularization</strong>: <code>freeze_backbone</code>, <code>unfreeze_epoch</code>, <code>use_ema</code> (ModelEMA), <code>weighted_loss</code>, <code>mixed_precision</code> (AMP), <code>early_stopping_patience</code>
+- <strong>Checkpointing</strong>: <code>pretrained_weights</code>, <code>resume_from</code>, <code>device</code>, <code>seed</code>, <code>export_format</code> (<code>coco</code>, <code>yolo</code>, <code>default</code>)</p>
+<hr />
+<h2 id="3-visual-pipeline-editor-train-tab">3. Visual Pipeline Editor (Train Tab)<a class="headerlink" href="#3-visual-pipeline-editor-train-tab" title="Permanent link">&para;</a></h2>
+<p>The <strong>Train</strong> tab provides a pan/zoom dot-grid node graph with directional arrows where you wire your training pipeline visually:</p>
+<ol>
+<li><strong>Data Source Nodes (<code>Layerify Data</code> &amp; <code>Baker States</code>)</strong>:</li>
+<li><strong>🖼️ Layerify Data Source</strong>: Uses real annotated images from the Layerify tab and displays exact live counts (<code>&lt;M&gt; imgs (&lt;K&gt; ann)</code>).</li>
+<li><strong>🧁 Baker States Source</strong>: Uses <strong>only your actual saved Baker timeline states</strong> rendered through the exact Baker compositor and z-order occlusion (never synthetic noise), displaying exact live counts (<code>&lt;N&gt; available</code>).</li>
+<li><strong>Optional ROI Cropping by Label Names</strong>: Configure <strong>ROI Crop Labels</strong> (empty by default = full image) and <strong>ROI Crop Padding (px)</strong> on any Data Source node. When set, ImageBaker crops each matching ROI region (rectangle, polygon, or mask) and translates/clips all target annotations into the cropped ROI coordinates before staging the dataset.</li>
+<li><strong>Export Format</strong>: <code>COCO</code> (<code>train/</code>, <code>valid/</code>, <code>test/</code> with 1-based <code>_annotations.coco.json</code>), <code>YOLO</code> (<code>data.yaml</code>), or <code>Default</code> JSON.</li>
+<li><strong>Split &amp; Filter Node</strong>:</li>
+<li>Configure <code>train / val / test</code> ratios, <strong>Keep Validation Real-Only</strong>, <strong>Selected Labels</strong> (multi-select chips), and <strong>Annotation Types</strong> (<code>rectangle</code>, <code>polygon</code>, <code>brush</code>, <code>point</code>).</li>
+<li><strong>Augmentation Nodes</strong>:</li>
+<li>Chain built-in augmentations (<code>HorizontalFlip</code>, <code>VerticalFlip</code>, <code>RandomRotate</code>, <code>ColorJitter</code>, <code>GaussianBlur</code>, <code>Mosaic</code>, <code>RandomCrop</code>) or custom <code>BaseAugmentation</code> classes from <code>LOADED_AUGMENTATIONS</code>.</li>
+<li><strong>Trainer Node</strong>:</li>
+<li>Choose your backend trainer, training regime (<code>FINETUNE</code>, <code>FULL</code>, <code>FEW_SHOT</code>), and tune hyperparameters in the right-hand <strong>Node Inspector</strong>.</li>
+<li><strong>Checkpoint &amp; Layerify Node</strong>:</li>
+<li>Runs execute in an isolated unbuffered subprocess under <code>.imagebaker/runs/&lt;run_name&gt;/</code> with logs teed live to both <code>train.log</code> and the backend console.</li>
+<li><strong>Eval &amp; Visualize Node (<code>📊 Eval &amp; Visualize</code>)</strong>:</li>
+<li>Automatically runs the trained checkpoint on the configured <code>val</code> / <code>test</code> split after training completes, overlaying ground-truth boxes (green) and predicted boxes/polygons/scores (orange/cyan).</li>
+<li>Click any eval thumbnail in the bottom gallery to open the <strong>in-app popup lightbox</strong> (click outside or press <code>Esc</code> to close, <code>←</code> / <code>→</code> to step, or <strong>⚖️ Compare</strong> to jump to the Compare tab).</li>
+<li>You can also trigger evaluation on demand anytime via <strong>📊 Visualize Val/Test</strong>.</li>
+</ol>
+<h3 id="header-hover-simulation-preview">Header-Hover Simulation Preview<a class="headerlink" href="#header-hover-simulation-preview" title="Permanent link">&para;</a></h3>
+<p>Hovering over the <strong>header</strong> of any image-outputting block (<code>Data Source</code>, <code>Augmentation</code>, or <code>Eval &amp; Visualize</code>) opens a live floating preview card showing a real/baked sample with active filters and upstream augmentations applied—or the latest post-training eval visualization.</p>
+<h3 id="run-naming-live-charts-scrollable-logs-interactive-run-history">Run Naming, Live Charts, Scrollable Logs &amp; Interactive Run History<a class="headerlink" href="#run-naming-live-charts-scrollable-logs-interactive-run-history" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Auto-Generated Run Name</strong>: Above the progress bar and charts, the <strong>Run Name</strong> field automatically updates from your selected data source, model/variant, regime, epochs, and labels (e.g., <code>baker_rfdetr-small_finetune_ep5_insect</code>), and can be edited manually or regenerated via <strong>↻ Auto</strong>.</li>
+<li><strong>Live Metric Charts &amp; Auto-Trimmed Logs</strong>: Plots <code>Loss</code> (orange) and <code>mAP50</code> (emerald) in real time during training; the scrollable log viewer preserves your scroll position, supports <strong>Max lines</strong> auto-trimming (<code>150</code>–<code>1000</code>), and includes a <strong>🧹 Clear Logs</strong> button (without deleting <code>train.log</code> on disk).</li>
+<li><strong>Interactive Training Runs Pane</strong>: Click any run card to inspect its metrics, logs, and eval gallery, or use its quick actions:</li>
+<li><strong>📥 Pipeline</strong>: Restore that run's saved <code>pipeline.json</code> back onto the canvas.</li>
+<li><strong>⚖️ Compare</strong>: Open that run's eval outputs in the <strong>Compare</strong> tab.</li>
+<li><strong>🔮 Load</strong>: Hot-load the run's checkpoint into Layerify.</li>
+<li><strong>🗑️</strong>: Delete finished/stopped/failed runs from disk.</li>
+</ul>
+<h3 id="persistent-training-cache-train_cachejson">Persistent Training Cache (<code>train_cache.json</code>)<a class="headerlink" href="#persistent-training-cache-train_cachejson" title="Permanent link">&para;</a></h3>
+<p>Just like Layerify and Baker, the <strong>Train</strong> tab automatically persists its pipeline and loaded checkpoints in <code>.imagebaker/cache/train_cache.json</code>, and also supports <strong>⬇ Export JSON</strong>, <strong>📂 Load JSON</strong>, and <strong>↺ Reset</strong>.</p>
+<hr />
+<h2 id="4-model-image-comparison-compare-tab">4. Model &amp; Image Comparison (<code>Compare</code> Tab)<a class="headerlink" href="#4-model-image-comparison-compare-tab" title="Permanent link">&para;</a></h2>
+<p>Adapted from <a href="https://github.com/Crazz-Zaac">@Crazz-Zaac</a>'s original image comparison tool, the <strong>Compare</strong> tab lets you inspect differences between two or more trained models' predictions, raw Layerify images, or locally uploaded images:</p>
+<ul>
+<li><strong>1–4 Independent Panes</strong>: Pick a different training run, Layerify set, or local upload in each pane, or drag-and-drop images directly onto any pane. Use <strong>Match names across panes</strong> to step through validation images across models simultaneously.</li>
+<li><strong>Relative Synchronized Zoom &amp; Pan</strong>: Zoom (<code>Wheel</code>) and pan (<code>Drag</code> or <code>Ctrl + Drag</code> in any mode, including Swipe) operate in normalized image coordinates so images of different resolutions stay aligned.</li>
+<li><strong>Comparison Modes</strong>: <code>Side by side</code>, <code>Swipe 1 | 2</code> (draggable curtain), <code>Blend 1 + 2</code>, <code>Blink 1 / 2</code>, <code>Difference</code> (amplified), and <code>Difference map</code> (magenta pixel-difference highlight with threshold slider and <code>% pixels differ</code> stat).</li>
+<li><strong>Synchronized Annotations &amp; Pixel Inspector</strong>: Draw <code>Box</code>, <code>Ellipse</code>, <code>Arrow</code>, <code>Freehand</code>, <code>Text</code>, <code>Marker</code>, or <code>Erase</code> with live mirrored preview across all panes (<strong>On all panes</strong>), <code>Ctrl+Z</code> undo, synchronized RGB/ΔRGB <strong>Crosshair</strong>, <strong>Save Annotated (PNG)</strong>, and <strong>Export View (PNG)</strong>.</li>
+</ul>
+<hr />
+<h2 id="5-baker-playback-interactive-predict-state-popup">5. Baker Playback &amp; Interactive <code>Predict State</code> Popup<a class="headerlink" href="#5-baker-playback-interactive-predict-state-popup" title="Permanent link">&para;</a></h2>
+<p>In the <strong>Baker</strong> tab:
+- <strong>Smooth Single-Pass Playback</strong>: Set <strong>Add Steps</strong> (automatically resets to <code>1</code> after saving) to interpolate smooth transforms (including shortest-path rotation) from the last saved state. Clicking <strong>▶ Play States</strong> plays smoothly at 60 FPS with a clean layers-only view (hiding boxes, handles, gridlines, and text overlays) and automatically pauses after one full pass.
+- <strong>Interactive <code>Predict State</code> Popup</strong>: Clicking <strong>Predict State</strong> opens a modal showing the baked current state on the left and a selector for all loaded models on the right. Run <strong>🔮 Predict</strong> to render live interactive predictions with Layerify-style <strong>hover glow</strong>, remove any unwanted prediction with <strong><code>🗑️</code></strong>, and choose <strong>➡️ Move to Annotation Page</strong> (committing only your kept predictions to Layerify) or <strong>🗑️ Remove / Ignore</strong>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["tabs", "search", "navigation.tabs", "navigation.sections", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
